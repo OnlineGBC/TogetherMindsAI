@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Progress — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-7">
+
+        <!-- Header -->
+        <div class="d-flex align-items-center justify-content-between mb-4">
+            <div>
+                <h3 class="fw-bold mb-0">Your Therapy Progress</h3>
+                <small class="text-muted">Tracking your sessions over time</small>
+            </div>
+            <span class="badge bg-primary-green fs-6 px-3 py-2 rounded-pill text-capitalize">
+                {{ therapy_mode }} Mode
+            </span>
+        </div>
+
+        {% if chart_data %}
+
+        <!-- Stats row -->
+        <div class="row g-3 mb-4">
+            <div class="col-4">
+                <div class="stat-card card border-0 shadow-sm rounded-4 text-center p-3">
+                    <div class="fs-2 fw-bold text-primary-green">
+                        {{ chart_data | sum(attribute='count') }}
+                    </div>
+                    <small class="text-muted">Total Sessions</small>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="stat-card card border-0 shadow-sm rounded-4 text-center p-3">
+                    <div class="fs-2 fw-bold text-primary-green">
+                        {{ chart_data | length }}
+                    </div>
+                    <small class="text-muted">Active Weeks</small>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="stat-card card border-0 shadow-sm rounded-4 text-center p-3">
+                    <div class="fs-2 fw-bold text-primary-green">
+                        {{ (chart_data | sum(attribute='count') / chart_data | length) | round(1) }}
+                    </div>
+                    <small class="text-muted">Avg/Week</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chart card -->
+        <div class="card border-0 shadow-sm rounded-4 mb-4">
+            <div class="card-body p-4">
+                <h5 class="fw-semibold mb-3">
+                    <i class="bi bi-bar-chart-fill text-primary-green me-2"></i>
+                    Sessions per Week
+                </h5>
+                <canvas id="progressChart" height="120"></canvas>
+            </div>
+        </div>
+
+        {% else %}
+
+        <!-- Empty state -->
+        <div class="card border-0 shadow-sm rounded-4 mb-4">
+            <div class="card-body p-5 text-center">
+                <i class="bi bi-graph-up display-3 text-primary-green opacity-50"></i>
+                <h5 class="mt-3 fw-semibold">No exercises recorded yet</h5>
+                <p class="text-muted">
+                    Keep chatting to track your progress! Each message you send counts as a session activity.
+                </p>
+            </div>
+        </div>
+
+        {% endif %}
+
+        <!-- Back button -->
+        <div class="d-flex gap-2 flex-wrap">
+            {% if therapy_mode == "solo" %}
+            <a href="/therapy/solo/{{ user_id }}" class="btn btn-primary-green rounded-pill px-4">
+                <i class="bi bi-arrow-left me-1"></i>Back to Solo Therapy
+            </a>
+            {% elif therapy_mode == "couple" %}
+            <a href="/therapy/couple/{{ user_id }}" class="btn btn-primary-green rounded-pill px-4">
+                <i class="bi bi-arrow-left me-1"></i>Back to Couples Therapy
+            </a>
+            {% else %}
+            <a href="/" class="btn btn-primary-green rounded-pill px-4">
+                <i class="bi bi-house-fill me-1"></i>Back to Home
+            </a>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if chart_data %}
+<script>
+    var chartData = {{ chart_data | tojson }};
+    var labels = chartData.map(function(d) { return d.week; });
+    var counts = chartData.map(function(d) { return d.count; });
+
+    var ctx = document.getElementById("progressChart").getContext("2d");
+    new Chart(ctx, {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Sessions",
+                data: counts,
+                backgroundColor: "rgba(76, 175, 80, 0.7)",
+                borderColor: "#4CAF50",
+                borderWidth: 2,
+                borderRadius: 8,
+                borderSkipped: false,
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx) {
+                            return " " + ctx.parsed.y + " session(s)";
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { stepSize: 1 },
+                    grid: { color: "rgba(0,0,0,0.05)" }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            }
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}

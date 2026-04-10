@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Getting Started — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+
+        <div class="text-center mb-4">
+            {% if therapy_mode == "solo" %}
+                <i class="bi bi-person-fill display-3 text-primary-green"></i>
+            {% elif therapy_mode == "couple" %}
+                <i class="bi bi-people-fill display-3 text-primary-green"></i>
+            {% else %}
+                <i class="bi bi-person-lines-fill display-3 text-primary-green"></i>
+            {% endif %}
+            <h2 class="fw-bold mt-3 text-capitalize">
+                Getting Started with {{ therapy_mode }} Therapy
+            </h2>
+            <p class="text-muted">You're moments away from your session.</p>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body p-4">
+                <form method="POST" action="/auth/{{ therapy_mode }}">
+                    <div class="mb-4">
+                        <label for="passphrase" class="form-label fw-semibold">
+                            <i class="bi bi-shield-lock me-1 text-primary-green"></i>
+                            Create an optional passphrase for privacy
+                        </label>
+                        <input
+                            type="password"
+                            id="passphrase"
+                            name="passphrase"
+                            class="form-control form-control-lg rounded-3"
+                            placeholder="Leave blank to skip"
+                            autocomplete="new-password"
+                        />
+                        <div class="form-text">
+                            This is optional. If set, keep it somewhere safe — it cannot be recovered.
+                        </div>
+                    </div>
+
+                    {% if therapy_mode == "couple" %}
+                    <div class="alert alert-info-teal rounded-3 mb-4">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        After you start, share your session URL with your partner so they can join the same room.
+                    </div>
+                    {% elif therapy_mode == "group" %}
+                    <div class="alert alert-info-teal rounded-3 mb-4">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        A unique Session ID will be generated. Share it with your group members to join.
+                    </div>
+                    {% endif %}
+
+                    <!-- Required consent checkboxes -->
+                    <div class="mb-4">
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="ageCheck" name="age_confirmed" required>
+                            <label class="form-check-label small" for="ageCheck">
+                                I am <strong>18 years of age or older</strong>.
+                                <span class="text-muted d-block mt-1">
+                                    If you are under 18 and need support, please speak with a trusted adult
+                                    or call/text <strong>988</strong> (free, confidential, 24/7).
+                                </span>
+                            </label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="aiCheck" name="ai_understood" required>
+                            <label class="form-check-label small" for="aiCheck">
+                                I understand TogetherMindsAI is an <strong>AI tool, not a licensed therapist</strong>,
+                                and is <strong>not a substitute</strong> for professional mental health care.
+                                It cannot diagnose conditions or prescribe treatment.
+                            </label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="dataCheck" name="data_understood" required>
+                            <label class="form-check-label small" for="dataCheck">
+                                I understand my conversations are <strong>stored on this server</strong>.
+                                Do not share information you would not want stored digitally.
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary-green btn-lg w-100 rounded-3">
+                        <i class="bi bi-arrow-right-circle-fill me-2"></i>I agree — Continue
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="/" class="text-muted small">
+                <i class="bi bi-arrow-left me-1"></i>Back to home
+            </a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}TogetherMindsAI{% endblock %}</title>
+
+    <!-- Bootstrap 5 -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    />
+    <!-- Bootstrap Icons -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+        rel="stylesheet"
+    />
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary-teal shadow-sm">
+    <div class="container">
+        <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/">
+            <i class="bi bi-heart-pulse-fill"></i>
+            TogetherMindsAI
+        </a>
+        <button
+            class="navbar-toggler"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#navbarMain"
+        >
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarMain">
+            <ul class="navbar-nav ms-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/"><i class="bi bi-house-fill me-1"></i>Home</a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<!-- Persistent disclaimer bar -->
+<div class="disclaimer-bar py-2 px-3 text-center">
+    <small>
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        <strong>Not a substitute for professional care.</strong>
+        TogetherMindsAI is an AI tool &mdash; not a licensed therapist.
+        In a crisis? <strong>Call or text 988</strong> (Suicide &amp; Crisis Lifeline, US, 24/7)
+        or text <strong>HOME to 741741</strong> (Crisis Text Line).
+    </small>
+</div>
+
+<!-- Main content -->
+<main class="container py-4">
+    {% block content %}{% endblock %}
+</main>
+
+<!-- Footer -->
+<footer class="footer-bar text-center py-3 mt-auto">
+    <small class="text-muted">
+        &copy; 2024 TogetherMindsAI &mdash; AI-powered mental health support
+    </small>
+</footer>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Socket.IO -->
+<script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<!-- Custom JS -->
+<script src="{{ url_for('static', filename='js/therapy.js') }}"></script>
+
+<!-- Wellness check-in modal (triggered after inactivity) -->
+<div class="modal fade" id="wellnessModal" tabindex="-1" aria-labelledby="wellnessModalLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="wellnessModalLabel">
+                    <i class="bi bi-heart-pulse-fill text-primary-green me-2"></i>Checking in with you
+                </h5>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="mb-2">You've been quiet for a while &mdash; how are you doing?</p>
+                <p class="text-muted small mb-0">
+                    If you're struggling right now, real support is available 24/7:
+                    <strong>call or text 988</strong> (Suicide &amp; Crisis Lifeline) or
+                    text <strong>HOME to 741741</strong> (Crisis Text Line).
+                    This AI cannot replace a human &mdash; please reach out to a real person if you need help.
+                </p>
+            </div>
+            <div class="modal-footer border-0 pt-0 gap-2">
+                <a href="https://988lifeline.org" target="_blank" rel="noopener noreferrer"
+                   class="btn btn-outline-danger btn-sm rounded-pill">
+                    <i class="bi bi-telephone-fill me-1"></i>I need support now
+                </a>
+                <button type="button" class="btn btn-primary-green btn-sm rounded-pill" data-bs-dismiss="modal">
+                    I'm okay &mdash; continue
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

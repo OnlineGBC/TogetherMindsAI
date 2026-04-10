@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Couples Therapy — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-7">
+
+        <!-- Header -->
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-people-fill text-primary-green fs-3"></i>
+                <div>
+                    <h4 class="mb-0 fw-bold">Couples Therapy</h4>
+                    <small class="text-muted">Real-time session with your partner</small>
+                </div>
+            </div>
+            <a
+                href="/progress/{{ user_id }}/couple"
+                class="btn btn-outline-green btn-sm rounded-pill"
+            >
+                <i class="bi bi-bar-chart-fill me-1"></i>Progress
+            </a>
+        </div>
+
+        <!-- Share URL card -->
+        <div class="alert alert-share rounded-4 mb-3 d-flex align-items-start gap-2">
+            <i class="bi bi-share-fill text-primary-green fs-5 mt-1"></i>
+            <div class="w-100">
+                <strong>Invite your partner</strong> — share this page URL with them so you both join the same session:
+                <div class="input-group mt-2">
+                    <input
+                        type="text"
+                        id="shareUrl"
+                        class="form-control form-control-sm rounded-start-3 bg-white border-green"
+                        readonly
+                        value=""
+                    />
+                    <button
+                        class="btn btn-outline-green btn-sm rounded-end-3"
+                        onclick="copyUrl()"
+                    >
+                        <i class="bi bi-clipboard"></i> Copy
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confidentiality notice -->
+        <div class="alert alert-warning rounded-4 mb-3 py-2 px-3 d-flex align-items-start gap-2">
+            <i class="bi bi-eye-fill mt-1 flex-shrink-0"></i>
+            <small>
+                <strong>Shared session:</strong> All messages in this room are visible to everyone
+                who joins using this URL. Do not share the link with anyone you do not want in this session.
+                This AI is not a licensed therapist &mdash; seek professional support for serious concerns.
+            </small>
+        </div>
+
+        <!-- Chat window -->
+        <div class="chat-window card border-0 shadow-sm rounded-4 mb-3">
+            <div class="card-body p-3" id="chatBox">
+                <div class="text-center text-muted py-5" id="emptyState">
+                    <i class="bi bi-chat-heart-fill display-4 text-primary-green opacity-50"></i>
+                    <p class="mt-3">Connecting to your session… messages will appear here.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input row -->
+        <div class="input-group shadow-sm rounded-4 overflow-hidden">
+            <input
+                type="text"
+                id="messageInput"
+                class="form-control form-control-lg border-0 ps-3"
+                placeholder="Type a message…"
+                autocomplete="off"
+            />
+            <button
+                class="btn btn-primary-green btn-lg px-4"
+                id="sendBtn"
+            >
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    var USER_ID    = "{{ user_id }}";
+    var SESSION_ID = "{{ user_id }}";   // For couples, session_id = host user_id
+    var MODE       = "couple";
+
+    document.getElementById("shareUrl").value = window.location.href;
+
+    function copyUrl() {
+        var el = document.getElementById("shareUrl");
+        el.select();
+        document.execCommand("copy");
+    }
+
+    // Wire up send button and Enter key
+    document.getElementById("sendBtn").addEventListener("click", function () {
+        var input = document.getElementById("messageInput");
+        var text = input.value.trim();
+        if (text) {
+            sendMessage(SESSION_ID, USER_ID, text, MODE);
+            input.value = "";
+        }
+    });
+
+    document.getElementById("messageInput").addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            document.getElementById("sendBtn").click();
+        }
+    });
+
+    // Join SocketIO room after page loads and start wellness check
+    window.addEventListener("load", function () {
+        joinRoom(SESSION_ID, USER_ID, MODE);
+        startWellnessCheck();
+    });
+</script>
+{% endblock %}
