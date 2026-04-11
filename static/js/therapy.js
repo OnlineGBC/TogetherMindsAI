@@ -91,6 +91,29 @@ function joinRoom(sessionId, userId, mode) {
         }
     });
 
+    socket.on("error", function (data) {
+        var chatBox = document.getElementById("chatBox");
+        if (chatBox) {
+            var notice = document.createElement("div");
+            notice.className = "text-center text-danger small py-2";
+            notice.textContent = data.message || "An error occurred.";
+            chatBox.appendChild(notice);
+            scrollToBottom(chatBox);
+        }
+    });
+
+    socket.on("participant_list", function (data) {
+        _updateParticipantPanel(data.participants || []);
+    });
+
+    socket.on("participant_joined", function (data) {
+        _updateParticipantCount(1);
+    });
+
+    socket.on("participant_left", function (data) {
+        _updateParticipantCount(-1);
+    });
+
     socket.on("disconnect", function () {
         console.log("SocketIO disconnected");
     });
@@ -196,4 +219,31 @@ function escapeHtml(str) {
     var div = document.createElement("div");
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
+}
+
+// ---------------------------------------------------------------------------
+// Participant presence panel helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Update the participant count badge if present on the page.
+ * @param {Array<string>} participants - List of user IDs currently in the room
+ */
+function _updateParticipantPanel(participants) {
+    var badge = document.getElementById("participantCount");
+    if (badge) {
+        badge.textContent = participants.length;
+    }
+}
+
+/**
+ * Adjust participant count badge by a delta (+1 join, -1 leave).
+ * @param {number} delta
+ */
+function _updateParticipantCount(delta) {
+    var badge = document.getElementById("participantCount");
+    if (badge) {
+        var current = parseInt(badge.textContent, 10) || 0;
+        badge.textContent = Math.max(0, current + delta);
+    }
 }

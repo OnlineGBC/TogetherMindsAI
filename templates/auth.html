@@ -21,70 +21,67 @@
 
         <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-4">
-                <form method="POST" action="/auth/{{ therapy_mode }}">
-                    <div class="mb-4">
-                        <label for="passphrase" class="form-label fw-semibold">
-                            <i class="bi bi-shield-lock me-1 text-primary-green"></i>
-                            Create an optional passphrase for privacy
+
+                {% if therapy_mode == "couple" %}
+                <div class="alert alert-info-teal rounded-3 mb-4">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    After you start, share your session URL with your partner so they can join the same room.
+                </div>
+                {% elif therapy_mode == "group" %}
+                <div class="alert alert-info-teal rounded-3 mb-4">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    A unique Session ID will be generated. Share it with your group members to join.
+                </div>
+                {% endif %}
+
+                <!-- Key storage notice -->
+                <div class="alert alert-warning rounded-3 mb-4">
+                    <i class="bi bi-key-fill me-2"></i>
+                    <strong>Your identity is stored in this browser only.</strong>
+                    Clearing browser data will permanently remove your session access — there is no recovery.
+                </div>
+
+                <!-- Required consent checkboxes -->
+                <div class="mb-4">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input consent-check" type="checkbox" id="ageCheck" required>
+                        <label class="form-check-label small" for="ageCheck">
+                            I am <strong>18 years of age or older</strong>.
+                            <span class="text-muted d-block mt-1">
+                                If you are under 18 and need support, please speak with a trusted adult
+                                or call/text <strong>988</strong> (free, confidential, 24/7).
+                            </span>
                         </label>
-                        <input
-                            type="password"
-                            id="passphrase"
-                            name="passphrase"
-                            class="form-control form-control-lg rounded-3"
-                            placeholder="Leave blank to skip"
-                            autocomplete="new-password"
-                        />
-                        <div class="form-text">
-                            This is optional. If set, keep it somewhere safe — it cannot be recovered.
-                        </div>
                     </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input consent-check" type="checkbox" id="aiCheck" required>
+                        <label class="form-check-label small" for="aiCheck">
+                            I understand TogetherMindsAI is an <strong>AI tool, not a licensed therapist</strong>,
+                            and is <strong>not a substitute</strong> for professional mental health care.
+                            It cannot diagnose conditions or prescribe treatment.
+                        </label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input consent-check" type="checkbox" id="dataCheck" required>
+                        <label class="form-check-label small" for="dataCheck">
+                            I understand my conversations are <strong>stored on this server</strong>.
+                            Do not share information you would not want stored digitally.
+                        </label>
+                    </div>
+                </div>
 
-                    {% if therapy_mode == "couple" %}
-                    <div class="alert alert-info-teal rounded-3 mb-4">
-                        <i class="bi bi-info-circle-fill me-2"></i>
-                        After you start, share your session URL with your partner so they can join the same room.
-                    </div>
-                    {% elif therapy_mode == "group" %}
-                    <div class="alert alert-info-teal rounded-3 mb-4">
-                        <i class="bi bi-info-circle-fill me-2"></i>
-                        A unique Session ID will be generated. Share it with your group members to join.
-                    </div>
-                    {% endif %}
-
-                    <!-- Required consent checkboxes -->
-                    <div class="mb-4">
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" type="checkbox" id="ageCheck" name="age_confirmed" required>
-                            <label class="form-check-label small" for="ageCheck">
-                                I am <strong>18 years of age or older</strong>.
-                                <span class="text-muted d-block mt-1">
-                                    If you are under 18 and need support, please speak with a trusted adult
-                                    or call/text <strong>988</strong> (free, confidential, 24/7).
-                                </span>
-                            </label>
-                        </div>
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" type="checkbox" id="aiCheck" name="ai_understood" required>
-                            <label class="form-check-label small" for="aiCheck">
-                                I understand TogetherMindsAI is an <strong>AI tool, not a licensed therapist</strong>,
-                                and is <strong>not a substitute</strong> for professional mental health care.
-                                It cannot diagnose conditions or prescribe treatment.
-                            </label>
-                        </div>
-                        <div class="form-check mb-3">
-                            <input class="form-check-input" type="checkbox" id="dataCheck" name="data_understood" required>
-                            <label class="form-check-label small" for="dataCheck">
-                                I understand my conversations are <strong>stored on this server</strong>.
-                                Do not share information you would not want stored digitally.
-                            </label>
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary-green btn-lg w-100 rounded-3">
+                <button type="button" id="continueBtn" class="btn btn-primary-green btn-lg w-100 rounded-3" disabled>
+                    <span id="btnText">
                         <i class="bi bi-arrow-right-circle-fill me-2"></i>I agree — Continue
-                    </button>
-                </form>
+                    </span>
+                    <span id="btnSpinner" class="d-none">
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        Setting up your identity&hellip;
+                    </span>
+                </button>
+
+                <div id="authError" class="alert alert-danger mt-3 d-none" role="alert"></div>
+
             </div>
         </div>
 
@@ -96,4 +93,46 @@
 
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+<script>
+    var THERAPY_MODE = "{{ therapy_mode }}";
+
+    // Enable button only when all consent boxes are checked
+    var checks = document.querySelectorAll(".consent-check");
+    var btn    = document.getElementById("continueBtn");
+
+    function _updateBtn() {
+        btn.disabled = !Array.from(checks).every(function (c) { return c.checked; });
+    }
+    checks.forEach(function (c) { c.addEventListener("change", _updateBtn); });
+
+    btn.addEventListener("click", function () {
+        document.getElementById("btnText").classList.add("d-none");
+        document.getElementById("btnSpinner").classList.remove("d-none");
+        btn.disabled = true;
+        document.getElementById("authError").classList.add("d-none");
+
+        startAuth(THERAPY_MODE, function (data) {
+            var uid  = data.user_id;
+            var mode = data.therapy_mode;
+            if (mode === "solo") {
+                window.location.href = "/therapy/solo/" + uid;
+            } else if (mode === "couple") {
+                window.location.href = "/therapy/couple/" + uid;
+            } else {
+                window.location.href = "/therapy/group/" + uid + "/" + data.session_id;
+            }
+        }, function (err) {
+            document.getElementById("btnText").classList.remove("d-none");
+            document.getElementById("btnSpinner").classList.add("d-none");
+            btn.disabled = false;
+            var errDiv = document.getElementById("authError");
+            errDiv.textContent = "Could not start session: " + (err.message || "Unknown error");
+            errDiv.classList.remove("d-none");
+        });
+    });
+</script>
 {% endblock %}

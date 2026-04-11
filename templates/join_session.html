@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Rejoin Session — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+
+        <div class="text-center mb-4">
+            <i class="bi bi-door-open-fill display-3 text-primary-green"></i>
+            <h2 class="fw-bold mt-3">Rejoin a Session</h2>
+            <p class="text-muted">Enter the Session ID shared with you to reconnect.</p>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body p-4">
+
+                {% if error %}
+                <div class="alert alert-danger rounded-3 mb-3">
+                    <i class="bi bi-exclamation-circle-fill me-2"></i>{{ error }}
+                </div>
+                {% endif %}
+
+                <form method="POST" action="/session/join">
+                    <div class="mb-4">
+                        <label for="session_id" class="form-label fw-semibold">
+                            <i class="bi bi-hash me-1 text-primary-green"></i>Session ID
+                        </label>
+                        <input
+                            type="text"
+                            id="session_id"
+                            name="session_id"
+                            class="form-control form-control-lg rounded-3"
+                            placeholder="e.g. 1234 or a full session UUID"
+                            required
+                            autofocus
+                            autocomplete="off"
+                        />
+                        <div class="form-text">
+                            For group sessions, this is the 4-digit code shown in the session header.
+                            For couples sessions, it's the full URL or UUID.
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary-green btn-lg w-100 rounded-3">
+                        <i class="bi bi-box-arrow-in-right me-2"></i>Rejoin Session
+                    </button>
+                </form>
+
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="/" class="text-muted small">
+                <i class="bi bi-arrow-left me-1"></i>Back to home
+            </a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

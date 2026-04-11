@@ -11,7 +11,11 @@
                 <i class="bi bi-people-fill text-primary-green fs-3"></i>
                 <div>
                     <h4 class="mb-0 fw-bold">Couples Therapy</h4>
-                    <small class="text-muted">Real-time session with your partner</small>
+                    <small class="text-muted">
+                        Real-time session &mdash;
+                        <i class="bi bi-circle-fill text-success" style="font-size:0.55rem"></i>
+                        <span id="participantCount">0</span> connected
+                    </small>
                 </div>
             </div>
             <a
@@ -95,9 +99,17 @@
     document.getElementById("shareUrl").value = window.location.href;
 
     function copyUrl() {
-        var el = document.getElementById("shareUrl");
-        el.select();
-        document.execCommand("copy");
+        var url = document.getElementById("shareUrl").value;
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(url).catch(function (err) {
+                console.error("Clipboard write failed:", err);
+            });
+        } else {
+            // Fallback for HTTP or older browsers
+            var el = document.getElementById("shareUrl");
+            el.select();
+            document.execCommand("copy");
+        }
     }
 
     // Wire up send button and Enter key

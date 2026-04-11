@@ -1,56 +1,82 @@
 import os
-os.environ["EVENTLET_HUB"] = "poll"
-import eventlet
-eventlet.monkey_patch()
 
+# Eventlet monkey-patching is skipped in test mode (poll hub unavailable on Windows in pytest)
+_TESTING = os.environ.get("TESTING", "false").lower() in ("1", "true")
+if not _TESTING:
+    os.environ["EVENTLET_HUB"] = "poll"
+    import eventlet
+    eventlet.monkey_patch()
+
+import base64
 import random
+import secrets
 import time
 import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
-from flask import Flask, render_template, request, redirect, url_for, session
+from dotenv import load_dotenv
+load_dotenv()
+
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from flask_socketio import SocketIO, join_room, emit
-from werkzeug.security import generate_password_hash
+from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
+from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.primitives.serialization import load_der_public_key
+from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession
 from ai_therapist import process_input
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "togethermindsai-secret-key-2024"
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///togethermindsai.db"
+app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///togethermindsai.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
-socketio = SocketIO(app, async_mode="eventlet", cors_allowed_origins="*")
 
-# In-memory map of session_id → therapy mode (populated on SocketIO join)
-room_mode = {}
+_cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5001").split(",")
+socketio = SocketIO(app, async_mode="eventlet", cors_allowed_origins=_cors_origins)
+
+_RATE_WINDOW   = int(os.environ.get("RATE_WINDOW_SECONDS", "60"))
+_RATE_MAX_MSGS = int(os.environ.get("RATE_MAX_MESSAGES", "20"))
+_MAX_MSG_LEN   = int(os.environ.get("MAX_MESSAGE_LENGTH", "2000"))
+
+# In-memory maps (ephemeral — reset on restart, which is acceptable for these)
+room_mode: dict = {}
+room_participants: dict = defaultdict(set)   # session_id → set of user_ids
+sid_to_user: dict = {}                        # SocketIO SID → user_id
+sid_to_session: dict = {}                     # SocketIO SID → session_id
+
 
 # ---------------------------------------------------------------------------
-# Rate limiting — sliding window, in-memory
+# Rate limiting — SQLite-backed sliding window
 # ---------------------------------------------------------------------------
-_rate_store: dict = defaultdict(list)
-_RATE_WINDOW = 60      # seconds
-_RATE_MAX_MSGS = 20    # max messages per user per window
-
 
 def _check_rate_limit(user_id: str) -> bool:
-    """Return True if the user is within the allowed rate, False if exceeded."""
+    """Return True if within limit, False if exceeded. Persists across restarts."""
     now = time.time()
     cutoff = now - _RATE_WINDOW
-    _rate_store[user_id] = [t for t in _rate_store[user_id] if t > cutoff]
-    if len(_rate_store[user_id]) >= _RATE_MAX_MSGS:
+    RateLimitEntry.query.filter(
+        RateLimitEntry.user_id == user_id,
+        RateLimitEntry.timestamp < cutoff,
+    ).delete(synchronize_session=False)
+    count = RateLimitEntry.query.filter_by(user_id=user_id).count()
+    if count >= _RATE_MAX_MSGS:
+        db.session.commit()
         return False
-    _rate_store[user_id].append(now)
+    db.session.add(RateLimitEntry(user_id=user_id, timestamp=now))
+    db.session.commit()
     return True
 
-with app.app_context():
-    db.create_all()
+
+if not _TESTING:
+    with app.app_context():
+        db.create_all()
 
 
 # ---------------------------------------------------------------------------
-# Routes
+# Routes — pages
 # ---------------------------------------------------------------------------
 
 @app.route("/")
@@ -65,25 +91,32 @@ def auth_get(therapy_mode):
 
 @app.route("/auth/<therapy_mode>", methods=["POST"])
 def auth_post(therapy_mode):
-    passphrase = request.form.get("passphrase", "").strip()
+    """Legacy form-based auth kept as fallback. New users go through /api/auth/register."""
     user_id = str(uuid.uuid4())
-
-    user = User(
-        id=user_id,
-        passphrase_hash=generate_password_hash(passphrase) if passphrase else None,
-        therapy_mode=therapy_mode,
-    )
+    user = User(id=user_id, therapy_mode=therapy_mode)
     db.session.add(user)
-    db.session.commit()
 
+    random_session_id = None
+    if therapy_mode == "couple":
+        db.session.add(TherapySession(
+            id=user_id, mode="couple", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+    elif therapy_mode == "group":
+        random_session_id = str(random.randint(1000, 9999))
+        db.session.add(TherapySession(
+            id=random_session_id, mode="group", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+
+    db.session.commit()
     session["user_id"] = user_id
 
     if therapy_mode == "solo":
         return redirect(url_for("therapy_solo", user_id=user_id))
     elif therapy_mode == "couple":
         return redirect(url_for("therapy_couple", user_id=user_id))
-    else:  # group
-        random_session_id = str(random.randint(1000, 9999))
+    else:
         return redirect(url_for("therapy_group", user_id=user_id, session_id=random_session_id))
 
 
@@ -103,39 +136,34 @@ def therapy_solo_post(user_id):
     text = request.form.get("message", "").strip()
     if not text:
         return redirect(url_for("therapy_solo", user_id=user_id))
-
+    if len(text) > _MAX_MSG_LEN:
+        return redirect(url_for("therapy_solo", user_id=user_id))
     if not _check_rate_limit(user_id):
         return redirect(url_for("therapy_solo", user_id=user_id))
 
+    now = datetime.now(timezone.utc)
+
     user_msg = ChatMessage(
-        session_id=user_id,
-        user_id=user_id,
-        text=text,
-        timestamp=datetime.utcnow(),
+        session_id=user_id, user_id=user_id, text=text, timestamp=now,
     )
     db.session.add(user_msg)
 
     session_message_count = ChatMessage.query.filter_by(session_id=user_id).count()
     ai_text = process_input(text, mode="solo", session_message_count=session_message_count)
+
     ai_msg = ChatMessage(
-        session_id=user_id,
-        user_id="AI",
-        text=ai_text,
-        timestamp=datetime.utcnow(),
+        session_id=user_id, user_id="AI", text=ai_text,
+        timestamp=datetime.now(timezone.utc),
     )
     db.session.add(ai_msg)
 
-    # Record exercise for progress tracking
     exercise = Exercise(
-        user_id=user_id,
-        type="solo_chat",
-        prompt=text,
-        response=ai_text,
-        timestamp=datetime.utcnow(),
+        user_id=user_id, type="solo_chat", mode="solo",
+        prompt=text, response=ai_text, timestamp=now,
     )
     db.session.add(exercise)
-
     db.session.commit()
+
     return redirect(url_for("therapy_solo", user_id=user_id))
 
 
@@ -158,7 +186,6 @@ def progress(user_id, therapy_mode):
         .all()
     )
 
-    # Group by ISO week
     week_counts = {}
     for ex in exercises:
         iso = ex.timestamp.isocalendar()
@@ -176,85 +203,272 @@ def progress(user_id, therapy_mode):
 
 
 # ---------------------------------------------------------------------------
+# Routes — session resumption
+# ---------------------------------------------------------------------------
+
+@app.route("/session/join", methods=["GET"])
+def session_join_get():
+    return render_template("join_session.html")
+
+
+@app.route("/session/join", methods=["POST"])
+def session_join_post():
+    session_id = request.form.get("session_id", "").strip()
+    if not session_id:
+        return render_template("join_session.html", error="Please enter a Session ID.")
+
+    ts = TherapySession.query.get(session_id)
+    if not ts:
+        return render_template("join_session.html", error="Session not found. Check the ID and try again.")
+
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode=ts.mode))
+
+    if ts.mode == "couple":
+        return redirect(url_for("therapy_couple", user_id=user_id))
+    else:
+        return redirect(url_for("therapy_group", user_id=user_id, session_id=session_id))
+
+
+# ---------------------------------------------------------------------------
+# Routes — GDPR data deletion
+# ---------------------------------------------------------------------------
+
+@app.route("/user/<user_id>", methods=["DELETE"])
+def delete_user(user_id):
+    if session.get("user_id") != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
+    Exercise.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    ChatMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    RateLimitEntry.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    User.query.filter_by(id=user_id).delete(synchronize_session=False)
+    db.session.commit()
+
+    session.clear()
+    return jsonify({"deleted": True}), 200
+
+
+# ---------------------------------------------------------------------------
+# Routes — public-key authentication API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_auth_register():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid request"}), 400
+
+    public_key_b64 = (data.get("public_key") or "").strip()
+    therapy_mode   = (data.get("therapy_mode") or "solo").strip()
+
+    if not public_key_b64:
+        return jsonify({"error": "public_key required"}), 400
+    if therapy_mode not in ("solo", "couple", "group"):
+        return jsonify({"error": "Invalid therapy_mode"}), 400
+    try:
+        base64.b64decode(public_key_b64, validate=True)
+    except Exception:
+        return jsonify({"error": "Invalid public_key encoding"}), 400
+
+    user_id = str(uuid.uuid4())
+    user = User(id=user_id, therapy_mode=therapy_mode, public_key=public_key_b64)
+    db.session.add(user)
+
+    response_data = {"user_id": user_id, "therapy_mode": therapy_mode}
+
+    if therapy_mode == "couple":
+        db.session.add(TherapySession(
+            id=user_id, mode="couple", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+    elif therapy_mode == "group":
+        random_session_id = str(random.randint(1000, 9999))
+        db.session.add(TherapySession(
+            id=random_session_id, mode="group", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+        response_data["session_id"] = random_session_id
+
+    db.session.commit()
+    session["user_id"] = user_id
+    return jsonify(response_data), 201
+
+
+@app.route("/api/auth/challenge", methods=["POST"])
+def api_auth_challenge():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid request"}), 400
+
+    user_id = (data.get("user_id") or "").strip()
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if not user.public_key:
+        return jsonify({"error": "No public key registered for this user"}), 400
+
+    nonce = secrets.token_hex(32)
+    user.challenge = nonce
+    user.challenge_expires_at = time.time() + 300   # 5-minute window
+    db.session.commit()
+
+    return jsonify({"challenge": nonce}), 200
+
+
+@app.route("/api/auth/verify", methods=["POST"])
+def api_auth_verify():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid request"}), 400
+
+    user_id       = (data.get("user_id") or "").strip()
+    signature_b64 = (data.get("signature") or "").strip()
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if not user.challenge or not user.challenge_expires_at:
+        return jsonify({"error": "No active challenge"}), 401
+    if time.time() > user.challenge_expires_at:
+        user.challenge = None
+        user.challenge_expires_at = None
+        db.session.commit()
+        return jsonify({"error": "Challenge expired"}), 401
+
+    try:
+        pub_key_bytes = base64.b64decode(user.public_key)
+        public_key    = load_der_public_key(pub_key_bytes)
+        sig_bytes     = base64.b64decode(signature_b64)
+        public_key.verify(sig_bytes, user.challenge.encode("utf-8"), ECDSA(SHA256()))
+    except (InvalidSignature, Exception):
+        return jsonify({"error": "Invalid signature"}), 401
+
+    user.challenge = None
+    user.challenge_expires_at = None
+    db.session.commit()
+
+    session["user_id"] = user_id
+
+    session_id = None
+    if user.therapy_mode == "couple":
+        session_id = user_id
+    elif user.therapy_mode == "group":
+        ts = TherapySession.query.filter_by(created_by=user_id, mode="group").first()
+        if ts:
+            session_id = ts.id
+
+    return jsonify({
+        "ok": True,
+        "user_id": user_id,
+        "therapy_mode": user.therapy_mode,
+        "session_id": session_id,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # SocketIO Events
 # ---------------------------------------------------------------------------
 
 @socketio.on("join")
 def on_join(data):
-    session_id = data.get("session_id")
-    user_id = data.get("user_id")
-    mode = data.get("mode", "solo")
+    try:
+        session_id = data.get("session_id")
+        user_id    = data.get("user_id")
+        mode       = data.get("mode", "solo")
 
-    join_room(session_id)
-    room_mode[session_id] = mode
+        join_room(session_id)
+        room_mode[session_id] = mode
 
-    messages = (
-        ChatMessage.query
-        .filter_by(session_id=session_id)
-        .order_by(ChatMessage.timestamp.asc())
-        .all()
-    )
-    history = [m.to_dict() for m in messages]
-    emit("history", {"messages": history})
+        # Track presence
+        room_participants[session_id].add(user_id)
+        sid_to_user[request.sid]    = user_id
+        sid_to_session[request.sid] = session_id
+
+        messages = (
+            ChatMessage.query
+            .filter_by(session_id=session_id)
+            .order_by(ChatMessage.timestamp.asc())
+            .all()
+        )
+        emit("history", {"messages": [m.to_dict() for m in messages]})
+        emit("participant_list",
+             {"participants": list(room_participants[session_id])},
+             to=session_id)
+        emit("participant_joined", {"user_id": user_id}, to=session_id)
+    except Exception as e:
+        app.logger.error("on_join error: %s", e)
+        emit("error", {"message": "Failed to join session. Please refresh."})
+
+
+@socketio.on("disconnect")
+def on_disconnect():
+    user_id    = sid_to_user.pop(request.sid, None)
+    session_id = sid_to_session.pop(request.sid, None)
+    if user_id and session_id:
+        room_participants[session_id].discard(user_id)
+        emit("participant_left",
+             {"user_id": user_id},
+             to=session_id)
+        emit("participant_list",
+             {"participants": list(room_participants[session_id])},
+             to=session_id)
 
 
 @socketio.on("send_message")
 def on_send_message(data):
-    session_id = data.get("session_id")
-    user_id = data.get("user_id")
-    text = data.get("text", "").strip()
+    try:
+        session_id = data.get("session_id")
+        user_id    = data.get("user_id")
+        text       = data.get("text", "").strip()
 
-    if not text:
-        return
+        if not text:
+            return
+        if len(text) > _MAX_MSG_LEN:
+            emit("error", {"message": "Message too long."})
+            return
+        if not _check_rate_limit(user_id):
+            emit("rate_limited", {"message": "You're sending messages too quickly. Please slow down."})
+            return
 
-    if not _check_rate_limit(user_id):
-        emit("rate_limited", {"message": "You're sending messages too quickly. Please slow down."})
-        return
+        now  = datetime.now(timezone.utc)
+        mode = room_mode.get(session_id, "solo")
 
-    now = datetime.utcnow()
+        user_msg = ChatMessage(
+            session_id=session_id, user_id=user_id, text=text, timestamp=now,
+        )
+        db.session.add(user_msg)
 
-    user_msg = ChatMessage(
-        session_id=session_id,
-        user_id=user_id,
-        text=text,
-        timestamp=now,
-    )
-    db.session.add(user_msg)
+        session_message_count = ChatMessage.query.filter_by(session_id=session_id).count()
+        ai_text = process_input(text, mode=mode, session_message_count=session_message_count)
 
-    mode = room_mode.get(session_id, "solo")
-    session_message_count = ChatMessage.query.filter_by(session_id=session_id).count()
-    ai_text = process_input(text, mode=mode, session_message_count=session_message_count)
-    ai_msg = ChatMessage(
-        session_id=session_id,
-        user_id="AI",
-        text=ai_text,
-        timestamp=datetime.utcnow(),
-    )
-    db.session.add(ai_msg)
+        ai_msg = ChatMessage(
+            session_id=session_id, user_id="AI", text=ai_text,
+            timestamp=datetime.now(timezone.utc),
+        )
+        db.session.add(ai_msg)
 
-    # Record exercise for the real user
-    exercise = Exercise(
-        user_id=user_id,
-        type="realtime_chat",
-        prompt=text,
-        response=ai_text,
-        timestamp=now,
-    )
-    db.session.add(exercise)
+        exercise = Exercise(
+            user_id=user_id, type="realtime_chat", mode=mode,
+            prompt=text, response=ai_text, timestamp=now,
+        )
+        db.session.add(exercise)
+        db.session.commit()
 
-    db.session.commit()
-
-    emit(
-        "new_message",
-        {"user_id": user_id, "text": text, "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
-        to=session_id,
-    )
-    emit(
-        "new_message",
-        {"user_id": "AI", "text": ai_text, "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")},
-        to=session_id,
-    )
+        emit("new_message",
+             {"user_id": user_id, "text": text, "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
+             to=session_id)
+        emit("new_message",
+             {"user_id": "AI", "text": ai_text,
+              "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},
+             to=session_id)
+    except Exception as e:
+        app.logger.error("on_send_message error: %s", e)
+        db.session.rollback()
+        emit("error", {"message": "Failed to send message. Please try again."})
 
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True, use_reloader=False, host="0.0.0.0", port=5001)
+    _debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    socketio.run(app, debug=_debug, use_reloader=False, host="0.0.0.0", port=5001)
