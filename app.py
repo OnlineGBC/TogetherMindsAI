@@ -1,9 +1,8 @@
 import os
 
-# Eventlet monkey-patching is skipped in test mode (poll hub unavailable on Windows in pytest)
+# Eventlet monkey-patching is skipped in test mode
 _TESTING = os.environ.get("TESTING", "false").lower() in ("1", "true")
 if not _TESTING:
-    os.environ["EVENTLET_HUB"] = "poll"
     import eventlet
     eventlet.monkey_patch()
 
