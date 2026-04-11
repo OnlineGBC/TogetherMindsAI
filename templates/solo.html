@@ -22,6 +22,17 @@
             </a>
         </div>
 
+        <!-- Session ID banner -->
+        <div class="alert alert-share rounded-4 mb-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-hash text-primary-green"></i>
+                <small><strong>Session ID:</strong> <span class="font-monospace">{{ user_id }}</span></small>
+            </div>
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ user_id }}')" title="Copy Session ID">
+                <i class="bi bi-clipboard"></i>
+            </button>
+        </div>
+
         <!-- Chat window -->
         <div class="chat-window card border-0 shadow-sm rounded-4 mb-3">
             <div class="card-body p-3" id="chatBox">
@@ -93,6 +104,16 @@
 
 {% block scripts %}
 <script>
+    function copySessionId(id) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(id);
+        } else {
+            var el = document.createElement("textarea");
+            el.value = id; document.body.appendChild(el); el.select();
+            document.execCommand("copy"); document.body.removeChild(el);
+        }
+    }
+
     // Auto-scroll to bottom of chat
     (function () {
         var box = document.getElementById("chatBox");

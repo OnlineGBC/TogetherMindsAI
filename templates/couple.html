@@ -26,6 +26,17 @@
             </a>
         </div>
 
+        <!-- Session ID banner -->
+        <div class="alert alert-share rounded-4 mb-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-hash text-primary-green"></i>
+                <small><strong>Session ID:</strong> <span class="font-monospace">{{ user_id }}</span></small>
+            </div>
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ user_id }}')" title="Copy Session ID">
+                <i class="bi bi-clipboard"></i>
+            </button>
+        </div>
+
         <!-- Share URL card -->
         <div class="alert alert-share rounded-4 mb-3 d-flex align-items-start gap-2">
             <i class="bi bi-share-fill text-primary-green fs-5 mt-1"></i>
@@ -97,6 +108,16 @@
     var MODE       = "couple";
 
     document.getElementById("shareUrl").value = window.location.href;
+
+    function copySessionId(id) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(id);
+        } else {
+            var el = document.createElement("textarea");
+            el.value = id; document.body.appendChild(el); el.select();
+            document.execCommand("copy"); document.body.removeChild(el);
+        }
+    }
 
     function copyUrl() {
         var url = document.getElementById("shareUrl").value;

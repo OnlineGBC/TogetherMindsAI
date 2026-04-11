@@ -6,7 +6,7 @@
     <div class="col-md-8 col-lg-7">
 
         <!-- Header -->
-        <div class="d-flex align-items-center justify-content-between mb-4">
+        <div class="d-flex align-items-center justify-content-between mb-3">
             <div>
                 <h3 class="fw-bold mb-0">Your Therapy Progress</h3>
                 <small class="text-muted">Tracking your sessions over time</small>
@@ -14,6 +14,17 @@
             <span class="badge bg-primary-green fs-6 px-3 py-2 rounded-pill text-capitalize">
                 {{ therapy_mode }} Mode
             </span>
+        </div>
+
+        <!-- Session ID reminder -->
+        <div class="alert alert-share rounded-4 mb-4 py-2 px-3 d-flex align-items-center justify-content-between gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-hash text-primary-green"></i>
+                <small><strong>Session ID:</strong> <span class="font-monospace">{{ user_id }}</span></small>
+            </div>
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ user_id }}')" title="Copy Session ID">
+                <i class="bi bi-clipboard"></i>
+            </button>
         </div>
 
         {% if chart_data %}
@@ -126,6 +137,16 @@
 
 {% block scripts %}
 <script>
+    function copySessionId(id) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(id);
+        } else {
+            var el = document.createElement("textarea");
+            el.value = id; document.body.appendChild(el); el.select();
+            document.execCommand("copy"); document.body.removeChild(el);
+        }
+    }
+
     document.getElementById("confirmDeleteBtn").addEventListener("click", function () {
         fetch("/user/{{ user_id }}", { method: "DELETE" })
             .then(function (res) {

@@ -27,13 +27,18 @@
         </div>
 
         <!-- Session ID banner -->
-        <div class="alert alert-share rounded-4 mb-3 d-flex align-items-center gap-3">
-            <i class="bi bi-broadcast text-primary-green fs-4"></i>
-            <div>
-                <strong>Session ID: <span class="session-id-badge">{{ session_id }}</span></strong>
-                <br />
-                <small class="text-muted">Share this ID with your group so they can join the same session.</small>
+        <div class="alert alert-share rounded-4 mb-3 d-flex align-items-center justify-content-between gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <i class="bi bi-hash text-primary-green fs-4"></i>
+                <div>
+                    <strong>Session ID: <span class="session-id-badge font-monospace">{{ session_id }}</span></strong>
+                    <br />
+                    <small class="text-muted">Share this ID with your group so they can join the same session.</small>
+                </div>
             </div>
+            <button class="btn btn-outline-green btn-sm rounded-pill flex-shrink-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
+                <i class="bi bi-clipboard"></i>
+            </button>
         </div>
 
         <!-- Confidentiality notice -->
@@ -83,6 +88,16 @@
     var USER_ID    = "{{ user_id }}";
     var SESSION_ID = "{{ session_id }}";
     var MODE       = "group";
+
+    function copySessionId(id) {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(id);
+        } else {
+            var el = document.createElement("textarea");
+            el.value = id; document.body.appendChild(el); el.select();
+            document.execCommand("copy"); document.body.removeChild(el);
+        }
+    }
 
     // Wire up send button and Enter key
     document.getElementById("sendBtn").addEventListener("click", function () {
