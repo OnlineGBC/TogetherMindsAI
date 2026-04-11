@@ -1,8 +1,14 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()  # load .env before reading any env vars
 
-# Eventlet monkey-patching is skipped in test mode
-_TESTING = os.environ.get("TESTING", "false").lower() in ("1", "true")
-if not _TESTING:
+# In test mode skip all server setup; in debug mode use threading (supports
+# hot-reload on Windows); in production use eventlet for async performance.
+_TESTING    = os.environ.get("TESTING", "false").lower() in ("1", "true")
+_debug      = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+_async_mode = "threading" if (_debug or _TESTING) else "eventlet"
+
+if _async_mode == "eventlet":
     import eventlet
     eventlet.monkey_patch()
 
@@ -13,9 +19,6 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
-
-from dotenv import load_dotenv
-load_dotenv()
 
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from flask_socketio import SocketIO, join_room, emit
@@ -35,7 +38,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db.init_app(app)
 
 _cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5001").split(",")
-socketio = SocketIO(app, async_mode="eventlet", cors_allowed_origins=_cors_origins)
+socketio = SocketIO(app, async_mode=_async_mode, cors_allowed_origins=_cors_origins)
 
 _RATE_WINDOW   = int(os.environ.get("RATE_WINDOW_SECONDS", "60"))
 _RATE_MAX_MSGS = int(os.environ.get("RATE_MAX_MESSAGES", "20"))
@@ -470,4 +473,4 @@ def on_send_message(data):
 
 if __name__ == "__main__":
     _debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    socketio.run(app, debug=_debug, use_reloader=False, host="0.0.0.0", port=5001)
+    socketio.run(app, debug=_debug, use_reloader=_debug, host="0.0.0.0", port=5001)
