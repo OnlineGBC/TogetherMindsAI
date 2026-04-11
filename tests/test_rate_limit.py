@@ -9,7 +9,7 @@ os.environ["TESTING"] = "1"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-rate-limit")
 os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5001")
 
-from app import app, _check_rate_limit, _RATE_MAX_MSGS, _RATE_WINDOW
+from TogetherMindsAI import app, _check_rate_limit, _RATE_MAX_MSGS, _RATE_WINDOW
 from models import db, RateLimitEntry
 
 

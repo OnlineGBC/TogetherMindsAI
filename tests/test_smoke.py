@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import generate_private_key, E
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from app import app
+from TogetherMindsAI import app
 from models import db, User
 
 

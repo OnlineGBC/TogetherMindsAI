@@ -9,7 +9,7 @@ os.environ["TESTING"] = "1"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-input")
 os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5001")
 
-from app import app, _MAX_MSG_LEN
+from TogetherMindsAI import app, _MAX_MSG_LEN
 from models import db, User
 
 
