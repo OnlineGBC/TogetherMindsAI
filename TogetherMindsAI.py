@@ -1,14 +1,8 @@
 import os
-from dotenv import load_dotenv
-load_dotenv()  # load .env before reading any env vars
+import config  # loads .env and exposes typed constants
 
-# In test mode skip all server setup; in debug mode use threading (supports
-# hot-reload on Windows); in production use eventlet for async performance.
-_TESTING    = os.environ.get("TESTING", "false").lower() in ("1", "true")
-_debug      = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-_async_mode = "threading" if (_debug or _TESTING) else "eventlet"
-
-if _async_mode == "eventlet":
+# eventlet must be monkey-patched before any other imports when used
+if config.ASYNC_MODE == "eventlet":
     import eventlet
     eventlet.monkey_patch()
 
@@ -32,18 +26,18 @@ from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySessi
 from ai_therapist import process_input
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///togethermindsai.db")
+app.config["SECRET_KEY"] = config.SECRET_KEY or os.environ.get("SECRET_KEY", "dev-fallback-key")
+app.config["SQLALCHEMY_DATABASE_URI"] = config.DATABASE_URL
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = config.SQLALCHEMY_ENGINE_OPTIONS
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
 
-_cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5001").split(",")
-socketio = SocketIO(app, async_mode=_async_mode, cors_allowed_origins=_cors_origins)
+socketio = SocketIO(app, async_mode=config.ASYNC_MODE, cors_allowed_origins=config.CORS_ALLOWED_ORIGINS)
 
-_RATE_WINDOW   = int(os.environ.get("RATE_WINDOW_SECONDS", "60"))
-_RATE_MAX_MSGS = int(os.environ.get("RATE_MAX_MESSAGES", "20"))
-_MAX_MSG_LEN   = int(os.environ.get("MAX_MESSAGE_LENGTH", "2000"))
+_RATE_WINDOW   = config.RATE_WINDOW_SECONDS
+_RATE_MAX_MSGS = config.RATE_MAX_MESSAGES
+_MAX_MSG_LEN   = config.MAX_MESSAGE_LENGTH
 
 # In-memory maps (ephemeral — reset on restart, which is acceptable for these)
 room_mode: dict = {}
@@ -73,7 +67,8 @@ def _check_rate_limit(user_id: str) -> bool:
     return True
 
 
-if not _TESTING:
+if not config.IS_TESTING:
+    config.validate_config()
     with app.app_context():
         db.create_all()
 

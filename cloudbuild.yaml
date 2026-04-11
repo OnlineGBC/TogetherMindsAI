@@ -1,0 +1,97 @@
+# cloudbuild.yaml
+# ----------------
+# CI/CD pipeline for TogetherMindsAI on Google Cloud Build.
+#
+# Triggered automatically on every push to the main branch.
+#
+# Steps:
+#   1. Build the Docker image
+#   2. Push to Artifact Registry
+#   3. Deploy to Cloud Run
+#
+# Required substitutions (set in Cloud Build trigger UI):
+#   _REGION             — GCP region, e.g. us-central1
+#   _SERVICE_NAME       — Cloud Run service name, e.g. togethermindsai
+#   _AR_REPO            — Artifact Registry repo, e.g. togethermindsai-repo
+#   _SQL_CONN_NAME      — Cloud SQL connection name (PROJECT:REGION:INSTANCE)
+#   _SA_EMAIL           — Service account email for Cloud Run
+
+substitutions:
+  _REGION: us-central1
+  _SERVICE_NAME: togethermindsai
+  _AR_REPO: togethermindsai-repo
+  _SQL_CONN_NAME: togethermindsai:us-central1:togethermindsai-db
+  _SA_EMAIL: togethermindsai-sa@${PROJECT_ID}.iam.gserviceaccount.com
+
+steps:
+  # ── 1. Build ────────────────────────────────────────────────────────────────
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --tag
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}
+      - --tag
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest
+      - .
+
+  # ── 2. Push ─────────────────────────────────────────────────────────────────
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}
+
+  # ── 3. Deploy to Cloud Run ───────────────────────────────────────────────────
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_NAME}
+      - --image
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}
+      - --region
+      - ${_REGION}
+      - --platform
+      - managed
+      - --service-account
+      - ${_SA_EMAIL}
+      - --add-cloudsql-instances
+      - ${_SQL_CONN_NAME}
+      - --set-secrets
+      - SECRET_KEY=SECRET_KEY:latest
+      - --set-secrets
+      - ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
+      - --set-secrets
+      - DATABASE_URL=DATABASE_URL:latest
+      - --set-secrets
+      - CORS_ALLOWED_ORIGINS=CORS_ALLOWED_ORIGINS:latest
+      - --set-secrets
+      - RATE_WINDOW_SECONDS=RATE_WINDOW_SECONDS:latest
+      - --set-secrets
+      - RATE_MAX_MESSAGES=RATE_MAX_MESSAGES:latest
+      - --set-secrets
+      - MAX_MESSAGE_LENGTH=MAX_MESSAGE_LENGTH:latest
+      - --set-secrets
+      - CLOUD_SQL_CONNECTION_NAME=CLOUD_SQL_CONNECTION_NAME:latest
+      - --min-instances
+      - "0"
+      - --max-instances
+      - "3"
+      - --memory
+      - 512Mi
+      - --cpu
+      - "1"
+      - --timeout
+      - "120"
+      - --allow-unauthenticated
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

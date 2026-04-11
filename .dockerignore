@@ -1,0 +1,41 @@
+# Version control
+.git
+.gitignore
+
+# Local environment — secrets must NOT be baked into the image
+.env
+
+# Local SQLite database
+instance/
+*.db
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+TogetherMindsAI.venv/
+venv/
+.venv/
+env/
+
+# Test artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build artefacts
+dist/
+build/
+*.egg-info/

@@ -15,3 +15,9 @@ transformers>=4.40.0
 # torch CPU-only — install with:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 torch>=2.0.0
+# PostgreSQL driver — used on Cloud Run; harmless to install locally
+psycopg2-binary>=2.9.0
+# Production WSGI server
+gunicorn>=21.0.0
+# Database migrations
+alembic>=1.13.0
