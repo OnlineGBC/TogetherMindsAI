@@ -249,6 +249,35 @@ hr.border-green {
     transform: translateY(-2px);
 }
 
+/* ---- Consent checkboxes ---- */
+.cursor-pointer { cursor: pointer; }
+
+.consent-check {
+    width: 1.35em;
+    height: 1.35em;
+    border: 2px solid #888;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    accent-color: var(--green-primary);
+}
+
+.consent-item {
+    background: #fff;
+    border-color: #ccc !important;
+    color: var(--text-dark);
+    transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
+}
+.consent-item:hover {
+    border-color: var(--green-primary) !important;
+    background: var(--green-pale);
+}
+.consent-item:has(.consent-check:checked) {
+    border-color: var(--green-primary) !important;
+    background: var(--green-pale);
+}
+
 /* ---- Footer ---- */
 .footer-bar {
     border-top: 1px solid #E0E0E0;
