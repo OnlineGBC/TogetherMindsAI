@@ -15,8 +15,13 @@ from models import db, RateLimitEntry
 
 @pytest.fixture
 def test_ctx():
+    from sqlalchemy.pool import StaticPool
     app.config["TESTING"] = True
     app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {"check_same_thread": False},
+        "poolclass": StaticPool,
+    }
     with app.app_context():
         db.create_all()
         yield

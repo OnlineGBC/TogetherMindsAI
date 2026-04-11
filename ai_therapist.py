@@ -1,7 +1,21 @@
+"""
+ai_therapist.py
+---------------
+Two-stage AI pipeline:
+  1. Emotion classifier  — j-hartmann/emotion-english-distilroberta-base (local, CPU)
+  2. Response generator  — Claude Sonnet 4.6 with prompt caching
+
+Crisis detection remains a hard keyword pre-filter that Claude never overrides.
+"""
+
+import logging
+import os
 import random
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
-# Crisis keywords — any match stops normal flow and triggers emergency response
+# Crisis / escalation keywords — rule-based, always evaluated first
 # ---------------------------------------------------------------------------
 
 CRISIS_KEYWORDS = {
@@ -12,7 +26,6 @@ CRISIS_KEYWORDS = {
     "not worth living", "rather be dead", "wish i was dead",
 }
 
-# Triggers a human-therapist referral appended to the normal response
 ESCALATION_KEYWORDS = {
     "therapist", "psychiatrist", "psychologist", "counselor", "counsellor",
     "professional help", "need real help", "can't cope", "cannot cope",
@@ -34,10 +47,6 @@ POSITIVE_KEYWORDS = {
     "optimistic", "thankful", "peaceful", "confident",
 }
 
-# ---------------------------------------------------------------------------
-# Crisis response — replaces normal response entirely
-# ---------------------------------------------------------------------------
-
 CRISIS_RESPONSE = (
     "I'm very concerned about what you've shared and I want to make sure you are safe. "
     "This AI is not equipped to support a crisis.\n\n"
@@ -50,7 +59,6 @@ CRISIS_RESPONSE = (
     "You deserve real, professional support — not an AI."
 )
 
-# Appended to normal responses when escalation is detected
 HUMAN_REFERRAL_NOTE = (
     "\n\nI want to be transparent: I am an AI, not a licensed therapist, "
     "and I have real limitations. What you are describing may benefit from "
@@ -60,125 +68,232 @@ HUMAN_REFERRAL_NOTE = (
 )
 
 # ---------------------------------------------------------------------------
-# Mode-aware response banks
+# Fallback static response banks (used if Claude API is unavailable)
 # ---------------------------------------------------------------------------
 
-SOLO_NEGATIVE = [
-    "It sounds like you're carrying something heavy right now. "
-    "Let's try a CBT technique — can you identify one specific thought that's troubling you most?",
-    "I hear how tough this is. Would you like to try a short mindfulness exercise together?",
-    "Your feelings are completely valid. Take a slow breath with me — in for 4, hold for 4, out for 4. "
-    "What's one small thing you can do for yourself today?",
-    "It takes real courage to share that. Let's break it down — what feels most pressing to you right now?",
-]
-
-SOLO_NEUTRAL = [
-    "Thanks for sharing. What's one small, positive step you'd like to take today?",
-    "Let's reflect — is there anything, even something small, that felt okay today?",
-    "You showed up, and that matters. What has been on your mind most lately?",
-    "Sometimes neutral is a solid place to stand. What would help you feel more grounded right now?",
-]
-
-SOLO_POSITIVE = [
-    "That's wonderful to hear! What do you think has been contributing to this feeling?",
-    "You're doing great — want to set a small goal to keep this momentum going?",
-    "Hold onto this positive energy. What's one thing you're most grateful for today?",
-    "Celebrating moments like this is so important. What would you like to build toward next?",
-]
-
-COUPLE_NEGATIVE = [
-    "It sounds like there are some difficult feelings present between you two. "
-    "I'd encourage each of you to share one specific feeling using an 'I feel…' statement, "
-    "so the other person can truly hear you without feeling blamed.",
-    "Strong emotions in couples work are normal and expected. Before going further, "
-    "can each of you take a breath and name the one thing you most want your partner to understand right now?",
-    "It can be hard to feel heard when emotions are running high. "
-    "What would it look like for both of you to feel genuinely understood in this moment?",
-    "Let's slow down together. Each of you — what is one feeling that's present for you right now, "
-    "and what do you need from your partner?",
-]
-
-COUPLE_NEUTRAL = [
-    "Welcome, both of you. How are you each feeling as you come into this session today? "
-    "A brief check-in from each of you helps set the tone.",
-    "Connecting like this takes intention. What brought the two of you here today?",
-    "Let's start somewhere positive — can each of you share one thing you appreciate about the other this week?",
-    "What's one shared goal you'd both like to focus on in this session together?",
-]
-
-COUPLE_POSITIVE = [
-    "It's great to hear some positive energy between you two. "
-    "What do you think you've both been doing well lately as a couple?",
-    "This is a wonderful foundation to build from. "
-    "What's one thing each of you would like to continue or strengthen together?",
-    "Acknowledging growth as a couple is powerful. "
-    "What milestone — big or small — would you both like to celebrate today?",
-    "Wonderful! What does each of you feel has contributed most to this positive place you're in?",
-]
-
-GROUP_NEGATIVE = [
-    "It sounds like some heavy feelings are present in the group right now. "
-    "Would anyone like to share what's coming up for them, "
-    "knowing the group is here to listen — not judge?",
-    "These feelings are real and they matter. "
-    "As a group, let's hold space for each other. "
-    "Does anyone want to respond with compassion to what's been shared?",
-    "Pain that is shared in a group often feels a little lighter. "
-    "I invite anyone who's comfortable to gently reflect on what they've heard.",
-    "Let's take a collective breath together. "
-    "What does the group need most right now — to be heard, to reflect, or to find a next step forward?",
-]
-
-GROUP_NEUTRAL = [
-    "Welcome, everyone. Let's start with a quick check-in — "
-    "how is each person feeling as they arrive today?",
-    "Group work is powerful. What is something each of you is hoping to take away from today's session?",
-    "Let's build some shared awareness — what's one word that describes where you are emotionally right now?",
-    "Being here together already matters. "
-    "What's one thing the group could do to better support each other today?",
-]
-
-GROUP_POSITIVE = [
-    "It's wonderful to hear positive energy in the group! "
-    "What has the group been doing well that may be contributing to this?",
-    "Let's celebrate this together. Would anyone like to share something that's going well for them?",
-    "This positivity is a resource for everyone here. "
-    "What's one way each of you would like to carry this feeling forward?",
-    "Great energy today. What shared goal would the group like to focus on to keep building on this?",
-]
-
-RESPONSE_BANKS = {
-    "solo":   {"negative": SOLO_NEGATIVE,   "neutral": SOLO_NEUTRAL,   "positive": SOLO_POSITIVE},
-    "couple": {"negative": COUPLE_NEGATIVE, "neutral": COUPLE_NEUTRAL, "positive": COUPLE_POSITIVE},
-    "group":  {"negative": GROUP_NEGATIVE,  "neutral": GROUP_NEUTRAL,  "positive": GROUP_POSITIVE},
+_FALLBACK = {
+    "solo": {
+        "negative": [
+            "It sounds like you're carrying something heavy right now. "
+            "Can you identify one specific thought that's troubling you most?",
+            "I hear how tough this is. Would you like to try a short mindfulness exercise together?",
+        ],
+        "neutral": [
+            "Thanks for sharing. What's one small, positive step you'd like to take today?",
+            "You showed up, and that matters. What has been on your mind most lately?",
+        ],
+        "positive": [
+            "That's wonderful to hear! What do you think has been contributing to this feeling?",
+            "Hold onto this positive energy. What's one thing you're most grateful for today?",
+        ],
+    },
+    "couple": {
+        "negative": [
+            "It sounds like there are difficult feelings present between you two. "
+            "I'd encourage each of you to share one feeling using an 'I feel…' statement.",
+        ],
+        "neutral": [
+            "Welcome, both of you. How are you each feeling as you come into this session today?",
+        ],
+        "positive": [
+            "It's great to hear some positive energy between you two. "
+            "What do you think you've both been doing well lately as a couple?",
+        ],
+    },
+    "group": {
+        "negative": [
+            "It sounds like some heavy feelings are present in the group right now. "
+            "Would anyone like to share what's coming up for them?",
+        ],
+        "neutral": [
+            "Welcome, everyone. Let's start with a quick check-in — "
+            "how is each person feeling as they arrive today?",
+        ],
+        "positive": [
+            "It's wonderful to hear positive energy in the group! "
+            "Would anyone like to share something that's going well?",
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
-# Detection helpers
+# Emotion classifier — j-hartmann/emotion-english-distilroberta-base
+# Lazy-loaded on first use; cached for the process lifetime.
 # ---------------------------------------------------------------------------
 
-def detect_crisis(text: str) -> bool:
-    """Return True if the text contains any crisis-level language."""
-    lowered = text.lower()
-    return any(kw in lowered for kw in CRISIS_KEYWORDS)
+_emotion_pipeline = None
+
+EMOTION_TO_SENTIMENT = {
+    "anger":    "negative",
+    "disgust":  "negative",
+    "fear":     "negative",
+    "sadness":  "negative",
+    "joy":      "positive",
+    "surprise": "neutral",
+    "neutral":  "neutral",
+}
 
 
-def detect_escalation(text: str) -> bool:
-    """Return True if the text signals a need for professional human support."""
-    lowered = text.lower()
-    return any(kw in lowered for kw in ESCALATION_KEYWORDS)
+def _get_emotion_pipeline():
+    global _emotion_pipeline
+    if _emotion_pipeline is None:
+        from transformers import pipeline as hf_pipeline
+        _emotion_pipeline = hf_pipeline(
+            "text-classification",
+            model="j-hartmann/emotion-english-distilroberta-base",
+            top_k=1,
+            device=-1,          # CPU
+            truncation=True,
+            max_length=512,
+        )
+    return _emotion_pipeline
+
+
+def analyze_emotion(text: str) -> str:
+    """Return the dominant emotion label from the HuggingFace classifier.
+
+    Falls back to keyword-based sentiment if the model is unavailable.
+    Returns one of: anger, disgust, fear, joy, neutral, sadness, surprise.
+    """
+    try:
+        pipe = _get_emotion_pipeline()
+        result = pipe(text[:512])
+        return result[0][0]["label"].lower()
+    except Exception as exc:
+        logger.warning("Emotion classifier unavailable (%s); using keyword fallback.", exc)
+        return _keyword_emotion(text)
+
+
+def _keyword_emotion(text: str) -> str:
+    """Keyword-based emotion approximation used when the classifier fails."""
+    words = set(text.lower().split())
+    neg = len(words & NEGATIVE_KEYWORDS)
+    pos = len(words & POSITIVE_KEYWORDS)
+    if neg > pos:
+        return "sadness"
+    if pos > neg:
+        return "joy"
+    return "neutral"
 
 
 def analyze_sentiment(text: str) -> str:
-    """Classify text as 'negative', 'positive', or 'neutral' via keyword matching."""
-    words = set(text.lower().split())
-    negative_count = len(words & NEGATIVE_KEYWORDS)
-    positive_count = len(words & POSITIVE_KEYWORDS)
-    if negative_count > positive_count:
-        return "negative"
-    elif positive_count > negative_count:
-        return "positive"
-    return "neutral"
+    """Map emotion → coarse sentiment ('positive' | 'negative' | 'neutral')."""
+    return EMOTION_TO_SENTIMENT.get(analyze_emotion(text), "neutral")
+
+
+# ---------------------------------------------------------------------------
+# Claude client — lazy-loaded, cached for the process lifetime
+# ---------------------------------------------------------------------------
+
+_claude_client = None
+
+_MODE_CONTEXT = {
+    "solo": (
+        "This is a one-on-one solo session. The user is speaking privately with you. "
+        "Focus on the individual's personal experience. Use CBT, mindfulness, and "
+        "person-centred techniques. Address the user as 'you'."
+    ),
+    "couple": (
+        "This is a couples therapy session. Two partners are in the room together. "
+        "Remain completely impartial. Encourage 'I feel...' statements. "
+        "Foster mutual understanding. Address both partners — use 'you both' or 'each of you'."
+    ),
+    "group": (
+        "This is a group therapy session with multiple participants. "
+        "Foster a sense of shared space and mutual support. "
+        "Invite participation without pressure. Address the group as 'everyone' or 'the group'."
+    ),
+}
+
+_SYSTEM_PROMPT_TEMPLATE = """\
+You are a compassionate, professional AI therapy assistant for TogetherMindsAI.
+
+## Your role
+You support users in {mode} therapy sessions with warm, empathetic responses grounded \
+in evidence-based approaches including Cognitive Behavioural Therapy (CBT), mindfulness, \
+acceptance and commitment therapy (ACT), and person-centred therapy.
+
+## Session context
+{mode_context}
+
+## Hard rules — never break these
+- You are NOT a licensed therapist. Never claim to diagnose, prescribe, or treat.
+- Never use diagnostic labels (e.g. "you have depression", "you have PTSD") as factual statements.
+- Never encourage or validate self-harm, suicidal ideation, or dangerous behaviour.
+- If the user expresses a crisis, immediately direct them to call 988 (US) or text HOME to 741741.
+- Maintain warm, non-judgmental, professional boundaries at all times.
+- Do not give medical, legal, or financial advice.
+- Do not claim to be a human or a licensed professional.
+
+## Response style
+- Warm, empathetic, and direct. Write in plain prose.
+- 2 to 4 short paragraphs. Avoid unnecessary bullet points.
+- Speak directly to the user using "you".
+- Acknowledge what the user said before offering a reframe or technique.
+- End every response with a gentle reflective question or an invitation to continue sharing.
+"""
+
+
+def _get_claude_client():
+    global _claude_client
+    if _claude_client is None:
+        import anthropic
+        _claude_client = anthropic.Anthropic(
+            api_key=os.environ["ANTHROPIC_API_KEY"]
+        )
+    return _claude_client
+
+
+def _generate_claude_response(
+    text: str,
+    emotion: str,
+    mode: str,
+    needs_escalation: bool,
+) -> str:
+    """Call Claude Sonnet with a cached system prompt and return its response.
+
+    Falls back to the static response bank if the API call fails.
+    """
+    escalation_hint = (
+        "\n\n[Internal note: This user may benefit from professional human support. "
+        "At a natural point in your response, gently mention that a licensed therapist "
+        "can offer deeper support — without being alarmist or abrupt.]"
+        if needs_escalation else ""
+    )
+
+    user_message = (
+        f"[Detected emotion: {emotion}]\n\n"
+        f"{text}"
+        f"{escalation_hint}"
+    )
+
+    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
+        mode=mode,
+        mode_context=_MODE_CONTEXT.get(mode, _MODE_CONTEXT["solo"]),
+    )
+
+    try:
+        import anthropic
+        client = _get_claude_client()
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=600,
+            system=[
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": user_message}],
+        )
+        return response.content[0].text
+
+    except Exception as exc:
+        logger.error("Claude API error (%s); falling back to static response.", exc)
+        sentiment = EMOTION_TO_SENTIMENT.get(emotion, "neutral")
+        bank = _FALLBACK.get(mode, _FALLBACK["solo"])
+        return random.choice(bank[sentiment])
 
 
 # ---------------------------------------------------------------------------
@@ -194,14 +309,28 @@ _FORBIDDEN_OUTPUT_PHRASES = [
 
 
 def _sanitize_response(response: str) -> str:
-    """
-    Guard against any response that inadvertently contains diagnostic or
-    prescriptive language. Falls back to a safe neutral response.
-    """
+    """Strip any response that inadvertently contains diagnostic/prescriptive language."""
     lowered = response.lower()
     if any(phrase in lowered for phrase in _FORBIDDEN_OUTPUT_PHRASES):
-        return random.choice(SOLO_NEUTRAL)
+        logger.warning("Sanitizer caught forbidden phrase in response; substituting fallback.")
+        return random.choice(_FALLBACK["solo"]["neutral"])
     return response
+
+
+# ---------------------------------------------------------------------------
+# Detection helpers (kept for direct use in tests and crisis routes)
+# ---------------------------------------------------------------------------
+
+def detect_crisis(text: str) -> bool:
+    """Return True if the text contains any crisis-level language."""
+    lowered = text.lower()
+    return any(kw in lowered for kw in CRISIS_KEYWORDS)
+
+
+def detect_escalation(text: str) -> bool:
+    """Return True if the text signals a need for professional human support."""
+    lowered = text.lower()
+    return any(kw in lowered for kw in ESCALATION_KEYWORDS)
 
 
 # ---------------------------------------------------------------------------
@@ -209,39 +338,31 @@ def _sanitize_response(response: str) -> str:
 # ---------------------------------------------------------------------------
 
 def process_input(text: str, mode: str = "solo", session_message_count: int = 0) -> str:
-    """
-    Return a context-aware therapeutic response for the given user input.
+    """Return a context-aware therapeutic response for the given user input.
 
-    Parameters
-    ----------
-    text : str
-        The user's message.
-    mode : str
-        Therapy mode — 'solo', 'couple', or 'group'. Controls response framing.
-    session_message_count : int
-        Total messages already in the session. Used to detect sustained distress
-        and trigger a human-therapist referral after prolonged negative sessions.
-
-    Behaviour
-    ---------
-    1. Crisis language detected → return CRISIS_RESPONSE immediately (no normal reply).
-    2. Escalation keywords or sustained negative sessions (≥10 messages) →
-       append HUMAN_REFERRAL_NOTE to the normal response.
-    3. All other cases → mode-aware response selected from the appropriate bank.
+    Pipeline
+    --------
+    1. Crisis keyword check  → return CRISIS_RESPONSE immediately (no Claude call).
+    2. Emotion classification → j-hartmann/emotion-english-distilroberta-base (CPU).
+    3. Claude Sonnet 4.6     → generates the response with the emotion as context.
+    4. Output guard          → strip any forbidden diagnostic/prescriptive language.
     """
-    # 1. Crisis check — always takes priority, stops all other processing
+    # 1. Crisis check — always takes priority
     if detect_crisis(text):
         return CRISIS_RESPONSE
 
-    # 2. Sentiment + mode-aware response
-    sentiment = analyze_sentiment(text)
-    bank = RESPONSE_BANKS.get(mode, RESPONSE_BANKS["solo"])
-    response = random.choice(bank[sentiment])
+    # 2. Emotion detection
+    emotion = analyze_emotion(text)
+    sentiment = EMOTION_TO_SENTIMENT.get(emotion, "neutral")
 
-    # 3. Escalation: append human referral when topic exceeds AI capability
-    #    or when the user has been in sustained distress for a long session
-    if detect_escalation(text) or (sentiment == "negative" and session_message_count >= 10):
-        response += HUMAN_REFERRAL_NOTE
+    # 3. Escalation flag
+    needs_escalation = (
+        detect_escalation(text)
+        or (sentiment == "negative" and session_message_count >= 10)
+    )
 
-    # 4. Output guard — strip any diagnostic/prescriptive language (defensive)
+    # 4. Generate response via Claude
+    response = _generate_claude_response(text, emotion, mode, needs_escalation)
+
+    # 5. Output guard
     return _sanitize_response(response)

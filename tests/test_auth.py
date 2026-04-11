@@ -44,8 +44,13 @@ def _sign(private_key, message: str) -> str:
 
 @pytest.fixture
 def client():
+    from sqlalchemy.pool import StaticPool
     app.config["TESTING"] = True
     app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {"check_same_thread": False},
+        "poolclass": StaticPool,
+    }
     with app.app_context():
         db.create_all()
         with app.test_client() as c:

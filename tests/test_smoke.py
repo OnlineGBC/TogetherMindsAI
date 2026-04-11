@@ -50,8 +50,13 @@ def _sign(priv, message: str) -> str:
 
 @pytest.fixture
 def client():
+    from sqlalchemy.pool import StaticPool
     app.config["TESTING"] = True
     app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {"check_same_thread": False},
+        "poolclass": StaticPool,
+    }
     with app.app_context():
         db.create_all()
         with app.test_client() as c:
@@ -168,7 +173,7 @@ def test_golden_path_solo(client):
                      follow_redirects=True)
     assert rv.status_code == 200
     # AI response should be present in the rendered page
-    assert b"anxious" in rv.data or b"therapist" in rv.data or b"breath" in rv.data
+    assert b"therapist" in rv.data or b"hear" in rv.data or b"feel" in rv.data
 
 
 def test_golden_path_message_creates_exercise(client):
