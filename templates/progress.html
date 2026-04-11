@@ -83,6 +83,15 @@
 
         {% endif %}
 
+        <!-- Download transcript -->
+        {% if chart_data %}
+        <div class="mb-3">
+            <a href="/transcript/{{ user_id }}" class="btn btn-outline-green rounded-pill px-4">
+                <i class="bi bi-download me-1"></i>Download Transcript
+            </a>
+        </div>
+        {% endif %}
+
         <!-- Back button + delete -->
         <div class="d-flex gap-2 flex-wrap align-items-center">
             {% if therapy_mode == "solo" %}

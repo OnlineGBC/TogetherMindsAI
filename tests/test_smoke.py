@@ -298,6 +298,49 @@ def test_group_page_has_end_session_button(client):
     assert b"End Session" in rv.data
 
 
+# ---------------------------------------------------------------------------
+# Transcript download
+# ---------------------------------------------------------------------------
+
+def test_transcript_download_forbidden_without_session(client):
+    with app.app_context():
+        user_id = str(uuid.uuid4())
+        db.session.add(User(id=user_id, therapy_mode="solo"))
+        db.session.commit()
+    rv = client.get(f"/transcript/{user_id}")
+    assert rv.status_code == 403
+
+
+def test_transcript_download_returns_text_file(client):
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "solo"})
+    user_id = rv.get_json()["user_id"]
+
+    # Send a message so there is transcript content
+    client.post(f"/therapy/solo/{user_id}", data={"message": "I feel anxious"})
+
+    rv = client.get(f"/transcript/{user_id}")
+    assert rv.status_code == 200
+    assert rv.content_type.startswith("text/plain")
+    assert b"TogetherMindsAI" in rv.data
+    assert b"Session Transcript" in rv.data
+    assert b"I feel anxious" in rv.data
+    assert b"attachment" in rv.headers.get("Content-Disposition", "").encode()
+
+
+def test_transcript_empty_session_still_downloads(client):
+    with app.app_context():
+        user_id = str(uuid.uuid4())
+        db.session.add(User(id=user_id, therapy_mode="solo"))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/transcript/{user_id}")
+    assert rv.status_code == 200
+    assert b"No messages recorded" in rv.data
+
+
 def test_end_session_modal_present_in_base(client):
     """The modal container must be in the base layout (rendered on every therapy page)."""
     with app.app_context():

@@ -20,7 +20,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response
 from flask_socketio import SocketIO, join_room, emit
 from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -250,6 +250,55 @@ def delete_user(user_id):
 
     session.clear()
     return jsonify({"deleted": True}), 200
+
+
+# ---------------------------------------------------------------------------
+# Routes — transcript download
+# ---------------------------------------------------------------------------
+
+@app.route("/transcript/<user_id>")
+def download_transcript(user_id):
+    if session.get("user_id") != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
+    messages = (
+        ChatMessage.query
+        .filter_by(session_id=user_id)
+        .order_by(ChatMessage.timestamp.asc())
+        .all()
+    )
+
+    user = db.session.get(User, user_id)
+    mode = user.therapy_mode if user else "unknown"
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    lines = [
+        "TogetherMindsAI — Session Transcript",
+        f"Session ID : {user_id}",
+        f"Mode       : {mode}",
+        f"Generated  : {generated_at}",
+        "",
+        "-" * 60,
+        "",
+    ]
+
+    for msg in messages:
+        speaker = "AI Therapist" if msg.user_id == "AI" else "You"
+        ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
+        lines.append(f"[{ts}] {speaker}")
+        lines.append(msg.text)
+        lines.append("")
+
+    if not messages:
+        lines.append("No messages recorded for this session.")
+
+    body = "\n".join(lines)
+    filename = f"transcript_{user_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.txt"
+
+    response = make_response(body)
+    response.headers["Content-Type"] = "text/plain; charset=utf-8"
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 # ---------------------------------------------------------------------------
