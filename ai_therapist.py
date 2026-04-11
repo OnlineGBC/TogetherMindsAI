@@ -50,11 +50,15 @@ POSITIVE_KEYWORDS = {
 CRISIS_RESPONSE = (
     "I'm very concerned about what you've shared and I want to make sure you are safe. "
     "This AI is not equipped to support a crisis.\n\n"
-    "If you are in immediate danger, please call 911 (or your local emergency number).\n\n"
+    "If you are in immediate danger, please call your local emergency number (911 in the US, "
+    "999 in the UK, 000 in Australia, 112 in the EU, or your local equivalent).\n\n"
     "Free, confidential crisis support available 24/7:\n"
+    "• findahelpline.com — find a helpline in your country\n"
+    "• befrienders.org — worldwide emotional support directory\n"
     "• Call or text 988 — Suicide & Crisis Lifeline (US)\n"
     "• Text HOME to 741741 — Crisis Text Line (US)\n"
-    "• findahelpline.com — international directory\n\n"
+    "• 116 123 — Samaritans (UK & Ireland, free, 24/7)\n"
+    "• 13 11 14 — Lifeline (Australia, 24/7)\n\n"
     "Please reach out to a licensed human therapist or counselor. "
     "You deserve real, professional support — not an AI."
 )
