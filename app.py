@@ -216,7 +216,7 @@ def session_join_post():
     if not session_id:
         return render_template("join_session.html", error="Please enter a Session ID.")
 
-    ts = TherapySession.query.get(session_id)
+    ts = db.session.get(TherapySession, session_id)
     if not ts:
         return render_template("join_session.html", error="Session not found. Check the ID and try again.")
 
