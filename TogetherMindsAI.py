@@ -20,6 +20,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 
+import io
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response
 from flask_socketio import SocketIO, join_room, emit
 from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
@@ -256,47 +257,147 @@ def delete_user(user_id):
 # Routes — transcript download
 # ---------------------------------------------------------------------------
 
-@app.route("/transcript/<user_id>")
-def download_transcript(user_id):
-    if session.get("user_id") != user_id:
-        return jsonify({"error": "Forbidden"}), 403
-
+def _transcript_data(user_id):
+    """Return (messages, mode, generated_at) for a given user_id."""
     messages = (
         ChatMessage.query
         .filter_by(session_id=user_id)
         .order_by(ChatMessage.timestamp.asc())
         .all()
     )
-
     user = db.session.get(User, user_id)
-    mode = user.therapy_mode if user else "unknown"
+    mode = user.therapy_mode.capitalize() if user else "Unknown"
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return messages, mode, generated_at
 
-    lines = [
-        "TogetherMindsAI — Session Transcript",
-        f"Session ID : {user_id}",
-        f"Mode       : {mode}",
-        f"Generated  : {generated_at}",
-        "",
-        "-" * 60,
-        "",
-    ]
 
-    for msg in messages:
-        speaker = "AI Therapist" if msg.user_id == "AI" else "You"
-        ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
-        lines.append(f"[{ts}] {speaker}")
-        lines.append(msg.text)
-        lines.append("")
+def _to_latin1(text):
+    """Replace characters outside Latin-1 (e.g. emoji) with '?' for PDF rendering."""
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+@app.route("/transcript/<user_id>/pdf")
+def download_transcript_pdf(user_id):
+    if session.get("user_id") != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
+    from fpdf import FPDF
+    from fpdf.enums import XPos, YPos
+
+    messages, mode, generated_at = _transcript_data(user_id)
+
+    pdf = FPDF()
+    pdf.set_margins(20, 20, 20)
+    pdf.add_page()
+
+    # Title
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "TogetherMindsAI - Session Transcript",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(2)
+
+    # Metadata
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 6, f"Session ID : {user_id}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 6, f"Mode       : {mode}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 6, f"Generated  : {generated_at}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(4)
+
+    # Divider
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(20, pdf.get_y(), 190, pdf.get_y())
+    pdf.ln(6)
 
     if not messages:
-        lines.append("No messages recorded for this session.")
+        pdf.set_text_color(120, 120, 120)
+        pdf.set_font("Helvetica", "I", 11)
+        pdf.cell(0, 8, "No messages recorded for this session.",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    else:
+        for msg in messages:
+            is_ai = msg.user_id == "AI"
+            speaker = "AI Therapist" if is_ai else "You"
+            ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
 
-    body = "\n".join(lines)
-    filename = f"transcript_{user_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.txt"
+            # Speaker + timestamp line
+            pdf.set_font("Helvetica", "B", 10)
+            if is_ai:
+                pdf.set_text_color(30, 120, 60)
+            else:
+                pdf.set_text_color(30, 80, 160)
+            pdf.cell(0, 7, _to_latin1(f"{speaker}  [{ts}]"),
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-    response = make_response(body)
-    response.headers["Content-Type"] = "text/plain; charset=utf-8"
+            # Message body
+            pdf.set_font("Helvetica", "", 11)
+            pdf.set_text_color(30, 30, 30)
+            pdf.multi_cell(0, 6, _to_latin1(msg.text))
+            pdf.ln(3)
+
+    buf = io.BytesIO(pdf.output())
+    filename = f"transcript_{user_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
+    response = make_response(buf.getvalue())
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@app.route("/transcript/<user_id>/docx")
+def download_transcript_docx(user_id):
+    if session.get("user_id") != user_id:
+        return jsonify({"error": "Forbidden"}), 403
+
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    messages, mode, generated_at = _transcript_data(user_id)
+
+    doc = Document()
+
+    # Title
+    title = doc.add_heading("TogetherMindsAI — Session Transcript", level=1)
+    title.runs[0].font.color.rgb = RGBColor(0x1E, 0x78, 0x40)
+
+    # Metadata table
+    meta = doc.add_paragraph()
+    meta.add_run("Session ID : ").bold = True
+    meta.add_run(user_id)
+    meta2 = doc.add_paragraph()
+    meta2.add_run("Mode       : ").bold = True
+    meta2.add_run(mode)
+    meta3 = doc.add_paragraph()
+    meta3.add_run("Generated  : ").bold = True
+    meta3.add_run(generated_at)
+
+    doc.add_paragraph("─" * 40)
+
+    if not messages:
+        p = doc.add_paragraph("No messages recorded for this session.")
+        p.runs[0].italic = True
+    else:
+        for msg in messages:
+            is_ai = msg.user_id == "AI"
+            speaker = "AI Therapist" if is_ai else "You"
+            ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
+
+            # Speaker heading
+            p = doc.add_paragraph()
+            run = p.add_run(f"{speaker}  [{ts}]")
+            run.bold = True
+            run.font.size = Pt(10)
+            run.font.color.rgb = RGBColor(0x1E, 0x78, 0x3C) if is_ai else RGBColor(0x1E, 0x50, 0xA0)
+
+            # Message body
+            doc.add_paragraph(msg.text)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    filename = f"transcript_{user_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.docx"
+    response = make_response(buf.getvalue())
+    response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
