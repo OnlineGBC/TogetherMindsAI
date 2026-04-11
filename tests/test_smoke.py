@@ -252,3 +252,59 @@ def test_session_join_unknown_id_shows_error(client):
     rv = client.post("/session/join", data={"session_id": "9999"})
     assert rv.status_code == 200
     assert b"not found" in rv.data.lower()
+
+
+# ---------------------------------------------------------------------------
+# End Session guard — modal and beforeunload wiring
+# ---------------------------------------------------------------------------
+
+def test_solo_page_has_end_session_button(client):
+    with app.app_context():
+        user_id = str(uuid.uuid4())
+        db.session.add(User(id=user_id, therapy_mode="solo"))
+        db.session.commit()
+    rv = client.get(f"/therapy/solo/{user_id}")
+    assert rv.status_code == 200
+    assert b"endSessionModal" in rv.data
+    assert b"End Session" in rv.data
+
+
+def test_couple_page_has_end_session_button(client):
+    with app.app_context():
+        user_id = str(uuid.uuid4())
+        db.session.add(User(id=user_id, therapy_mode="couple"))
+        db.session.commit()
+    rv = client.get(f"/therapy/couple/{user_id}")
+    assert rv.status_code == 200
+    assert b"endSessionModal" in rv.data
+    assert b"End Session" in rv.data
+
+
+def test_group_page_has_end_session_button(client):
+    from datetime import datetime, timezone
+    with app.app_context():
+        from models import TherapySession
+        user_id = str(uuid.uuid4())
+        session_id = str(uuid.uuid4())
+        db.session.add(User(id=user_id, therapy_mode="group"))
+        db.session.add(TherapySession(
+            id=session_id, mode="group", created_by=user_id,
+            created_at=datetime.now(timezone.utc)
+        ))
+        db.session.commit()
+    rv = client.get(f"/therapy/group/{user_id}/{session_id}")
+    assert rv.status_code == 200
+    assert b"endSessionModal" in rv.data
+    assert b"End Session" in rv.data
+
+
+def test_end_session_modal_present_in_base(client):
+    """The modal container must be in the base layout (rendered on every therapy page)."""
+    with app.app_context():
+        user_id = str(uuid.uuid4())
+        db.session.add(User(id=user_id, therapy_mode="solo"))
+        db.session.commit()
+    rv = client.get(f"/therapy/solo/{user_id}")
+    assert b"endSessionIdDisplay" in rv.data
+    assert b"endSessionConfirmBtn" in rv.data
+    assert b"endSessionCopyBtn" in rv.data

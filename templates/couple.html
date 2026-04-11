@@ -18,12 +18,22 @@
                     </small>
                 </div>
             </div>
-            <a
-                href="/progress/{{ user_id }}/couple"
-                class="btn btn-outline-green btn-sm rounded-pill"
-            >
-                <i class="bi bi-bar-chart-fill me-1"></i>Progress
-            </a>
+            <div class="d-flex gap-2">
+                <a
+                    href="/progress/{{ user_id }}/couple"
+                    class="btn btn-outline-green btn-sm rounded-pill"
+                >
+                    <i class="bi bi-bar-chart-fill me-1"></i>Progress
+                </a>
+                <button
+                    type="button"
+                    class="btn btn-outline-danger btn-sm rounded-pill"
+                    data-bs-toggle="modal"
+                    data-bs-target="#endSessionModal"
+                >
+                    <i class="bi bi-door-open-fill me-1"></i>End Session
+                </button>
+            </div>
         </div>
 
         <!-- Session ID banner -->
@@ -154,6 +164,7 @@
     window.addEventListener("load", function () {
         joinRoom(SESSION_ID, USER_ID, MODE);
         startWellnessCheck();
+        initEndSessionGuard(USER_ID, "/progress/" + USER_ID + "/couple");
     });
 </script>
 {% endblock %}

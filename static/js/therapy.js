@@ -222,6 +222,66 @@ function escapeHtml(str) {
 }
 
 // ---------------------------------------------------------------------------
+// End Session guard — modal + beforeunload warning
+// ---------------------------------------------------------------------------
+
+var _sessionEnded = false;
+
+/**
+ * Wire up the End Session button, modal, and beforeunload warning.
+ * @param {string} sessionId   - Session ID to display in the modal
+ * @param {string} redirectUrl - URL to navigate to after confirming end
+ */
+function initEndSessionGuard(sessionId, redirectUrl) {
+    // Populate modal display
+    var display = document.getElementById("endSessionIdDisplay");
+    if (display) {
+        display.textContent = sessionId;
+    }
+
+    // Copy button inside modal
+    var copyBtn = document.getElementById("endSessionCopyBtn");
+    if (copyBtn) {
+        copyBtn.addEventListener("click", function () {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(sessionId).then(function () {
+                    copyBtn.innerHTML = '<i class="bi bi-clipboard-check"></i>';
+                    setTimeout(function () {
+                        copyBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
+                    }, 1500);
+                });
+            } else {
+                var el = document.createElement("textarea");
+                el.value = sessionId;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand("copy");
+                document.body.removeChild(el);
+            }
+        });
+    }
+
+    // Confirm button — mark ended and redirect
+    var confirmBtn = document.getElementById("endSessionConfirmBtn");
+    if (confirmBtn) {
+        confirmBtn.addEventListener("click", function () {
+            _sessionEnded = true;
+            window.location.href = redirectUrl;
+        });
+    }
+
+    // beforeunload warning — fires on tab close / navigation away
+    window.addEventListener("beforeunload", function (e) {
+        if (!_sessionEnded) {
+            e.preventDefault();
+            // Modern browsers show their own generic message; returnValue is required
+            e.returnValue = "You have an active session. Save your Session ID (" + sessionId + ") before leaving.";
+            return e.returnValue;
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Participant presence panel helpers
 // ---------------------------------------------------------------------------
 
