@@ -271,9 +271,9 @@ def _transcript_data(user_id):
     return messages, mode, generated_at
 
 
-def _to_latin1(text):
-    """Replace characters outside Latin-1 (e.g. emoji) with '?' for PDF rendering."""
-    return text.encode("latin-1", errors="replace").decode("latin-1")
+_FONT_DIR = os.path.join(os.path.dirname(__file__), "static", "fonts")
+_FONT_REGULAR = os.path.join(_FONT_DIR, "DejaVuSans.ttf")
+_FONT_BOLD    = os.path.join(_FONT_DIR, "DejaVuSans-Bold.ttf")
 
 
 @app.route("/transcript/<user_id>/pdf")
@@ -288,16 +288,18 @@ def download_transcript_pdf(user_id):
 
     pdf = FPDF()
     pdf.set_margins(20, 20, 20)
+    pdf.add_font("DejaVu",      fname=_FONT_REGULAR)
+    pdf.add_font("DejaVu", "B", fname=_FONT_BOLD)
     pdf.add_page()
 
     # Title
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, "TogetherMindsAI - Session Transcript",
+    pdf.set_font("DejaVu", "B", 16)
+    pdf.cell(0, 10, "TogetherMindsAI \u2014 Session Transcript",
              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(2)
 
     # Metadata
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font("DejaVu", "", 10)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 6, f"Session ID : {user_id}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Mode       : {mode}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -311,7 +313,7 @@ def download_transcript_pdf(user_id):
 
     if not messages:
         pdf.set_text_color(120, 120, 120)
-        pdf.set_font("Helvetica", "I", 11)
+        pdf.set_font("DejaVu", "", 11)
         pdf.cell(0, 8, "No messages recorded for this session.",
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     else:
@@ -321,18 +323,18 @@ def download_transcript_pdf(user_id):
             ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
 
             # Speaker + timestamp line
-            pdf.set_font("Helvetica", "B", 10)
+            pdf.set_font("DejaVu", "B", 10)
             if is_ai:
                 pdf.set_text_color(30, 120, 60)
             else:
                 pdf.set_text_color(30, 80, 160)
-            pdf.cell(0, 7, _to_latin1(f"{speaker}  [{ts}]"),
+            pdf.cell(0, 7, f"{speaker}  [{ts}]",
                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
             # Message body
-            pdf.set_font("Helvetica", "", 11)
+            pdf.set_font("DejaVu", "", 11)
             pdf.set_text_color(30, 30, 30)
-            pdf.multi_cell(0, 6, _to_latin1(msg.text))
+            pdf.multi_cell(0, 6, msg.text)
             pdf.ln(3)
 
     buf = io.BytesIO(pdf.output())
