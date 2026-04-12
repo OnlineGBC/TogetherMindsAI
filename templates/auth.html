@@ -95,6 +95,15 @@
 
     </div>
 </div>
+
+<!--
+    Fallback form for browsers where crypto.subtle is unavailable (plain HTTP on a
+    LAN IP address).  The Web Crypto API only works in secure contexts (HTTPS or
+    localhost), so the JS auth flow fails on http://192.168.x.x.  Submitting this
+    form hits the server-side auth_post route, which creates the user and redirects
+    to the therapy page — identical end result, no client-side crypto needed.
+-->
+<form id="legacyAuthForm" method="POST" action="/auth/{{ therapy_mode }}" class="d-none"></form>
 {% endblock %}
 
 {% block scripts %}
@@ -116,6 +125,13 @@
         document.getElementById("btnSpinner").classList.remove("d-none");
         btn.disabled = true;
         document.getElementById("authError").classList.add("d-none");
+
+        // crypto.subtle is only available in secure contexts (HTTPS or localhost).
+        // Fall back to a plain form POST when the page is served over HTTP on a LAN IP.
+        if (!window.crypto || !window.crypto.subtle) {
+            document.getElementById("legacyAuthForm").submit();
+            return;
+        }
 
         startAuth(THERAPY_MODE, function (data) {
             var uid  = data.user_id;

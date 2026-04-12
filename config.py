@@ -66,9 +66,11 @@ else:
 # SocketIO / async
 # ---------------------------------------------------------------------------
 
-CORS_ALLOWED_ORIGINS: list[str] = os.environ.get(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:5001"
-).split(",")
+_cors_raw = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5001").strip()
+# Flask-SocketIO requires the string "*" (not the list ["*"]) to allow all origins.
+CORS_ALLOWED_ORIGINS: "str | list[str]" = (
+    "*" if _cors_raw == "*" else [o.strip() for o in _cors_raw.split(",")]
+)
 
 # threading for local dev / tests (supports hot-reload on Windows);
 # eventlet for production async performance
