@@ -139,7 +139,9 @@
             if (mode === "solo") {
                 window.location.href = "/therapy/solo/" + uid;
             } else if (mode === "couple") {
-                window.location.href = "/therapy/couple/" + uid;
+                var url = "/therapy/couple/" + uid;
+                if (data.session_id) { url += "?session_id=" + encodeURIComponent(data.session_id); }
+                window.location.href = url;
             } else {
                 window.location.href = "/therapy/group/" + uid + "/" + data.session_id;
             }

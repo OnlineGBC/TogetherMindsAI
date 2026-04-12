@@ -540,6 +540,10 @@ def api_auth_register():
     except Exception:
         return jsonify({"error": "Invalid public_key encoding"}), 400
 
+    # Check if this auth is for joining an existing session (not creating a new one)
+    pending_couple = session.pop("pending_couple_session", None)
+    pending_group  = session.pop("pending_group_session",  None)
+
     user_id = str(uuid.uuid4())
     user = User(id=user_id, therapy_mode=therapy_mode, public_key=public_key_b64)
     db.session.add(user)
@@ -551,18 +555,25 @@ def api_auth_register():
             id=user_id, mode="solo", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
-    elif therapy_mode == "couple":
+    elif therapy_mode == "couple" and not pending_couple:
+        # Only create a new session if not joining an existing one
         db.session.add(TherapySession(
             id=user_id, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
-    elif therapy_mode == "group":
+    elif therapy_mode == "group" and not pending_group:
+        # Only create a new session if not joining an existing one
         random_session_id = str(random.randint(1000, 9999))
         db.session.add(TherapySession(
             id=random_session_id, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
         response_data["session_id"] = random_session_id
+
+    if pending_couple:
+        response_data["session_id"] = pending_couple
+    if pending_group:
+        response_data["session_id"] = pending_group
 
     db.session.commit()
     session["user_id"] = user_id
