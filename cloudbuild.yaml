@@ -24,12 +24,21 @@ substitutions:
   _SA_EMAIL: togethermindsai-sa@${PROJECT_ID}.iam.gserviceaccount.com
   _TAG: latest
 
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/HF_TOKEN/versions/latest
+      env: HF_TOKEN
+
 steps:
   # ── 1. Build ────────────────────────────────────────────────────────────────
   - name: gcr.io/cloud-builders/docker
     id: build
+    secretEnv:
+      - HF_TOKEN
     args:
       - build
+      - --build-arg
+      - HF_TOKEN=$$HF_TOKEN
       - --tag
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
       - .

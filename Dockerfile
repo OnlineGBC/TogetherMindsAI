@@ -24,6 +24,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # ── Step 3: pre-download the emotion classifier into the image ───────────────
 # Baking the model in means zero download time at runtime — even on cold starts.
+# HF_TOKEN is passed as a build arg so the download is authenticated.
+ARG HF_TOKEN
+ENV HF_TOKEN=$HF_TOKEN
 RUN python -c "\
 from transformers import pipeline; \
 pipeline('text-classification', \
