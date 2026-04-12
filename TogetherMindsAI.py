@@ -33,7 +33,17 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
 
-socketio = SocketIO(app, async_mode=config.ASYNC_MODE, cors_allowed_origins=config.CORS_ALLOWED_ORIGINS)
+socketio = SocketIO(
+    app,
+    async_mode=config.ASYNC_MODE,
+    cors_allowed_origins=config.CORS_ALLOWED_ORIGINS,
+    # Disable WebSocket upgrade when running under werkzeug's dev server.
+    # werkzeug does not support WebSocket; upgrade attempts cause a 500 error
+    # (AssertionError: write() before start_response).  In production the
+    # async_mode is eventlet, which handles WebSocket natively, so upgrades
+    # are allowed there.
+    allow_upgrades=not (config.FLASK_DEBUG or config.IS_TESTING),
+)
 
 _RATE_WINDOW   = config.RATE_WINDOW_SECONDS
 _RATE_MAX_MSGS = config.RATE_MAX_MESSAGES

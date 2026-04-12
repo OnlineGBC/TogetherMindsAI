@@ -382,3 +382,22 @@ def test_end_session_modal_present_in_base(client):
     assert b"endSessionIdDisplay" in rv.data
     assert b"endSessionConfirmBtn" in rv.data
     assert b"endSessionCopyBtn" in rv.data
+
+
+# ---------------------------------------------------------------------------
+# WebSocket upgrade disabled under werkzeug
+# ---------------------------------------------------------------------------
+
+def test_socketio_upgrades_disabled_in_dev_and_test_mode():
+    """Regression: werkzeug crashes with AssertionError when socket.io clients
+    attempt a WebSocket upgrade (transport=websocket POST returns 500).
+    The SocketIO instance must disable upgrades whenever FLASK_DEBUG or
+    IS_TESTING is True so clients never make the upgrade attempt."""
+    import config
+    from TogetherMindsAI import socketio
+    is_werkzeug_env = config.FLASK_DEBUG or config.IS_TESTING
+    if is_werkzeug_env:
+        assert socketio.server.eio.allow_upgrades is False, (
+            "allow_upgrades must be False under werkzeug (FLASK_DEBUG or IS_TESTING) "
+            "to prevent the AssertionError: write() before start_response crash"
+        )
