@@ -70,10 +70,10 @@ class TestPlatformDetection:
 # ---------------------------------------------------------------------------
 
 class TestEngineOptions:
-    def test_sqlite_uses_static_pool(self):
+    def test_sqlite_does_not_use_static_pool(self):
+        # StaticPool is for in-memory test fixtures only, not file-based SQLite
         cfg = _reload_config({"DATABASE_URL": "sqlite:///test.db"})
-        from sqlalchemy.pool import StaticPool
-        assert cfg.SQLALCHEMY_ENGINE_OPTIONS.get("poolclass") is StaticPool
+        assert "poolclass" not in cfg.SQLALCHEMY_ENGINE_OPTIONS
 
     def test_sqlite_sets_check_same_thread(self):
         cfg = _reload_config({"DATABASE_URL": "sqlite:///test.db"})

@@ -188,7 +188,18 @@ function startAuth(therapyMode, onSuccess, onError) {
     hasKeypair().then(function (has) {
         var storedUserId = sessionStorage.getItem("user_id");
         if (has && storedUserId) {
-            return authenticateUser(storedUserId).then(onSuccess);
+            return authenticateUser(storedUserId).then(onSuccess).catch(function (err) {
+                // If the user no longer exists on the server (e.g. after a restart or
+                // delete), clear stale state and register fresh rather than surfacing
+                // a confusing error.
+                if (err.message && err.message.indexOf("User not found") !== -1) {
+                    sessionStorage.removeItem("user_id");
+                    sessionStorage.removeItem("therapy_mode");
+                    sessionStorage.removeItem("session_id");
+                    return registerUser(therapyMode).then(onSuccess);
+                }
+                throw err;
+            });
         }
         return registerUser(therapyMode).then(onSuccess);
     }).catch(onError);

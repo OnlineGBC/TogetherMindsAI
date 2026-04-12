@@ -46,12 +46,13 @@ FLASK_DEBUG: bool = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
 DATABASE_URL: str = _db_url
 
-# SQLAlchemy engine kwargs differ between SQLite and PostgreSQL
+# SQLAlchemy engine kwargs differ between SQLite and PostgreSQL.
+# StaticPool is intentionally NOT used here — it belongs only in test fixtures
+# where an in-memory SQLite DB must share a single connection across threads.
+# File-based SQLite and PostgreSQL both use their default connection pools.
 if IS_SQLITE:
-    from sqlalchemy.pool import StaticPool as _StaticPool
     SQLALCHEMY_ENGINE_OPTIONS: dict = {
         "connect_args": {"check_same_thread": False},
-        "poolclass": _StaticPool,
     }
 else:
     # PostgreSQL on Cloud SQL — use a modest connection pool
