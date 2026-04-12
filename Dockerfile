@@ -27,6 +27,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # HF_TOKEN is passed as a build arg so the download is authenticated.
 ARG HF_TOKEN
 ENV HF_TOKEN=$HF_TOKEN
+# Disable Xet (new HF transfer protocol) — falls back to standard HTTP download,
+# which is more reliable in restricted network environments like Cloud Build.
+ENV HF_HUB_DISABLE_XET=1
 RUN python -c "\
 from transformers import pipeline; \
 pipeline('text-classification', \
