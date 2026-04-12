@@ -96,6 +96,12 @@ def live_server_url():
     from TogetherMindsAI import app, socketio
     from models import db
 
+    # test_auth.py sets CORS_ALLOWED_ORIGINS='http://localhost:5001' before importing
+    # the app, which locks that restrictive value into the shared socketio instance.
+    # The live server must accept connections from http://127.0.0.1:<port>, so override
+    # the engineio CORS setting directly to allow all origins.
+    socketio.server.eio.cors_allowed_origins = "*"
+
     # Flask-SQLAlchemy 3.x caches the engine — changing app.config after init_app()
     # has no effect. Override the cached engine directly so the live-server DB is
     # isolated in memory and never touches the production file.
