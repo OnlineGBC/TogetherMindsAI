@@ -717,4 +717,14 @@ def on_send_message(data):
 
 if __name__ == "__main__":
     _debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    socketio.run(app, debug=_debug, use_reloader=False, host="0.0.0.0", port=5001)
+
+    _cert = os.path.join(os.path.dirname(__file__), "certs", "cert.pem")
+    _key  = os.path.join(os.path.dirname(__file__), "certs", "key.pem")
+    _ssl  = (_cert, _key) if os.path.exists(_cert) and os.path.exists(_key) else None
+    if _ssl:
+        app.logger.info("TLS enabled — https://localhost:5001  |  https://192.168.1.88:5001")
+    else:
+        app.logger.warning("certs/cert.pem or key.pem not found — running without TLS")
+
+    socketio.run(app, debug=_debug, use_reloader=False, host="0.0.0.0", port=5001,
+                 ssl_context=_ssl)
