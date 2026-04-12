@@ -11,6 +11,9 @@ WORKDIR /app
 # ── Step 1: install torch CPU-only FIRST (before requirements.txt) ──────────
 # The CPU wheel is ~200 MB vs ~2.5 GB for the default CUDA build on PyPI.
 # Installing this first lets Docker cache it separately from app dependencies.
+# typing-extensions must be pre-installed from PyPI before torch because the
+# PyTorch index has a naming inconsistency that prevents pip resolving it there.
+RUN pip install --no-cache-dir "typing-extensions>=4.15.0"
 RUN pip install --no-cache-dir \
     torch==2.6.0 \
     --index-url https://download.pytorch.org/whl/cpu
