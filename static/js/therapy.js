@@ -313,6 +313,7 @@ function initEndSessionGuard(sessionId, redirectUrl) {
         confirmBtn.addEventListener("click", function () {
             if (nicknameInput && nicknameInput.value.trim()) {
                 localStorage.setItem(_storageKey, nicknameInput.value.trim());
+                _persistNicknameToServer(sessionId, nicknameInput.value.trim());
             }
             _sessionEnded = true;
             window.location.href = redirectUrl;
@@ -410,6 +411,8 @@ function initSessionNickname(sessionId) {
         }
         input.classList.add("d-none");
         _restoreDisplay();
+        // Persist server-side so any device can rejoin by name
+        _persistNicknameToServer(sessionId, val);
     }
 
     function _restoreDisplay() {
@@ -417,6 +420,16 @@ function initSessionNickname(sessionId) {
             display.classList.remove("d-none");
         }
     }
+}
+
+function _persistNicknameToServer(sessionId, nickname) {
+    fetch("/session/" + sessionId + "/nickname", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: nickname }),
+    }).catch(function () {
+        // Non-critical — localStorage is the fallback for the same device
+    });
 }
 
 // ---------------------------------------------------------------------------

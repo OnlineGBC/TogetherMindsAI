@@ -71,6 +71,14 @@ if not config.IS_TESTING:
     config.validate_config()
     with app.app_context():
         db.create_all()
+        # One-time migration: add nickname column if it doesn't exist yet.
+        # db.create_all() only creates missing tables, not missing columns.
+        from sqlalchemy import text
+        try:
+            db.session.execute(text("ALTER TABLE therapy_sessions ADD COLUMN nickname TEXT"))
+            db.session.commit()
+        except Exception:
+            pass  # column already exists
 
     # Warm up the emotion classifier in a background thread so the first
     # user message doesn't trigger a large model load mid-request, which
@@ -268,6 +276,11 @@ def session_join_post():
 
     ts = db.session.get(TherapySession, session_id)
     if not ts:
+        # Fall back to case-insensitive nickname search so any device can rejoin by name
+        ts = TherapySession.query.filter(
+            db.func.lower(TherapySession.nickname) == session_id.lower()
+        ).first()
+    if not ts:
         return render_template("join_session.html", error="Session not found. Check the ID and try again.")
 
     if ts.mode == "solo":
@@ -282,6 +295,22 @@ def session_join_post():
         return redirect(url_for("therapy_couple", user_id=user_id))
     else:
         return redirect(url_for("therapy_group", user_id=user_id, session_id=session_id))
+
+
+# ---------------------------------------------------------------------------
+# Routes — session nickname (saved server-side so any device can rejoin by name)
+# ---------------------------------------------------------------------------
+
+@app.route("/session/<session_id>/nickname", methods=["POST"])
+def save_session_nickname(session_id):
+    ts = db.session.get(TherapySession, session_id)
+    if not ts:
+        return jsonify({"error": "Session not found"}), 404
+    data = request.get_json(silent=True) or {}
+    nickname = (data.get("nickname") or "").strip()[:60]
+    ts.nickname = nickname if nickname else None
+    db.session.commit()
+    return jsonify({"ok": True}), 200
 
 
 # ---------------------------------------------------------------------------

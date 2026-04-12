@@ -71,6 +71,7 @@ class TherapySession(db.Model):
     __tablename__ = "therapy_sessions"
 
     id = db.Column(db.String(36), primary_key=True)         # session_id (UUID or 4-digit code)
-    mode = db.Column(db.String(20), nullable=False)          # "couple" or "group"
+    mode = db.Column(db.String(20), nullable=False)          # "solo", "couple", or "group"
     created_by = db.Column(db.String(36), nullable=False)    # user_id of creator
     created_at = db.Column(db.DateTime, nullable=False)
+    nickname = db.Column(db.String(60), nullable=True)       # user-set friendly name
