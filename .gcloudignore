@@ -1,0 +1,30 @@
+# Files and directories to exclude from gcloud builds submit uploads.
+# Keep this in sync with .gitignore for anything large or sensitive.
+
+# Virtual environment — gigabytes, not needed (Docker installs from requirements.txt)
+TogetherMindsAI.venv/
+
+# Local database
+instance/
+
+# Secrets — never upload
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Tests — not needed inside the Docker image
+tests/
+
+# Claude / editor metadata
+.claude/
+
+# Local fonts (served from static/ which is already included)
+static/fonts/
+
+# Git metadata
+.git/
+.gitignore
