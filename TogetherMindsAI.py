@@ -75,15 +75,23 @@ if not config.IS_TESTING:
     # Warm up the emotion classifier in a background thread so the first
     # user message doesn't trigger a large model load mid-request, which
     # can crash the process on memory-constrained machines.
+    #
+    # In debug mode Flask's reloader runs two processes: a parent watcher and
+    # a child that actually serves requests. WERKZEUG_RUN_MAIN is set to 'true'
+    # only in the child, so we skip the warmup in the parent to avoid loading
+    # the model twice.
     import threading
-    def _warmup_emotion_model():
-        try:
-            from ai_therapist import _get_emotion_pipeline
-            _get_emotion_pipeline()
-            app.logger.info("Emotion model loaded and ready.")
-        except Exception as exc:
-            app.logger.warning("Emotion model warm-up failed (%s); will retry on first use.", exc)
-    threading.Thread(target=_warmup_emotion_model, daemon=True).start()
+    _is_reloader_child = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    _debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    if _is_reloader_child or not _debug_mode:
+        def _warmup_emotion_model():
+            try:
+                from ai_therapist import _get_emotion_pipeline
+                _get_emotion_pipeline()
+                app.logger.info("Emotion model loaded and ready.")
+            except Exception as exc:
+                app.logger.warning("Emotion model warm-up failed (%s); will retry on first use.", exc)
+        threading.Thread(target=_warmup_emotion_model, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
