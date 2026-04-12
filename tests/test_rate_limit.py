@@ -15,13 +15,19 @@ from models import db, RateLimitEntry
 
 @pytest.fixture
 def test_ctx():
+    from sqlalchemy import create_engine
     from sqlalchemy.pool import StaticPool
+    # Flask-SQLAlchemy 3.x caches the engine — changing app.config["SQLALCHEMY_DATABASE_URI"]
+    # after init_app() has no effect. Override the cached engine directly so that
+    # db.create_all() / db.drop_all() operate on an isolated in-memory DB, not the
+    # production file.
+    test_engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    db._app_engines[app] = {None: test_engine}
     app.config["TESTING"] = True
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
-    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-        "connect_args": {"check_same_thread": False},
-        "poolclass": StaticPool,
-    }
     with app.app_context():
         db.create_all()
         yield
