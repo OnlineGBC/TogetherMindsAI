@@ -30,6 +30,15 @@ availableSecrets:
       env: HF_TOKEN
 
 steps:
+  # ── 0. Pull previous image for layer caching ────────────────────────────────
+  # || true so the step doesn't fail on the very first build (no image yet).
+  - name: gcr.io/cloud-builders/docker
+    id: pull-cache
+    entrypoint: bash
+    args:
+      - -c
+      - docker pull ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG} || true
+
   # ── 1. Build ────────────────────────────────────────────────────────────────
   - name: gcr.io/cloud-builders/docker
     id: build
@@ -37,6 +46,8 @@ steps:
       - HF_TOKEN
     args:
       - build
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
       - --build-arg
       - HF_TOKEN=$$HF_TOKEN
       - --tag
