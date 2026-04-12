@@ -280,6 +280,8 @@ def session_join_post():
         ts = TherapySession.query.filter(
             db.func.lower(TherapySession.nickname) == session_id.lower()
         ).first()
+        if ts:
+            session_id = ts.id  # use the real session ID, not the nickname, for redirects
     if not ts:
         return render_template("join_session.html", error="Session not found. Check the ID and try again.")
 
