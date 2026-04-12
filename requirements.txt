@@ -4,7 +4,8 @@ Flask-SQLAlchemy==3.1.1
 simple-websocket==1.1.0
 # eventlet is not used locally (werkzeug threading mode); required on Cloud Run
 # (Dockerfile uses --worker-class eventlet)
-eventlet==0.36.1
+# gunicorn 25.x requires eventlet>=0.40.3
+eventlet==0.41.0
 typing-extensions>=4.15.0
 grpcio==1.80.0
 # Google Secrets Manager — uncomment when wiring up secret retrieval on Cloud Run
@@ -24,7 +25,7 @@ transformers>=4.40.0,<6.0.0
 # PostgreSQL driver — used on Cloud Run; harmless to install locally
 psycopg2-binary>=2.9.0
 # Production WSGI server
-gunicorn>=21.0.0
+gunicorn==25.3.0
 # Database migrations
 alembic>=1.13.0
 # Browser-based end-to-end tests
