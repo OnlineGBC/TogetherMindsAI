@@ -18,7 +18,7 @@ anthropic>=0.40.0
 transformers>=4.40.0,<6.0.0
 # torch CPU-only — installed separately in Dockerfile with the CPU-only index URL
 # to avoid pulling the 2.5 GB CUDA variant from PyPI.
-# Local install: pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Local install: pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
 # PostgreSQL driver — used on Cloud Run; harmless to install locally
 psycopg2-binary>=2.9.0
 # Production WSGI server
