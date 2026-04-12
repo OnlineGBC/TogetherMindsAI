@@ -72,6 +72,19 @@ if not config.IS_TESTING:
     with app.app_context():
         db.create_all()
 
+    # Warm up the emotion classifier in a background thread so the first
+    # user message doesn't trigger a large model load mid-request, which
+    # can crash the process on memory-constrained machines.
+    import threading
+    def _warmup_emotion_model():
+        try:
+            from ai_therapist import _get_emotion_pipeline
+            _get_emotion_pipeline()
+            app.logger.info("Emotion model loaded and ready.")
+        except Exception as exc:
+            app.logger.warning("Emotion model warm-up failed (%s); will retry on first use.", exc)
+    threading.Thread(target=_warmup_emotion_model, daemon=True).start()
+
 
 # ---------------------------------------------------------------------------
 # Routes — pages

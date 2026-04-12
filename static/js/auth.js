@@ -184,19 +184,36 @@ function authenticateUser(userId) {
  * @param {Function} onSuccess   - called with server response data
  * @param {Function} onError     - called with Error object
  */
+function _clearLocalIdentity() {
+    sessionStorage.removeItem("user_id");
+    sessionStorage.removeItem("therapy_mode");
+    sessionStorage.removeItem("session_id");
+    // Wipe IndexedDB keypair so the next registerUser generates a fresh one
+    return _openDb().then(function (db) {
+        return new Promise(function (resolve) {
+            var tx = db.transaction(_STORE_NAME, "readwrite");
+            tx.objectStore(_STORE_NAME).clear();
+            tx.oncomplete = resolve;
+            tx.onerror    = resolve; // proceed even if clear fails
+        });
+    });
+}
+
 function startAuth(therapyMode, onSuccess, onError) {
     hasKeypair().then(function (has) {
         var storedUserId = sessionStorage.getItem("user_id");
         if (has && storedUserId) {
             return authenticateUser(storedUserId).then(onSuccess).catch(function (err) {
-                // If the user no longer exists on the server (e.g. after a restart or
-                // delete), clear stale state and register fresh rather than surfacing
-                // a confusing error.
-                if (err.message && err.message.indexOf("User not found") !== -1) {
-                    sessionStorage.removeItem("user_id");
-                    sessionStorage.removeItem("therapy_mode");
-                    sessionStorage.removeItem("session_id");
-                    return registerUser(therapyMode).then(onSuccess);
+                var msg = err.message || "";
+                // If the server no longer recognises this identity (user deleted,
+                // server restarted with wiped DB, or keypair out of sync), clear
+                // all local state and register as a new user.
+                if (msg.indexOf("User not found") !== -1 ||
+                    msg.indexOf("Invalid signature") !== -1 ||
+                    msg.indexOf("No active challenge") !== -1) {
+                    return _clearLocalIdentity().then(function () {
+                        return registerUser(therapyMode).then(onSuccess);
+                    });
                 }
                 throw err;
             });
