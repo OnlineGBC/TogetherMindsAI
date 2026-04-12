@@ -86,6 +86,11 @@ if not config.IS_TESTING:
     if _is_reloader_child or not _debug_mode:
         def _warmup_emotion_model():
             try:
+                # Suppress noisy HuggingFace/transformers library output
+                os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+                os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+                import transformers
+                transformers.logging.set_verbosity_error()
                 from ai_therapist import _get_emotion_pipeline
                 _get_emotion_pipeline()
                 app.logger.info("Emotion model loaded and ready.")
