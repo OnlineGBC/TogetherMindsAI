@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession
-from ai_therapist import process_input
+from ai_therapist import process_input, generate_opening_message
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY or os.environ.get("SECRET_KEY", "dev-fallback-key")
@@ -156,6 +156,15 @@ def therapy_solo(user_id):
         .order_by(ChatMessage.timestamp.asc())
         .all()
     )
+    if not messages and not config.IS_TESTING:
+        opening = generate_opening_message("solo")
+        msg = ChatMessage(
+            session_id=user_id, user_id="AI", text=opening,
+            timestamp=datetime.now(timezone.utc),
+        )
+        db.session.add(msg)
+        db.session.commit()
+        messages = [msg]
     return render_template("solo.html", messages=messages, user_id=user_id)
 
 
@@ -592,6 +601,15 @@ def on_join(data):
             .order_by(ChatMessage.timestamp.asc())
             .all()
         )
+        if not messages and not config.IS_TESTING:
+            opening = generate_opening_message(mode)
+            ai_msg = ChatMessage(
+                session_id=session_id, user_id="AI", text=opening,
+                timestamp=datetime.now(timezone.utc),
+            )
+            db.session.add(ai_msg)
+            db.session.commit()
+            messages = [ai_msg]
         emit("history", {"messages": [m.to_dict() for m in messages]})
         emit("participant_list",
              {"participants": list(room_participants[session_id])},
