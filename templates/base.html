@@ -127,7 +127,7 @@
             </div>
             <div class="modal-body pt-2">
                 <p class="mb-3">Save your Session ID before you leave — you'll need it to rejoin later.</p>
-                <div class="alert alert-share rounded-4 py-2 px-3 d-flex align-items-center justify-content-between gap-2 mb-0">
+                <div class="alert alert-share rounded-4 py-2 px-3 d-flex align-items-center justify-content-between gap-2 mb-2">
                     <div class="d-flex align-items-center gap-2">
                         <i class="bi bi-hash text-primary-green"></i>
                         <span class="fw-semibold font-monospace" id="endSessionIdDisplay"></span>
@@ -135,6 +135,13 @@
                     <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="endSessionCopyBtn" title="Copy Session ID">
                         <i class="bi bi-clipboard"></i>
                     </button>
+                </div>
+                <div class="mb-0">
+                    <label for="endSessionNickname" class="form-label small text-muted mb-1">
+                        <i class="bi bi-tag me-1"></i>Give this session a friendly name <span class="text-muted">(optional)</span>
+                    </label>
+                    <input type="text" class="form-control form-control-sm rounded-3" id="endSessionNickname"
+                           placeholder="e.g. Monday check-in" maxlength="60">
                 </div>
             </div>
             <div class="modal-footer border-0 pt-2 gap-2">

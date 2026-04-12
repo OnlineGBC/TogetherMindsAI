@@ -233,10 +233,27 @@ var _sessionEnded = false;
  * @param {string} redirectUrl - URL to navigate to after confirming end
  */
 function initEndSessionGuard(sessionId, redirectUrl) {
+    var _storageKey = "session_nickname_" + sessionId;
+
     // Populate modal display
     var display = document.getElementById("endSessionIdDisplay");
     if (display) {
         display.textContent = sessionId;
+    }
+
+    // Restore any previously saved nickname
+    var nicknameInput = document.getElementById("endSessionNickname");
+    if (nicknameInput) {
+        var saved = localStorage.getItem(_storageKey);
+        if (saved) { nicknameInput.value = saved; }
+        nicknameInput.addEventListener("input", function () {
+            var val = nicknameInput.value.trim();
+            if (val) {
+                localStorage.setItem(_storageKey, val);
+            } else {
+                localStorage.removeItem(_storageKey);
+            }
+        });
     }
 
     // Copy button inside modal
@@ -261,10 +278,13 @@ function initEndSessionGuard(sessionId, redirectUrl) {
         });
     }
 
-    // Confirm button — mark ended and redirect
+    // Confirm button — save nickname then redirect
     var confirmBtn = document.getElementById("endSessionConfirmBtn");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
+            if (nicknameInput && nicknameInput.value.trim()) {
+                localStorage.setItem(_storageKey, nicknameInput.value.trim());
+            }
             _sessionEnded = true;
             window.location.href = redirectUrl;
         });
