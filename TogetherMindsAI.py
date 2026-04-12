@@ -81,9 +81,8 @@ if not config.IS_TESTING:
     # only in the child, so we skip the warmup in the parent to avoid loading
     # the model twice.
     import threading
-    _is_reloader_child = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
     _debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    if _is_reloader_child or not _debug_mode:
+    if not _debug_mode:
         def _warmup_emotion_model():
             try:
                 # Suppress noisy HuggingFace/transformers library output
