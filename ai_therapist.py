@@ -395,7 +395,7 @@ def generate_opening_message(mode: str = "solo") -> str:
         client = _get_claude_client()
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=120,
+            max_tokens=300,
             system=[{
                 "type": "text",
                 "text": system_prompt,
