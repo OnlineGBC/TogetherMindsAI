@@ -68,6 +68,19 @@ main.container {
     transform: translateY(0);
 }
 
+.btn-delete {
+    background-color: #d32f2f;
+    border: none;
+    color: #fff;
+    font-weight: 600;
+}
+.btn-delete:hover,
+.btn-delete:focus,
+.btn-delete:active {
+    background-color: #d32f2f;
+    color: #fff;
+}
+
 .btn-outline-green {
     border: 2px solid var(--green-primary);
     color: var(--green-primary);
