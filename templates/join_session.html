@@ -20,24 +20,24 @@
                 </div>
                 {% endif %}
 
-                <form method="POST" action="/session/join">
+                <form method="POST" action="/session/join" id="rejoinForm">
                     <div class="mb-4">
                         <label for="session_id" class="form-label fw-semibold">
-                            <i class="bi bi-hash me-1 text-primary-green"></i>Session ID
+                            <i class="bi bi-hash me-1 text-primary-green"></i>Session ID or Friendly Name
                         </label>
                         <input
                             type="text"
                             id="session_id"
                             name="session_id"
                             class="form-control form-control-lg rounded-3"
-                            placeholder="e.g. 1234 or a full session UUID"
+                            placeholder="e.g. My Monday session, 1234, or a full UUID"
                             required
                             autofocus
                             autocomplete="off"
                         />
                         <div class="form-text">
-                            For group sessions, this is the 4-digit code shown in the session header.
-                            For couples sessions, it's the full URL or UUID.
+                            Enter the Session ID or the friendly name you gave the session.
+                            For group sessions use the 4-digit code; for couples sessions use the full UUID.
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary-green btn-lg w-100 rounded-3">
@@ -56,4 +56,26 @@
 
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById("rejoinForm").addEventListener("submit", function () {
+        var input = document.getElementById("session_id");
+        var entered = input.value.trim();
+
+        // Check if the entered value matches any saved session nickname in localStorage
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (key && key.startsWith("session_nickname_")) {
+                var nickname = localStorage.getItem(key);
+                if (nickname && nickname.toLowerCase() === entered.toLowerCase()) {
+                    // Swap in the real session ID (everything after "session_nickname_")
+                    input.value = key.slice("session_nickname_".length);
+                    break;
+                }
+            }
+        }
+    });
+</script>
 {% endblock %}
