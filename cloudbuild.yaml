@@ -22,6 +22,7 @@ substitutions:
   _AR_REPO: togethermindsai-repo
   _SQL_CONN_NAME: togethermindsai-python:us-central1:togethermindsai-db
   _SA_EMAIL: togethermindsai-sa@${PROJECT_ID}.iam.gserviceaccount.com
+  _TAG: latest
 
 steps:
   # ── 1. Build ────────────────────────────────────────────────────────────────
@@ -30,9 +31,7 @@ steps:
     args:
       - build
       - --tag
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}
-      - --tag
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
       - .
 
   # ── 2. Push ─────────────────────────────────────────────────────────────────
@@ -40,8 +39,7 @@ steps:
     id: push
     args:
       - push
-      - --all-tags
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
 
   # ── 3. Deploy to Cloud Run ───────────────────────────────────────────────────
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -52,7 +50,7 @@ steps:
       - deploy
       - ${_SERVICE_NAME}
       - --image
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
       - --region
       - ${_REGION}
       - --platform
@@ -90,8 +88,7 @@ steps:
       - --allow-unauthenticated
 
 images:
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${SHORT_SHA}
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:latest
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
 
 options:
   logging: CLOUD_LOGGING_ONLY
