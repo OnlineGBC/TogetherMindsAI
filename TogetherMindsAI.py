@@ -127,18 +127,24 @@ def auth_post(therapy_mode):
     user = User(id=user_id, therapy_mode=therapy_mode)
     db.session.add(user)
 
+    # Check if this auth is for joining an existing session (not creating a new one)
+    pending_couple = session.pop("pending_couple_session", None)
+    pending_group  = session.pop("pending_group_session",  None)
+
     random_session_id = None
     if therapy_mode == "solo":
         db.session.add(TherapySession(
             id=user_id, mode="solo", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
-    elif therapy_mode == "couple":
+    elif therapy_mode == "couple" and not pending_couple:
+        # Only create a new session if not joining an existing one
         db.session.add(TherapySession(
             id=user_id, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
-    elif therapy_mode == "group":
+    elif therapy_mode == "group" and not pending_group:
+        # Only create a new session if not joining an existing one
         random_session_id = str(random.randint(1000, 9999))
         db.session.add(TherapySession(
             id=random_session_id, mode="group", created_by=user_id,
@@ -151,8 +157,12 @@ def auth_post(therapy_mode):
     if therapy_mode == "solo":
         return redirect(url_for("therapy_solo", user_id=user_id))
     elif therapy_mode == "couple":
+        if pending_couple:
+            return redirect(url_for("therapy_couple", user_id=user_id, session_id=pending_couple))
         return redirect(url_for("therapy_couple", user_id=user_id))
     else:
+        if pending_group:
+            return redirect(url_for("therapy_group", user_id=user_id, session_id=pending_group))
         return redirect(url_for("therapy_group", user_id=user_id, session_id=random_session_id))
 
 
@@ -226,7 +236,9 @@ def therapy_solo_post(user_id):
 
 @app.route("/therapy/couple/<user_id>")
 def therapy_couple(user_id):
-    return render_template("couple.html", user_id=user_id)
+    # session_id defaults to user_id for the host; partners pass it as a query param
+    session_id = request.args.get("session_id", user_id)
+    return render_template("couple.html", user_id=user_id, session_id=session_id)
 
 
 @app.route("/therapy/group/<user_id>/<session_id>")
@@ -291,10 +303,15 @@ def session_join_post():
 
     user_id = session.get("user_id")
     if not user_id:
+        # Stash the real session_id so auth_post can redirect back to the right room
+        if ts.mode == "couple":
+            session["pending_couple_session"] = session_id
+        else:
+            session["pending_group_session"] = session_id
         return redirect(url_for("auth_get", therapy_mode=ts.mode))
 
     if ts.mode == "couple":
-        return redirect(url_for("therapy_couple", user_id=user_id))
+        return redirect(url_for("therapy_couple", user_id=user_id, session_id=session_id))
     else:
         return redirect(url_for("therapy_group", user_id=user_id, session_id=session_id))
 

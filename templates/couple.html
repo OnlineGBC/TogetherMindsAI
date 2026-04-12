@@ -41,7 +41,7 @@
             <div class="d-flex align-items-center gap-2 flex-grow-1 min-width-0">
                 <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
                 <div class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
-                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ user_id }}</span></small>
+                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
                     <input type="text" id="sessionNicknameInline" class="form-control form-control-sm rounded-3 d-none"
                            placeholder="Friendly name…" maxlength="60" style="max-width:180px;">
                     <small id="sessionNicknameDisplay" class="text-muted fst-italic d-none"></small>
@@ -51,7 +51,7 @@
                 <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameSessionBtn" title="Rename session">
                     <i class="bi bi-pencil"></i>
                 </button>
-                <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ user_id }}')" title="Copy Session ID">
+                <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
                     <i class="bi bi-clipboard"></i>
                 </button>
             </div>
@@ -124,7 +124,7 @@
 {% block scripts %}
 <script>
     var USER_ID    = "{{ user_id }}";
-    var SESSION_ID = "{{ user_id }}";   // For couples, session_id = host user_id
+    var SESSION_ID = "{{ session_id }}";
     var MODE       = "couple";
 
     document.getElementById("shareUrl").value = window.location.href;
@@ -174,8 +174,8 @@
     window.addEventListener("load", function () {
         joinRoom(SESSION_ID, USER_ID, MODE);
         startWellnessCheck();
-        initSessionNickname(USER_ID);
-        initEndSessionGuard(USER_ID, "/progress/" + USER_ID + "/couple");
+        initSessionNickname(SESSION_ID);
+        initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/couple");
     });
 </script>
 {% endblock %}
