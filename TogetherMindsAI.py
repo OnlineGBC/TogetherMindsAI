@@ -285,6 +285,22 @@ def session_join_post():
 
 
 # ---------------------------------------------------------------------------
+# Routes — session deletion (user-initiated, from End Session modal)
+# ---------------------------------------------------------------------------
+
+@app.route("/session/<session_id>/delete", methods=["POST"])
+def delete_session(session_id):
+    """Delete all data for a session and return to home."""
+    ChatMessage.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+    TherapySession.query.filter_by(id=session_id).delete(synchronize_session=False)
+    Exercise.query.filter_by(user_id=session_id).delete(synchronize_session=False)
+    User.query.filter_by(id=session_id).delete(synchronize_session=False)
+    db.session.commit()
+    session.clear()
+    return jsonify({"deleted": True}), 200
+
+
+# ---------------------------------------------------------------------------
 # Routes — GDPR data deletion
 # ---------------------------------------------------------------------------
 
