@@ -5,6 +5,7 @@ simple-websocket==1.1.0
 # eventlet is not used locally (werkzeug threading mode); required on Cloud Run
 # (Dockerfile uses --worker-class eventlet)
 eventlet==0.36.1
+grpcio==1.80.0
 # Google Secrets Manager — uncomment when wiring up secret retrieval on Cloud Run
 # google-cloud-secret-manager>=2.16.0
 python-dotenv>=1.0.0
