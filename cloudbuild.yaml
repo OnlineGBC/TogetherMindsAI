@@ -82,7 +82,7 @@ steps:
       - --max-instances
       - "3"
       - --memory
-      - 512Mi
+      - 2Gi
       - --cpu
       - "1"
       - --timeout
@@ -95,3 +95,5 @@ images:
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  # E2_HIGHCPU_8 gives 8 vCPUs and 8 GB RAM — needed for pip-installing PyTorch
+  machineType: E2_HIGHCPU_8

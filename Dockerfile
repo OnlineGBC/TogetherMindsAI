@@ -1,6 +1,6 @@
 FROM python:3.10-slim
 
-# System dependencies for psycopg2-binary and Pillow (used by fpdf2)
+# System dependencies for psycopg2-binary
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq-dev \
         gcc \
@@ -8,20 +8,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy and install Python dependencies first (layer-cached unless requirements change)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+# ── Step 1: install torch CPU-only FIRST (before requirements.txt) ──────────
+# The CPU wheel is ~200 MB vs ~2.5 GB for the default CUDA build on PyPI.
+# Installing this first lets Docker cache it separately from app dependencies.
+RUN pip install --no-cache-dir \
+    torch==2.2.2 \
+    --index-url https://download.pytorch.org/whl/cpu
 
-# Pre-download the emotion classifier so the first request is not slow
-# The model is baked into the image; it does NOT need network at runtime.
+# ── Step 2: install everything else (torch is already satisfied above) ───────
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ── Step 3: pre-download the emotion classifier into the image ───────────────
+# Baking the model in means zero download time at runtime — even on cold starts.
 RUN python -c "\
 from transformers import pipeline; \
 pipeline('text-classification', \
          model='j-hartmann/emotion-english-distilroberta-base', \
          top_k=1, device=-1, truncation=True, max_length=512)"
 
-# Copy application code
+# ── Step 4: copy application code ───────────────────────────────────────────
 COPY . .
 
 # Cloud Run injects PORT; default to 8080
