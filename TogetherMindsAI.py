@@ -645,15 +645,4 @@ def on_send_message(data):
 
 if __name__ == "__main__":
     _debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    socketio.run(
-        app, debug=_debug, use_reloader=_debug,
-        host="0.0.0.0", port=5001,
-        reloader_options={
-            "exclude_patterns": [
-                "*/TogetherMindsAI.venv/*",
-                "*/site-packages/*",
-                "*/tests/*",
-                "*.tmp.*",
-            ]
-        }
-    )
+    socketio.run(app, debug=_debug, use_reloader=False, host="0.0.0.0", port=5001)
