@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8 col-lg-7">
+    <div class="col-12 col-lg-10">
 
         <!-- Header -->
         <div class="d-flex align-items-center justify-content-between mb-3">
@@ -151,9 +151,10 @@
     // End Session guard
     initEndSessionGuard("{{ user_id }}", "/progress/{{ user_id }}/solo");
 
-    // Suppress "Leave site?" dialog when submitting a message (normal form POST)
+    // Suppress "Leave site?" dialog and show spinner when submitting a message
     document.getElementById("chatForm").addEventListener("submit", function () {
         _sessionEnded = true;
+        _showSendSpinner();
     });
 </script>
 {% endblock %}

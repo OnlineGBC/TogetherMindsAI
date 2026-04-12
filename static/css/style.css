@@ -139,7 +139,8 @@ hr.border-green {
 
 /* ---- Chat window ---- */
 .chat-window {
-    height: 440px;
+    height: calc(100vh - 280px);
+    min-height: 320px;
     border-radius: var(--border-radius) !important;
 }
 .chat-window .card-body {
@@ -299,6 +300,6 @@ hr.border-green {
 /* ---- Responsive tweaks ---- */
 @media (max-width: 576px) {
     .bubble { max-width: 88%; }
-    .chat-window { height: 360px; }
+    .chat-window { height: calc(100vh - 240px); min-height: 280px; }
     .therapy-card .card-body { padding: 1.5rem 1rem; }
 }

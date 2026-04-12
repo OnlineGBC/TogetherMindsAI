@@ -78,6 +78,11 @@ function joinRoom(sessionId, userId, mode) {
 
         appendMessage(chatBox, data.user_id, data.text, data.timestamp, _currentUserId);
         scrollToBottom(chatBox);
+
+        // Restore send button once the AI reply arrives
+        if (data.user_id === "AI") {
+            _hideSendSpinner();
+        }
     });
 
     socket.on("rate_limited", function (data) {
@@ -135,12 +140,36 @@ function sendMessage(sessionId, userId, text, mode) {
         console.warn("Socket not connected — cannot send message.");
         return;
     }
+    _showSendSpinner();
     socket.emit("send_message", {
         session_id: sessionId,
         user_id: userId,
         text: text,
         mode: mode || "solo",
     });
+}
+
+// ---------------------------------------------------------------------------
+// Send button spinner helpers
+// ---------------------------------------------------------------------------
+
+var _SEND_ICON_HTML = '<i class="bi bi-send-fill"></i>';
+var _SEND_SPINNER_HTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+function _showSendSpinner() {
+    var btn = document.querySelector("button[type='submit'].btn-primary-green");
+    if (btn) {
+        btn.innerHTML = _SEND_SPINNER_HTML;
+        btn.disabled = true;
+    }
+}
+
+function _hideSendSpinner() {
+    var btn = document.querySelector("button[type='submit'].btn-primary-green");
+    if (btn) {
+        btn.innerHTML = _SEND_ICON_HTML;
+        btn.disabled = false;
+    }
 }
 
 /**
