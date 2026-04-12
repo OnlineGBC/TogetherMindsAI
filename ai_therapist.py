@@ -260,8 +260,9 @@ def _generate_claude_response(
     emotion: str,
     mode: str,
     needs_escalation: bool,
+    history: list = None,
 ) -> str:
-    """Call Claude Sonnet with a cached system prompt and return its response.
+    """Call Claude Sonnet with a cached system prompt and full conversation history.
 
     Falls back to the static response bank if the API call fails.
     """
@@ -272,7 +273,7 @@ def _generate_claude_response(
         if needs_escalation else ""
     )
 
-    user_message = (
+    current_user_message = (
         f"[Detected emotion: {emotion}]\n\n"
         f"{text}"
         f"{escalation_hint}"
@@ -282,6 +283,13 @@ def _generate_claude_response(
         mode=mode,
         mode_context=_MODE_CONTEXT.get(mode, _MODE_CONTEXT["solo"]),
     )
+
+    # Build messages list: prior history + current message
+    messages = []
+    if history:
+        for entry in history:
+            messages.append({"role": entry["role"], "content": entry["content"]})
+    messages.append({"role": "user", "content": current_user_message})
 
     try:
         import anthropic
@@ -296,7 +304,7 @@ def _generate_claude_response(
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            messages=[{"role": "user", "content": user_message}],
+            messages=messages,
         )
         return response.content[0].text
 
@@ -348,7 +356,7 @@ def detect_escalation(text: str) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
-def process_input(text: str, mode: str = "solo", session_message_count: int = 0) -> str:
+def process_input(text: str, mode: str = "solo", session_message_count: int = 0, history: list = None) -> str:
     """Return a context-aware therapeutic response for the given user input.
 
     Pipeline
@@ -373,7 +381,7 @@ def process_input(text: str, mode: str = "solo", session_message_count: int = 0)
     )
 
     # 4. Generate response via Claude
-    response = _generate_claude_response(text, emotion, mode, needs_escalation)
+    response = _generate_claude_response(text, emotion, mode, needs_escalation, history=history)
 
     # 5. Output guard
     return _sanitize_response(response)

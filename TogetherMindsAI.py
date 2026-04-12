@@ -166,13 +166,25 @@ def therapy_solo_post(user_id):
 
     now = datetime.now(timezone.utc)
 
+    # Fetch conversation history before adding the new message
+    prior_msgs = (
+        ChatMessage.query
+        .filter_by(session_id=user_id)
+        .order_by(ChatMessage.timestamp.asc())
+        .all()
+    )
+    history = [
+        {"role": "assistant" if m.user_id == "AI" else "user", "content": m.text}
+        for m in prior_msgs
+    ]
+
     user_msg = ChatMessage(
         session_id=user_id, user_id=user_id, text=text, timestamp=now,
     )
     db.session.add(user_msg)
 
-    session_message_count = ChatMessage.query.filter_by(session_id=user_id).count()
-    ai_text = process_input(text, mode="solo", session_message_count=session_message_count)
+    session_message_count = len(prior_msgs) + 1
+    ai_text = process_input(text, mode="solo", session_message_count=session_message_count, history=history)
 
     ai_msg = ChatMessage(
         session_id=user_id, user_id="AI", text=ai_text,
@@ -609,13 +621,25 @@ def on_send_message(data):
         now  = datetime.now(timezone.utc)
         mode = room_mode.get(session_id, "solo")
 
+        # Fetch conversation history before adding the new message
+        prior_msgs = (
+            ChatMessage.query
+            .filter_by(session_id=session_id)
+            .order_by(ChatMessage.timestamp.asc())
+            .all()
+        )
+        history = [
+            {"role": "assistant" if m.user_id == "AI" else "user", "content": m.text}
+            for m in prior_msgs
+        ]
+
         user_msg = ChatMessage(
             session_id=session_id, user_id=user_id, text=text, timestamp=now,
         )
         db.session.add(user_msg)
 
-        session_message_count = ChatMessage.query.filter_by(session_id=session_id).count()
-        ai_text = process_input(text, mode=mode, session_message_count=session_message_count)
+        session_message_count = len(prior_msgs) + 1
+        ai_text = process_input(text, mode=mode, session_message_count=session_message_count, history=history)
 
         ai_msg = ChatMessage(
             session_id=session_id, user_id="AI", text=ai_text,
