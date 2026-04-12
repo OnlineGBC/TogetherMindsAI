@@ -120,7 +120,12 @@ def auth_post(therapy_mode):
     db.session.add(user)
 
     random_session_id = None
-    if therapy_mode == "couple":
+    if therapy_mode == "solo":
+        db.session.add(TherapySession(
+            id=user_id, mode="solo", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+    elif therapy_mode == "couple":
         db.session.add(TherapySession(
             id=user_id, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
@@ -255,6 +260,10 @@ def session_join_post():
     ts = db.session.get(TherapySession, session_id)
     if not ts:
         return render_template("join_session.html", error="Session not found. Check the ID and try again.")
+
+    if ts.mode == "solo":
+        # Solo sessions are self-contained under the session_id URL — no auth required
+        return redirect(url_for("therapy_solo", user_id=session_id))
 
     user_id = session.get("user_id")
     if not user_id:
@@ -464,7 +473,12 @@ def api_auth_register():
 
     response_data = {"user_id": user_id, "therapy_mode": therapy_mode}
 
-    if therapy_mode == "couple":
+    if therapy_mode == "solo":
+        db.session.add(TherapySession(
+            id=user_id, mode="solo", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+    elif therapy_mode == "couple":
         db.session.add(TherapySession(
             id=user_id, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
