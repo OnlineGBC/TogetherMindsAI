@@ -137,5 +137,10 @@
 
     // End Session guard
     initEndSessionGuard("{{ user_id }}", "/progress/{{ user_id }}/solo");
+
+    // Suppress "Leave site?" dialog when submitting a message (normal form POST)
+    document.getElementById("chatForm").addEventListener("submit", function () {
+        _sessionEnded = true;
+    });
 </script>
 {% endblock %}
