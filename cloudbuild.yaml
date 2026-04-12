@@ -20,7 +20,7 @@ substitutions:
   _REGION: us-central1
   _SERVICE_NAME: togethermindsai
   _AR_REPO: togethermindsai-repo
-  _SQL_CONN_NAME: togethermindsai:us-central1:togethermindsai-db
+  _SQL_CONN_NAME: togethermindsai-python:us-central1:togethermindsai-db
   _SA_EMAIL: togethermindsai-sa@${PROJECT_ID}.iam.gserviceaccount.com
 
 steps:
