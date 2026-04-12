@@ -14,14 +14,14 @@
 #   _SERVICE_NAME       — Cloud Run service name, e.g. togethermindsai
 #   _AR_REPO            — Artifact Registry repo, e.g. togethermindsai-repo
 #   _SQL_CONN_NAME      — Cloud SQL connection name (PROJECT:REGION:INSTANCE)
-#   _SA_EMAIL           — Service account email for Cloud Run
+# Note: _SA_EMAIL removed — $PROJECT_ID cannot be used inside substitution values;
+#       the service account is referenced directly in the deploy args instead.
 
 substitutions:
   _REGION: us-central1
   _SERVICE_NAME: togethermindsai
   _AR_REPO: togethermindsai-repo
   _SQL_CONN_NAME: togethermindsai-python:us-central1:togethermindsai-db
-  _SA_EMAIL: togethermindsai-sa@${PROJECT_ID}.iam.gserviceaccount.com
   _TAG: latest
 
 availableSecrets:
@@ -76,7 +76,7 @@ steps:
       - --platform
       - managed
       - --service-account
-      - ${_SA_EMAIL}
+      - togethermindsai-sa@$PROJECT_ID.iam.gserviceaccount.com
       - --add-cloudsql-instances
       - ${_SQL_CONN_NAME}
       - --set-secrets
