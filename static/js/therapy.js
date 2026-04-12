@@ -302,6 +302,72 @@ function initEndSessionGuard(sessionId, redirectUrl) {
 }
 
 // ---------------------------------------------------------------------------
+// Inline session nickname — pencil button in the session ID banner
+// ---------------------------------------------------------------------------
+
+/**
+ * Wire up the inline rename button in the session ID banner.
+ * Saves the friendly name to localStorage under session_nickname_{sessionId}.
+ * @param {string} sessionId
+ */
+function initSessionNickname(sessionId) {
+    var storageKey = "session_nickname_" + sessionId;
+    var renameBtn  = document.getElementById("renameSessionBtn");
+    var input      = document.getElementById("sessionNicknameInline");
+    var display    = document.getElementById("sessionNicknameDisplay");
+
+    if (!renameBtn || !input || !display) { return; }
+
+    // Restore saved name on page load
+    var saved = localStorage.getItem(storageKey);
+    if (saved) {
+        display.textContent = "\u201C" + saved + "\u201D";
+        display.classList.remove("d-none");
+        input.value = saved;
+    }
+
+    // Pencil button toggles the input
+    renameBtn.addEventListener("click", function () {
+        if (input.classList.contains("d-none")) {
+            input.classList.remove("d-none");
+            display.classList.add("d-none");
+            input.focus();
+            input.select();
+        } else {
+            _saveNickname();
+        }
+    });
+
+    // Save on Enter key
+    input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); _saveNickname(); }
+        if (e.key === "Escape") { input.classList.add("d-none"); _restoreDisplay(); }
+    });
+
+    // Save on blur (clicking away)
+    input.addEventListener("blur", function () { _saveNickname(); });
+
+    function _saveNickname() {
+        var val = input.value.trim();
+        if (val) {
+            localStorage.setItem(storageKey, val);
+            display.textContent = "\u201C" + val + "\u201D";
+        } else {
+            localStorage.removeItem(storageKey);
+            display.textContent = "";
+        }
+        input.classList.add("d-none");
+        _restoreDisplay();
+    }
+
+    function _restoreDisplay() {
+        if (display.textContent) {
+            display.classList.remove("d-none");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Participant presence panel helpers
 // ---------------------------------------------------------------------------
 
