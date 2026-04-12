@@ -12,7 +12,7 @@ WORKDIR /app
 # The CPU wheel is ~200 MB vs ~2.5 GB for the default CUDA build on PyPI.
 # Installing this first lets Docker cache it separately from app dependencies.
 RUN pip install --no-cache-dir \
-    torch==2.2.2 \
+    torch==2.5.1 \
     --index-url https://download.pytorch.org/whl/cpu
 
 # ── Step 2: install everything else (torch is already satisfied above) ───────

@@ -11,7 +11,7 @@ watchdog>=4.0.0
 python-docx>=1.1.0
 fpdf2>=2.7.0
 anthropic>=0.40.0
-transformers>=4.40.0
+transformers>=4.40.0,<6.0.0
 # torch CPU-only — installed separately in Dockerfile with the CPU-only index URL
 # to avoid pulling the 2.5 GB CUDA variant from PyPI.
 # Local install: pip install torch --index-url https://download.pytorch.org/whl/cpu
