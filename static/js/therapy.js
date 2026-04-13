@@ -46,7 +46,12 @@ function joinRoom(sessionId, userId, mode) {
     _currentUserId = userId;
 
     socket = io({
-        transports: ["websocket", "polling"],
+        // Use polling only. werkzeug (dev server) crashes with
+        // "write() before start_response" when a WebSocket upgrade is
+        // attempted. Long-polling is functionally identical for therapy
+        // chat and works correctly under both werkzeug and eventlet.
+        transports: ["polling"],
+        upgrade: false,
     });
 
     socket.on("connect", function () {
