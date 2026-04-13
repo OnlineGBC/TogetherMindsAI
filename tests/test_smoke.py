@@ -550,6 +550,96 @@ def test_join_post_accepts_lowercase_group_id(client):
     )
 
 
+def test_solo_rejoin_by_display_id(client):
+    """Solo sessions must be rejoinable by the 6-char display ID shown in the header.
+
+    Regression: display ID is derived from the UUID but not stored in the DB,
+    so a direct primary-key lookup fails. The join route must fall back to a
+    prefix search.
+    """
+    from session_id import to_display_id
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "solo"})
+    user_id = rv.get_json()["user_id"]
+    display_id = to_display_id(user_id, "solo")
+
+    rv = client.post("/session/join", data={"session_id": display_id},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Solo rejoin by display ID '{display_id}' failed — got {rv.status_code}. "
+        f"Response: {rv.data[:300]}"
+    )
+
+
+def test_couple_rejoin_by_display_id(client):
+    """Couple sessions must be rejoinable by the 6-char display ID shown in the header."""
+    from session_id import to_display_id
+    from datetime import datetime, timezone
+    from models import TherapySession
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "couple"})
+    data = rv.get_json()
+    user_id = data["user_id"]
+    session_id = data["session_id"]  # == user_id for couple
+    display_id = to_display_id(session_id, "couple")
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    rv = client.post("/session/join", data={"session_id": display_id},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Couple rejoin by display ID '{display_id}' failed — got {rv.status_code}. "
+        f"Response: {rv.data[:300]}"
+    )
+
+
+def test_group_rejoin_by_display_id(client):
+    """Group sessions must be rejoinable by the 6-char code (display ID == session ID)."""
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "group"})
+    data = rv.get_json()
+    user_id = data["user_id"]
+    session_id = data["session_id"]  # already the display ID for group
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    rv = client.post("/session/join", data={"session_id": session_id},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Group rejoin by display ID '{session_id}' failed — got {rv.status_code}. "
+        f"Response: {rv.data[:300]}"
+    )
+
+
+def test_solo_rejoin_by_nickname(client):
+    """Solo sessions must be rejoinable by friendly name."""
+    from datetime import datetime, timezone
+    from models import TherapySession
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "solo"})
+    user_id = rv.get_json()["user_id"]
+
+    # Save a nickname server-side
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    client.post(f"/session/{user_id}/nickname",
+                json={"nickname": "My Monday session"},
+                content_type="application/json")
+
+    rv = client.post("/session/join", data={"session_id": "My Monday session"},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Solo rejoin by nickname failed — got {rv.status_code}. "
+        f"Response: {rv.data[:300]}"
+    )
+
+
 def test_join_error_page_still_shows_hint(client):
     """Even on error, the join page must render the format hint (not blank)."""
     from session_id import _example_group_id

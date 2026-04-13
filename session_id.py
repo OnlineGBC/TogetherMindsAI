@@ -192,6 +192,57 @@ def rejoin_placeholder(mode: str | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Rejoin lookup
+# ---------------------------------------------------------------------------
+
+def is_display_id(value: str) -> bool:
+    """Return True if value looks like a 6-char display ID entered by the user.
+
+    A display ID is exactly DISPLAY_ID_LENGTH uppercase hex-ish characters with
+    no hyphens — the kind of thing shown in the session header for solo/couple.
+    Group IDs also match this shape (they are already their own display ID), so
+    callers should try the exact DB lookup first and only call this for the
+    solo/couple prefix-search fallback.
+
+    Args:
+        value: The normalised user input.
+
+    Returns:
+        True if value could be a display ID (solo, couple, or group).
+    """
+    return len(value) == DISPLAY_ID_LENGTH and value == value.upper() and value.isalnum()
+
+
+def display_id_filter(db_func, TherapySession_id_col, TherapySession_mode_col, display_id: str):
+    """Return a SQLAlchemy filter expression that matches sessions by display ID.
+
+    For solo/couple sessions the display ID is the first DISPLAY_ID_LENGTH
+    characters of the UUID with hyphens stripped and uppercased.  The DB stores
+    the full UUID, so we need a prefix search:
+
+        UPPER(REPLACE(id, '-', '')) LIKE '<display_id>%'
+
+    For group sessions the display ID IS the session ID, so an exact match
+    on the group lookup handles them already.  This filter restricts to
+    solo/couple to avoid ambiguity.
+
+    Args:
+        db_func:                  SQLAlchemy db.func (passed in to avoid importing db here).
+        TherapySession_id_col:    TherapySession.id column.
+        TherapySession_mode_col:  TherapySession.mode column.
+        display_id:               The uppercased display ID entered by the user.
+
+    Returns:
+        A SQLAlchemy filter expression suitable for .filter().
+    """
+    stripped = db_func.upper(db_func.replace(TherapySession_id_col, "-", ""))
+    return (
+        stripped.like(display_id.upper() + "%"),
+        TherapySession_mode_col.in_(list(_UUID_MODES)),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 

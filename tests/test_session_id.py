@@ -17,6 +17,7 @@ from session_id import (
     generate_group_session_id,
     to_display_id,
     is_valid_group_id,
+    is_display_id,
     normalise_join_input,
     rejoin_format_hint,
     rejoin_placeholder,
@@ -188,6 +189,33 @@ class TestNormaliseJoinInput:
     def test_uppercase_group_id_unchanged(self):
         group_id = generate_group_session_id()
         assert normalise_join_input(group_id) == group_id
+
+
+# ---------------------------------------------------------------------------
+# is_display_id
+# ---------------------------------------------------------------------------
+
+class TestIsDisplayId:
+    def test_true_for_6_char_uppercase_alnum(self):
+        assert is_display_id("7A6D1E")
+
+    def test_true_for_generated_group_id(self):
+        assert is_display_id(generate_group_session_id())
+
+    def test_false_for_full_uuid(self):
+        assert not is_display_id("7a6d1ebd-e6b6-4b7d-afbf-9c56984b34f7")
+
+    def test_false_for_lowercase(self):
+        assert not is_display_id("7a6d1e")
+
+    def test_false_for_too_short(self):
+        assert not is_display_id("7A6D1")
+
+    def test_false_for_too_long(self):
+        assert not is_display_id("7A6D1EX")
+
+    def test_false_for_contains_hyphen(self):
+        assert not is_display_id("7A6D-E")
 
 
 # ---------------------------------------------------------------------------

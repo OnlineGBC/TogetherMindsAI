@@ -27,6 +27,8 @@ from session_id import (
     generate_group_session_id,
     to_display_id,
     is_valid_group_id,
+    is_display_id,
+    display_id_filter,
     normalise_join_input,
     rejoin_format_hint,
     rejoin_placeholder,
@@ -338,6 +340,16 @@ def session_join_post():
         ).first()
         if ts:
             session_id = ts.id  # use the real session ID, not the nickname, for redirects
+    if not ts and is_display_id(session_id):
+        # Fall back to display ID prefix search for solo/couple sessions.
+        # The display ID (e.g. "7A6D1E") is shown to users but the DB stores
+        # the full UUID — find it by matching the first DISPLAY_ID_LENGTH chars.
+        id_filter, mode_filter = display_id_filter(
+            db.func, TherapySession.id, TherapySession.mode, session_id
+        )
+        ts = TherapySession.query.filter(id_filter, mode_filter).first()
+        if ts:
+            session_id = ts.id
     if not ts:
         return _join_template(error="Session not found. Check the ID and try again.")
 
