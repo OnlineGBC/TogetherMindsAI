@@ -371,19 +371,18 @@ function initSessionNickname(sessionId) {
 
     if (!renameBtn || !input || !display) { return; }
 
-    // Restore saved name on page load
+    // Restore saved name on page load — shown inline as  CODE · "Nickname"
     var saved = localStorage.getItem(storageKey);
     if (saved) {
-        display.textContent = "\u201C" + saved + "\u201D";
-        display.classList.remove("d-none");
+        display.textContent = " \u00B7 \u201C" + saved + "\u201D";
         input.value = saved;
     }
 
-    // Pencil button toggles the input
+    // Pencil button: show input for editing
     renameBtn.addEventListener("click", function () {
         if (input.classList.contains("d-none")) {
             input.classList.remove("d-none");
-            display.classList.add("d-none");
+            display.textContent = "";   // clear while typing; code span stays visible
             input.focus();
             input.select();
         } else {
@@ -391,10 +390,14 @@ function initSessionNickname(sessionId) {
         }
     });
 
-    // Save on Enter key
+    // Save on Enter key; cancel on Escape
     input.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") { e.preventDefault(); _saveNickname(); }
-        if (e.key === "Escape") { input.classList.add("d-none"); _restoreDisplay(); }
+        if (e.key === "Enter")  { e.preventDefault(); _saveNickname(); }
+        if (e.key === "Escape") {
+            input.classList.add("d-none");
+            var prev = localStorage.getItem(storageKey);
+            display.textContent = prev ? " \u00B7 \u201C" + prev + "\u201D" : "";
+        }
     });
 
     // Save on blur (clicking away)
@@ -404,21 +407,14 @@ function initSessionNickname(sessionId) {
         var val = input.value.trim();
         if (val) {
             localStorage.setItem(storageKey, val);
-            display.textContent = "\u201C" + val + "\u201D";
+            display.textContent = " \u00B7 \u201C" + val + "\u201D";
         } else {
             localStorage.removeItem(storageKey);
             display.textContent = "";
         }
         input.classList.add("d-none");
-        _restoreDisplay();
         // Persist server-side so any device can rejoin by name
         _persistNicknameToServer(sessionId, val);
-    }
-
-    function _restoreDisplay() {
-        if (display.textContent) {
-            display.classList.remove("d-none");
-        }
     }
 }
 

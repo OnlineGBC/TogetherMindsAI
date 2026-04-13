@@ -41,10 +41,9 @@
             <div class="d-flex align-items-center gap-2 flex-grow-1 min-width-0">
                 <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
                 <div class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
-                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ display_id }}</span></small>
+                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ display_id }}</span><span id="sessionNicknameDisplay" class="text-muted fst-italic"></span></small>
                     <input type="text" id="sessionNicknameInline" class="form-control form-control-sm rounded-3 d-none"
                            placeholder="Friendly name…" maxlength="60" style="max-width:180px;">
-                    <small id="sessionNicknameDisplay" class="text-muted fst-italic d-none"></small>
                 </div>
             </div>
             <div class="d-flex gap-1 flex-shrink-0">
@@ -85,7 +84,7 @@
             <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1"></i>
             <div class="flex-grow-1 small">
                 <strong>This session is fully confidential</strong> — visible only to participants in this session.<br>
-                Your anonymous Session ID is <strong class="font-monospace">{{ display_id }}</strong> —
+                Your anonymous Session ID is <strong class="font-monospace"><span id="privacyBannerCode">{{ display_id }}</span></strong> —
                 or click <i class="bi bi-pencil" style="color:#fd7e14"></i> to select a friendly name
                 <em>(your partner will see this name)</em>.<br>
                 At the end of the session you can <strong>download</strong> a copy (Word or PDF) or
@@ -134,6 +133,12 @@
     var MODE       = "couple";
 
     document.getElementById("shareUrl").value = window.location.href;
+
+    // Ensure privacy banner always shows the session code (belt-and-suspenders)
+    (function () {
+        var el = document.getElementById("privacyBannerCode");
+        if (el && !el.textContent.trim()) { el.textContent = DISPLAY_ID; }
+    })();
 
     function dismissPrivacyBanner() {
         var el = document.getElementById("privacyBanner");
