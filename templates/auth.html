@@ -134,16 +134,13 @@
         }
 
         startAuth(THERAPY_MODE, function (data) {
-            var uid  = data.user_id;
             var mode = data.therapy_mode;
             if (mode === "solo") {
-                window.location.href = "/therapy/solo/" + uid;
+                window.location.href = "/therapy/solo";
             } else if (mode === "couple") {
-                var url = "/therapy/couple/" + uid;
-                if (data.session_id) { url += "?session_id=" + encodeURIComponent(data.session_id); }
-                window.location.href = url;
+                window.location.href = "/therapy/couple/" + data.session_id;
             } else {
-                window.location.href = "/therapy/group/" + uid + "/" + data.session_id;
+                window.location.href = "/therapy/group/" + data.session_id;
             }
         }, function (err) {
             document.getElementById("btnText").classList.remove("d-none");

@@ -33,30 +33,30 @@ def client():
 def test_message_too_long_returns_redirect(client):
     c, uid = client
     long_msg = "a" * (_MAX_MSG_LEN + 1)
-    rv = c.post(f"/therapy/solo/{uid}", data={"message": long_msg})
+    rv = c.post("/therapy/solo", data={"message": long_msg})
     assert rv.status_code == 302
 
 
 def test_message_empty_returns_redirect(client):
     c, uid = client
-    rv = c.post(f"/therapy/solo/{uid}", data={"message": ""})
+    rv = c.post("/therapy/solo", data={"message": ""})
     assert rv.status_code == 302
 
 
 def test_message_whitespace_only_returns_redirect(client):
     c, uid = client
-    rv = c.post(f"/therapy/solo/{uid}", data={"message": "   "})
+    rv = c.post("/therapy/solo", data={"message": "   "})
     assert rv.status_code == 302
 
 
 def test_message_at_max_length_is_accepted(client):
     c, uid = client
     max_msg = "a" * _MAX_MSG_LEN
-    rv = c.post(f"/therapy/solo/{uid}", data={"message": max_msg})
+    rv = c.post("/therapy/solo", data={"message": max_msg})
     assert rv.status_code == 302   # redirect back to solo page after save
 
 
 def test_message_valid_saves_and_redirects(client):
     c, uid = client
-    rv = c.post(f"/therapy/solo/{uid}", data={"message": "Hello, I need some support today."})
+    rv = c.post("/therapy/solo", data={"message": "Hello, I need some support today."})
     assert rv.status_code == 302

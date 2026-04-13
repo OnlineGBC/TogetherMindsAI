@@ -108,7 +108,9 @@ def test_therapy_solo_page_returns_200(client):
         user_id = str(uuid.uuid4())
         db.session.add(User(id=user_id, therapy_mode="solo"))
         db.session.commit()
-    assert client.get(f"/therapy/solo/{user_id}").status_code == 200
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    assert client.get("/therapy/solo").status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -170,11 +172,11 @@ def test_golden_path_solo(client):
     assert rv.get_json()["ok"] is True
 
     # 4. Load therapy page
-    rv = client.get(f"/therapy/solo/{user_id}")
+    rv = client.get("/therapy/solo")
     assert rv.status_code == 200
 
     # 5. Send a message — should redirect back to therapy page
-    rv = client.post(f"/therapy/solo/{user_id}",
+    rv = client.post("/therapy/solo",
                      data={"message": "I feel anxious today"},
                      follow_redirects=True)
     assert rv.status_code == 200
@@ -189,7 +191,7 @@ def test_golden_path_message_creates_exercise(client):
                      json={"public_key": pub_b64, "therapy_mode": "solo"})
     user_id = rv.get_json()["user_id"]
 
-    client.post(f"/therapy/solo/{user_id}",
+    client.post("/therapy/solo",
                 data={"message": "I feel very sad"})
 
     with app.app_context():
@@ -206,7 +208,7 @@ def test_progress_page_shows_data_after_messages(client):
                      json={"public_key": pub_b64, "therapy_mode": "solo"})
     user_id = rv.get_json()["user_id"]
 
-    client.post(f"/therapy/solo/{user_id}", data={"message": "Hello there"})
+    client.post("/therapy/solo", data={"message": "Hello there"})
 
     rv = client.get(f"/progress/{user_id}/solo")
     assert rv.status_code == 200
@@ -223,7 +225,7 @@ def test_delete_user_removes_all_data(client):
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "solo"})
     user_id = rv.get_json()["user_id"]
-    client.post(f"/therapy/solo/{user_id}", data={"message": "Hello"})
+    client.post("/therapy/solo", data={"message": "Hello"})
 
     rv = client.delete(f"/user/{user_id}")
     assert rv.status_code == 200
@@ -255,7 +257,9 @@ def test_oversized_message_does_not_crash_server(client):
         db.session.add(User(id=user_id, therapy_mode="solo"))
         db.session.commit()
     huge = "x" * 100_000
-    rv = client.post(f"/therapy/solo/{user_id}", data={"message": huge})
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.post("/therapy/solo", data={"message": huge})
     assert rv.status_code == 302   # redirect, not 500
 
 
@@ -274,18 +278,29 @@ def test_solo_page_has_end_session_button(client):
         user_id = str(uuid.uuid4())
         db.session.add(User(id=user_id, therapy_mode="solo"))
         db.session.commit()
-    rv = client.get(f"/therapy/solo/{user_id}")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get("/therapy/solo")
     assert rv.status_code == 200
     assert b"endSessionModal" in rv.data
     assert b"End Session" in rv.data
 
 
 def test_couple_page_has_end_session_button(client):
+    from datetime import datetime, timezone
     with app.app_context():
+        from models import TherapySession
         user_id = str(uuid.uuid4())
+        session_id = str(uuid.uuid4())
         db.session.add(User(id=user_id, therapy_mode="couple"))
+        db.session.add(TherapySession(
+            id=session_id, mode="couple", created_by=user_id,
+            created_at=datetime.now(timezone.utc)
+        ))
         db.session.commit()
-    rv = client.get(f"/therapy/couple/{user_id}")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/couple/{session_id}")
     assert rv.status_code == 200
     assert b"endSessionModal" in rv.data
     assert b"End Session" in rv.data
@@ -303,7 +318,9 @@ def test_group_page_has_end_session_button(client):
             created_at=datetime.now(timezone.utc)
         ))
         db.session.commit()
-    rv = client.get(f"/therapy/group/{user_id}/{session_id}")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/group/{session_id}")
     assert rv.status_code == 200
     assert b"endSessionModal" in rv.data
     assert b"End Session" in rv.data
@@ -336,7 +353,7 @@ def test_transcript_pdf_returns_pdf(client):
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "solo"})
     user_id = rv.get_json()["user_id"]
-    client.post(f"/therapy/solo/{user_id}", data={"message": "I feel anxious"})
+    client.post("/therapy/solo", data={"message": "I feel anxious"})
 
     rv = client.get(f"/transcript/{user_id}/pdf")
     assert rv.status_code == 200
@@ -350,7 +367,7 @@ def test_transcript_docx_returns_docx(client):
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "solo"})
     user_id = rv.get_json()["user_id"]
-    client.post(f"/therapy/solo/{user_id}", data={"message": "I feel anxious"})
+    client.post("/therapy/solo", data={"message": "I feel anxious"})
 
     rv = client.get(f"/transcript/{user_id}/docx")
     assert rv.status_code == 200
@@ -378,7 +395,9 @@ def test_end_session_modal_present_in_base(client):
         user_id = str(uuid.uuid4())
         db.session.add(User(id=user_id, therapy_mode="solo"))
         db.session.commit()
-    rv = client.get(f"/therapy/solo/{user_id}")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get("/therapy/solo")
     assert b"endSessionIdDisplay" in rv.data
     assert b"endSessionConfirmBtn" in rv.data
     assert b"endSessionCopyBtn" in rv.data

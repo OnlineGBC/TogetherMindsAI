@@ -37,7 +37,7 @@
             <div class="d-flex align-items-center gap-2 flex-grow-1 min-width-0">
                 <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
                 <div class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
-                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ user_id }}</span></small>
+                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ display_id }}</span></small>
                     <input type="text" id="sessionNicknameInline" class="form-control form-control-sm rounded-3 d-none"
                            placeholder="Friendly name…" maxlength="60" style="max-width:180px;">
                     <small id="sessionNicknameDisplay" class="text-muted fst-italic d-none"></small>
@@ -47,10 +47,24 @@
                 <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameSessionBtn" title="Rename session">
                     <i class="bi bi-pencil"></i>
                 </button>
-                <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ user_id }}')" title="Copy Session ID">
+                <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ display_id }}')" title="Copy Session ID">
                     <i class="bi bi-clipboard"></i>
                 </button>
             </div>
+        </div>
+
+        <!-- Privacy / welcome banner (dismissible, remembered via localStorage) -->
+        <div class="alert alert-info rounded-4 mb-3 py-2 px-3 d-flex align-items-start gap-2" id="privacyBanner">
+            <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1"></i>
+            <div class="flex-grow-1 small">
+                <strong>This session is fully confidential</strong> — visible only to you.<br>
+                Your anonymous Session ID is <strong class="font-monospace">{{ display_id }}</strong> —
+                or click <i class="bi bi-pencil"></i> to select a friendly name.<br>
+                At the end of the session you can <strong>download</strong> a copy (Word or PDF) or
+                <strong>delete everything permanently</strong> for complete privacy.
+            </div>
+            <button type="button" class="btn-close flex-shrink-0 ms-1" style="font-size:0.75rem"
+                    onclick="dismissPrivacyBanner()" aria-label="Close"></button>
         </div>
 
         <!-- Chat window -->
@@ -97,7 +111,7 @@
         </div>
 
         <!-- Input form -->
-        <form method="POST" action="/therapy/solo/{{ user_id }}" id="chatForm">
+        <form method="POST" action="/therapy/solo" id="chatForm">
             <div class="input-group shadow-sm rounded-4 overflow-hidden">
                 <input
                     type="text"
@@ -124,6 +138,8 @@
 
 {% block scripts %}
 <script>
+    var _DISPLAY_ID = "{{ display_id }}";
+
     function copySessionId(id) {
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(id);
@@ -133,6 +149,22 @@
             document.execCommand("copy"); document.body.removeChild(el);
         }
     }
+
+    function dismissPrivacyBanner() {
+        var el = document.getElementById("privacyBanner");
+        if (el) el.style.display = "none";
+        try { localStorage.setItem("privacyBannerDismissed_" + _DISPLAY_ID, "1"); } catch(e) {}
+    }
+
+    // Hide banner if already dismissed
+    (function () {
+        try {
+            if (localStorage.getItem("privacyBannerDismissed_" + _DISPLAY_ID)) {
+                var el = document.getElementById("privacyBanner");
+                if (el) el.style.display = "none";
+            }
+        } catch(e) {}
+    })();
 
     // Auto-scroll to bottom of chat
     (function () {

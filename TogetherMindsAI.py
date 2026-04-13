@@ -49,6 +49,16 @@ _RATE_WINDOW   = config.RATE_WINDOW_SECONDS
 _RATE_MAX_MSGS = config.RATE_MAX_MESSAGES
 _MAX_MSG_LEN   = config.MAX_MESSAGE_LENGTH
 
+
+def _short_id(id_str: str) -> str:
+    """Return a 6-character uppercase display ID derived from a UUID or alphanumeric ID.
+
+    Strips hyphens and takes the first 6 characters so the raw UUID is never
+    shown to users — the display ID is short, readable, and still unique enough
+    for in-session identification.
+    """
+    return id_str.replace("-", "").upper()[:6]
+
 # In-memory maps (ephemeral — reset on restart, which is acceptable for these)
 room_mode: dict = {}
 room_participants: dict = defaultdict(set)   # session_id → set of user_ids
@@ -155,7 +165,7 @@ def auth_post(therapy_mode):
         ))
     elif therapy_mode == "group" and not pending_group:
         # Only create a new session if not joining an existing one
-        random_session_id = str(random.randint(1000, 9999))
+        random_session_id = ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
         db.session.add(TherapySession(
             id=random_session_id, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
@@ -165,19 +175,22 @@ def auth_post(therapy_mode):
     session["user_id"] = user_id
 
     if therapy_mode == "solo":
-        return redirect(url_for("therapy_solo", user_id=user_id))
+        return redirect(url_for("therapy_solo"))
     elif therapy_mode == "couple":
         if pending_couple:
-            return redirect(url_for("therapy_couple", user_id=user_id, session_id=pending_couple))
-        return redirect(url_for("therapy_couple", user_id=user_id))
+            return redirect(url_for("therapy_couple", session_id=pending_couple))
+        return redirect(url_for("therapy_couple", session_id=user_id))
     else:
         if pending_group:
-            return redirect(url_for("therapy_group", user_id=user_id, session_id=pending_group))
-        return redirect(url_for("therapy_group", user_id=user_id, session_id=random_session_id))
+            return redirect(url_for("therapy_group", session_id=pending_group))
+        return redirect(url_for("therapy_group", session_id=random_session_id))
 
 
-@app.route("/therapy/solo/<user_id>", methods=["GET"])
-def therapy_solo(user_id):
+@app.route("/therapy/solo", methods=["GET"])
+def therapy_solo():
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode="solo"))
     messages = (
         ChatMessage.query
         .filter_by(session_id=user_id)
@@ -193,18 +206,22 @@ def therapy_solo(user_id):
         db.session.add(msg)
         db.session.commit()
         messages = [msg]
-    return render_template("solo.html", messages=messages, user_id=user_id)
+    return render_template("solo.html", messages=messages, user_id=user_id,
+                           display_id=_short_id(user_id))
 
 
-@app.route("/therapy/solo/<user_id>", methods=["POST"])
-def therapy_solo_post(user_id):
+@app.route("/therapy/solo", methods=["POST"])
+def therapy_solo_post():
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode="solo"))
     text = request.form.get("message", "").strip()
     if not text:
-        return redirect(url_for("therapy_solo", user_id=user_id))
+        return redirect(url_for("therapy_solo"))
     if len(text) > _MAX_MSG_LEN:
-        return redirect(url_for("therapy_solo", user_id=user_id))
+        return redirect(url_for("therapy_solo"))
     if not _check_rate_limit(user_id):
-        return redirect(url_for("therapy_solo", user_id=user_id))
+        return redirect(url_for("therapy_solo"))
 
     now = datetime.now(timezone.utc)
 
@@ -241,19 +258,25 @@ def therapy_solo_post(user_id):
     db.session.add(exercise)
     db.session.commit()
 
-    return redirect(url_for("therapy_solo", user_id=user_id))
+    return redirect(url_for("therapy_solo"))
 
 
-@app.route("/therapy/couple/<user_id>")
-def therapy_couple(user_id):
-    # session_id defaults to user_id for the host; partners pass it as a query param
-    session_id = request.args.get("session_id", user_id)
-    return render_template("couple.html", user_id=user_id, session_id=session_id)
+@app.route("/therapy/couple/<session_id>")
+def therapy_couple(session_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode="couple"))
+    return render_template("couple.html", user_id=user_id, session_id=session_id,
+                           display_id=_short_id(session_id))
 
 
-@app.route("/therapy/group/<user_id>/<session_id>")
-def therapy_group(user_id, session_id):
-    return render_template("group.html", user_id=user_id, session_id=session_id)
+@app.route("/therapy/group/<session_id>")
+def therapy_group(session_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode="group"))
+    return render_template("group.html", user_id=user_id, session_id=session_id,
+                           display_id=session_id)
 
 
 @app.route("/progress/<user_id>/<therapy_mode>")
@@ -308,8 +331,9 @@ def session_join_post():
         return render_template("join_session.html", error="Session not found. Check the ID and try again.")
 
     if ts.mode == "solo":
-        # Solo sessions are self-contained under the session_id URL — no auth required
-        return redirect(url_for("therapy_solo", user_id=session_id))
+        # Restore session so the clean /therapy/solo route can identify the user
+        session["user_id"] = session_id
+        return redirect(url_for("therapy_solo"))
 
     user_id = session.get("user_id")
     if not user_id:
@@ -321,9 +345,9 @@ def session_join_post():
         return redirect(url_for("auth_get", therapy_mode=ts.mode))
 
     if ts.mode == "couple":
-        return redirect(url_for("therapy_couple", user_id=user_id, session_id=session_id))
+        return redirect(url_for("therapy_couple", session_id=session_id))
     else:
-        return redirect(url_for("therapy_group", user_id=user_id, session_id=session_id))
+        return redirect(url_for("therapy_group", session_id=session_id))
 
 
 # ---------------------------------------------------------------------------
@@ -573,7 +597,7 @@ def api_auth_register():
         ))
     elif therapy_mode == "group" and not pending_group:
         # Only create a new session if not joining an existing one
-        random_session_id = str(random.randint(1000, 9999))
+        random_session_id = ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
         db.session.add(TherapySession(
             id=random_session_id, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),

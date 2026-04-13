@@ -93,7 +93,7 @@ def test_continue_button_disabled_until_all_checked(page, live_server_url):
 
 def test_full_auth_flow_solo(page, live_server_url):
     _complete_auth(page, live_server_url, mode="solo")
-    assert "/therapy/solo/" in page.url
+    assert "/therapy/solo" in page.url
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ def test_stale_identity_rereg_no_error(page, live_server_url):
     page.locator("#continueBtn").click()
 
     # Should redirect to therapy page without showing an error
-    page.wait_for_url(lambda url: "/therapy/solo/" in url, timeout=10_000)
+    page.wait_for_url(lambda url: "/therapy/solo" in url, timeout=10_000)
     assert page.locator("#authError").is_hidden()
 
 
@@ -378,7 +378,7 @@ def test_group_three_chats_four_people(page, live_server_url):
     # --- User 1 (browser): create group session ---
     _complete_auth(page, live_server_url, mode="group")
     assert "/therapy/group/" in page.url
-    # Group URL: /therapy/group/<user_id>/<session_id>
+    # Group URL: /therapy/group/<session_id>
     session_id = urlparse(page.url).path.rstrip("/").split("/")[-1]
 
     _ensure_socketio_connected(page)
