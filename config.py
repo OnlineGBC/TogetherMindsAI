@@ -82,7 +82,7 @@ ASYNC_MODE: str = "threading" if (FLASK_DEBUG or IS_TESTING) else "eventlet"
 
 RATE_WINDOW_SECONDS: int = int(os.environ.get("RATE_WINDOW_SECONDS", "60"))
 RATE_MAX_MESSAGES: int = int(os.environ.get("RATE_MAX_MESSAGES", "20"))
-MAX_MESSAGE_LENGTH: int = int(os.environ.get("MAX_MESSAGE_LENGTH", "2000"))
+MAX_MESSAGE_LENGTH: int = int(os.environ.get("MAX_MESSAGE_LENGTH", "8000"))
 
 # ---------------------------------------------------------------------------
 # Startup validation — called once from TogetherMindsAI.py

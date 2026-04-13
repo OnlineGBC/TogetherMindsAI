@@ -207,10 +207,25 @@ def therapy_solo_post(session_id):
     text = request.form.get("message", "").strip()
     if not text:
         return redirect(url_for("therapy_solo", session_id=session_id))
+
+    def _solo_error(msg, draft=None):
+        messages = (
+            ChatMessage.query
+            .filter_by(session_id=session_id)
+            .order_by(ChatMessage.timestamp.asc())
+            .all()
+        )
+        return render_template("solo.html", messages=messages, user_id=user_id,
+                               session_id=session_id, error=msg, draft=draft), 422
+
     if len(text) > _MAX_MSG_LEN:
-        return redirect(url_for("therapy_solo", session_id=session_id))
+        return _solo_error(
+            f"Your message is too long ({len(text):,} characters). "
+            f"Please keep it under {_MAX_MSG_LEN:,} characters.",
+            draft=text,
+        )
     if not _check_rate_limit(user_id):
-        return redirect(url_for("therapy_solo", session_id=session_id))
+        return _solo_error("You're sending messages too quickly — please wait a moment.")
 
     now = datetime.now(timezone.utc)
 

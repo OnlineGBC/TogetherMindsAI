@@ -256,7 +256,9 @@ def test_oversized_message_does_not_crash_server(client):
     priv, user_id, session_id = _register(client, "solo")
     huge = "x" * 100_000
     rv = client.post(f"/therapy/solo/{session_id}", data={"message": huge})
-    assert rv.status_code == 302   # redirect, not 500
+    assert rv.status_code in (302, 422)   # redirect or error page, not 500
+    if rv.status_code == 422:
+        assert b"too long" in rv.data.lower()
 
 
 def test_session_join_unknown_id_shows_error(client):

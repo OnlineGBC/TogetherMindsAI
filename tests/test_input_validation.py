@@ -38,11 +38,14 @@ def client():
         db.drop_all()
 
 
-def test_message_too_long_returns_redirect(client):
+def test_message_too_long_shows_error(client):
     c, uid, sid = client
     long_msg = "a" * (_MAX_MSG_LEN + 1)
     rv = c.post(f"/therapy/solo/{sid}", data={"message": long_msg})
-    assert rv.status_code == 302
+    assert rv.status_code == 422
+    assert b"too long" in rv.data.lower()
+    # Draft text must be preserved in the input so the user doesn't lose it
+    assert long_msg[:100].encode() in rv.data
 
 
 def test_message_empty_returns_redirect(client):
