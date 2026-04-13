@@ -154,10 +154,15 @@ function sendMessage(sessionId, userId, text, mode) {
 // ---------------------------------------------------------------------------
 
 var _SEND_ICON_HTML = '<i class="bi bi-send-fill"></i>';
-var _SEND_SPINNER_HTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+var _SEND_SPINNER_HTML = '<span class="spinner-multi" role="status" aria-hidden="true"></span>';
+
+function _getSendBtn() {
+    // All three modes now use id="sendBtn" (solo's submit button also has this id)
+    return document.getElementById("sendBtn");
+}
 
 function _showSendSpinner() {
-    var btn = document.querySelector("button[type='submit'].btn-primary-green");
+    var btn = _getSendBtn();
     if (btn) {
         btn.innerHTML = _SEND_SPINNER_HTML;
         btn.disabled = true;
@@ -165,7 +170,7 @@ function _showSendSpinner() {
 }
 
 function _hideSendSpinner() {
-    var btn = document.querySelector("button[type='submit'].btn-primary-green");
+    var btn = _getSendBtn();
     if (btn) {
         btn.innerHTML = _SEND_ICON_HTML;
         btn.disabled = false;

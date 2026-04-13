@@ -310,6 +310,28 @@ hr.border-green {
     border-radius: 10px;
 }
 
+/* ---- Multi-colored send spinner ---- */
+.spinner-multi {
+    display: inline-block;
+    vertical-align: middle;
+    width: 1.15em;
+    height: 1.15em;
+    border-radius: 50%;
+    background: conic-gradient(
+        #ff6b6b   0deg,
+        #ffd93d  90deg,
+        #6bcb77 180deg,
+        #4d96ff 270deg,
+        #ff6b6b 360deg
+    );
+    -webkit-mask: radial-gradient(farthest-side, transparent 54%, #000 55%);
+    mask: radial-gradient(farthest-side, transparent 54%, #000 55%);
+    animation: spin-multi 0.8s linear infinite;
+}
+@keyframes spin-multi {
+    to { transform: rotate(360deg); }
+}
+
 /* ---- Responsive tweaks ---- */
 @media (max-width: 576px) {
     .bubble { max-width: 88%; }
