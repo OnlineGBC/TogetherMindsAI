@@ -768,7 +768,10 @@ def on_send_message(data):
         if not text:
             return
         if len(text) > _MAX_MSG_LEN:
-            emit("error", {"message": "Message too long."})
+            emit("error", {"message": (
+                f"Your message is too long ({len(text):,} characters). "
+                f"Please keep it under {_MAX_MSG_LEN:,} characters."
+            )})
             return
         if not _check_rate_limit(user_id):
             emit("rate_limited", {"message": "You're sending messages too quickly. Please slow down."})

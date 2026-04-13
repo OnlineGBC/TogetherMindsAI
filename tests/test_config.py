@@ -112,7 +112,7 @@ class TestRateLimitDefaults:
         cfg = _reload_config({})
         assert cfg.RATE_WINDOW_SECONDS == 60
         assert cfg.RATE_MAX_MESSAGES == 20
-        assert cfg.MAX_MESSAGE_LENGTH == 2000
+        assert cfg.MAX_MESSAGE_LENGTH == 8000
 
     def test_overrides_respected(self):
         cfg = _reload_config({
