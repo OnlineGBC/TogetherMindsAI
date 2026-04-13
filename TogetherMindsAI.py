@@ -601,11 +601,13 @@ def api_auth_register():
             created_at=datetime.now(timezone.utc),
         ))
     elif therapy_mode == "couple" and not pending_couple:
-        # Only create a new session if not joining an existing one
+        # Only create a new session if not joining an existing one.
+        # For couple sessions session_id == user_id (creator's UUID).
         db.session.add(TherapySession(
             id=user_id, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
+        response_data["session_id"] = user_id  # JS redirect needs this explicitly
     elif therapy_mode == "group" and not pending_group:
         # Only create a new session if not joining an existing one
         random_session_id = generate_group_session_id()

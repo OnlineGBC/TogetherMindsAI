@@ -407,6 +407,27 @@ def test_end_session_modal_present_in_base(client):
 # Session ID centralisation — integration tests
 # ---------------------------------------------------------------------------
 
+def test_couple_register_returns_session_id(client):
+    """Couple registration must return session_id in the API response.
+
+    Regression: session_id was missing for couple creators, causing the JS
+    redirect to go to /therapy/couple/undefined and display 'UNDEFI'.
+    For couple sessions session_id == user_id (creator's UUID).
+    """
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "couple"})
+    assert rv.status_code == 201
+    data = rv.get_json()
+    assert "session_id" in data, (
+        "couple registration must include session_id in response — "
+        "JS redirect uses data.session_id to build the URL"
+    )
+    assert data["session_id"] == data["user_id"], (
+        "for couple sessions, session_id must equal user_id"
+    )
+
+
 def test_group_register_returns_valid_group_id(client):
     """Group session ID from /api/auth/register must pass is_valid_group_id."""
     from session_id import is_valid_group_id
