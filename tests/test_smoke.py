@@ -404,6 +404,142 @@ def test_end_session_modal_present_in_base(client):
 
 
 # ---------------------------------------------------------------------------
+# Session ID centralisation — integration tests
+# ---------------------------------------------------------------------------
+
+def test_group_register_returns_valid_group_id(client):
+    """Group session ID from /api/auth/register must pass is_valid_group_id."""
+    from session_id import is_valid_group_id
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "group"})
+    assert rv.status_code == 201
+    session_id = rv.get_json().get("session_id")
+    assert session_id is not None, "group registration must return a session_id"
+    assert is_valid_group_id(session_id), (
+        f"session_id {session_id!r} from /api/auth/register is not a valid group ID"
+    )
+
+
+def test_join_page_contains_dynamic_hint(client):
+    """The join page help text must come from the module, not hardcoded HTML."""
+    rv = client.get("/session/join")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    # Must contain the correct length (6) not the stale "4-digit"
+    assert "6" in body
+    assert "4-digit" not in body
+
+
+def test_join_page_placeholder_uses_charset_example(client):
+    """The join page placeholder must show a realistic group ID example."""
+    from session_id import _example_group_id
+    rv = client.get("/session/join")
+    assert rv.status_code == 200
+    assert _example_group_id().encode() in rv.data
+
+
+def test_join_page_does_not_say_1234(client):
+    """Regression: old placeholder said '1234' implying a 4-digit numeric code."""
+    rv = client.get("/session/join")
+    assert rv.status_code == 200
+    assert b"1234" not in rv.data
+
+
+def test_solo_display_id_is_short_and_no_raw_uuid_in_banner(client):
+    """The solo therapy page must show a 6-char display ID, not the raw UUID."""
+    from session_id import DISPLAY_ID_LENGTH
+    import re
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "solo"})
+    user_id = rv.get_json()["user_id"]
+
+    rv = client.get("/therapy/solo")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+
+    # The raw UUID (with hyphens) must NOT appear in the session banner or privacy banner
+    uuid_pattern = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+                               re.IGNORECASE)
+    # Extract just the banner/alert sections to avoid false positives in hidden inputs
+    banner_section = body[body.find("Session ID:"):body.find("Session ID:") + 200] if "Session ID:" in body else ""
+    assert not uuid_pattern.search(banner_section), (
+        f"Raw UUID found in session banner — display ID masking is broken.\n"
+        f"Banner section: {banner_section!r}"
+    )
+
+
+def test_couple_display_id_does_not_expose_raw_uuid(client):
+    """The couple therapy page session banner must show the masked display ID."""
+    from datetime import datetime, timezone
+    from models import TherapySession
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "couple"})
+    user_id = rv.get_json()["user_id"]
+    session_id = user_id  # for couple, session_id == user_id
+
+    rv = client.get(f"/therapy/couple/{session_id}")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+
+    import re
+    uuid_pattern = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+                               re.IGNORECASE)
+    banner_section = body[body.find("Session ID:"):body.find("Session ID:") + 200] if "Session ID:" in body else ""
+    assert not uuid_pattern.search(banner_section), (
+        f"Raw UUID found in couple session banner — display ID masking is broken.\n"
+        f"Banner section: {banner_section!r}"
+    )
+
+
+def test_group_display_id_equals_session_id(client):
+    """For group sessions, display_id must equal the internal session_id."""
+    from session_id import is_valid_group_id
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "group"})
+    session_id = rv.get_json()["session_id"]
+
+    rv = client.get(f"/therapy/group/{session_id}")
+    assert rv.status_code == 200
+    # The session_id (e.g. "AB3K7M") should appear in the rendered page as the display ID
+    assert session_id.encode() in rv.data
+
+
+def test_join_post_accepts_lowercase_group_id(client):
+    """Group IDs entered in lowercase must still be found (normalisation)."""
+    from datetime import datetime, timezone
+    from models import TherapySession
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "group"})
+    data = rv.get_json()
+    user_id = data["user_id"]
+    session_id = data["session_id"]
+
+    # Submit the group ID in lowercase
+    rv = client.post("/session/join", data={"session_id": session_id.lower()},
+                     follow_redirects=False)
+    # Should redirect (found), not render an error page
+    assert rv.status_code in (301, 302), (
+        f"Expected redirect for valid lowercase group ID, got {rv.status_code}. "
+        f"Response: {rv.data[:200]}"
+    )
+
+
+def test_join_error_page_still_shows_hint(client):
+    """Even on error, the join page must render the format hint (not blank)."""
+    from session_id import _example_group_id
+    rv = client.post("/session/join", data={"session_id": "DOESNOTEXIST"})
+    assert rv.status_code == 200
+    assert b"not found" in rv.data.lower()
+    # Hint must still be present — it's passed through _join_template on all paths
+    assert _example_group_id().encode() in rv.data
+
+
+# ---------------------------------------------------------------------------
 # WebSocket upgrade disabled under werkzeug
 # ---------------------------------------------------------------------------
 

@@ -30,14 +30,14 @@
                             id="session_id"
                             name="session_id"
                             class="form-control form-control-lg rounded-3"
-                            placeholder="e.g. My Monday session, 1234, or a full UUID"
+                            placeholder="{{ rejoin_placeholder }}"
                             required
                             autofocus
                             autocomplete="off"
                         />
                         <div class="form-text">
                             Enter the Session ID or the friendly name you gave the session.
-                            For group sessions use the 4-digit code; for couples sessions use the full UUID.
+                            {{ rejoin_hint }}
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary-green btn-lg w-100 rounded-3">

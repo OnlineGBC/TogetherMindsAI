@@ -7,7 +7,6 @@ if config.ASYNC_MODE == "eventlet":
     eventlet.monkey_patch()
 
 import base64
-import random
 import secrets
 import time
 import uuid
@@ -24,6 +23,14 @@ from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession
 from ai_therapist import process_input, generate_opening_message
+from session_id import (
+    generate_group_session_id,
+    to_display_id,
+    is_valid_group_id,
+    normalise_join_input,
+    rejoin_format_hint,
+    rejoin_placeholder,
+)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY or os.environ.get("SECRET_KEY", "dev-fallback-key")
@@ -49,15 +56,6 @@ _RATE_WINDOW   = config.RATE_WINDOW_SECONDS
 _RATE_MAX_MSGS = config.RATE_MAX_MESSAGES
 _MAX_MSG_LEN   = config.MAX_MESSAGE_LENGTH
 
-
-def _short_id(id_str: str) -> str:
-    """Return a 6-character uppercase display ID derived from a UUID or alphanumeric ID.
-
-    Strips hyphens and takes the first 6 characters so the raw UUID is never
-    shown to users — the display ID is short, readable, and still unique enough
-    for in-session identification.
-    """
-    return id_str.replace("-", "").upper()[:6]
 
 # In-memory maps (ephemeral — reset on restart, which is acceptable for these)
 room_mode: dict = {}
@@ -165,7 +163,7 @@ def auth_post(therapy_mode):
         ))
     elif therapy_mode == "group" and not pending_group:
         # Only create a new session if not joining an existing one
-        random_session_id = ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
+        random_session_id = generate_group_session_id()
         db.session.add(TherapySession(
             id=random_session_id, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
@@ -207,7 +205,7 @@ def therapy_solo():
         db.session.commit()
         messages = [msg]
     return render_template("solo.html", messages=messages, user_id=user_id,
-                           display_id=_short_id(user_id))
+                           display_id=to_display_id(user_id, "solo"))
 
 
 @app.route("/therapy/solo", methods=["POST"])
@@ -267,7 +265,7 @@ def therapy_couple(session_id):
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="couple"))
     return render_template("couple.html", user_id=user_id, session_id=session_id,
-                           display_id=_short_id(session_id))
+                           display_id=to_display_id(session_id, "couple"))
 
 
 @app.route("/therapy/group/<session_id>")
@@ -276,7 +274,7 @@ def therapy_group(session_id):
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="group"))
     return render_template("group.html", user_id=user_id, session_id=session_id,
-                           display_id=session_id)
+                           display_id=to_display_id(session_id, "group"))
 
 
 @app.route("/progress/<user_id>/<therapy_mode>")
@@ -308,16 +306,29 @@ def progress(user_id, therapy_mode):
 # Routes — session resumption
 # ---------------------------------------------------------------------------
 
+def _join_template(**kwargs):
+    """Render join_session.html with format hint context always populated."""
+    return render_template(
+        "join_session.html",
+        rejoin_hint=rejoin_format_hint(),
+        rejoin_placeholder=rejoin_placeholder(),
+        **kwargs,
+    )
+
+
 @app.route("/session/join", methods=["GET"])
 def session_join_get():
-    return render_template("join_session.html")
+    return _join_template()
 
 
 @app.route("/session/join", methods=["POST"])
 def session_join_post():
-    session_id = request.form.get("session_id", "").strip()
-    if not session_id:
-        return render_template("join_session.html", error="Please enter a Session ID.")
+    raw = request.form.get("session_id", "").strip()
+    if not raw:
+        return _join_template(error="Please enter a Session ID.")
+
+    # Normalise group IDs to uppercase (stored uppercase; user may type lowercase)
+    session_id = normalise_join_input(raw)
 
     ts = db.session.get(TherapySession, session_id)
     if not ts:
@@ -328,7 +339,7 @@ def session_join_post():
         if ts:
             session_id = ts.id  # use the real session ID, not the nickname, for redirects
     if not ts:
-        return render_template("join_session.html", error="Session not found. Check the ID and try again.")
+        return _join_template(error="Session not found. Check the ID and try again.")
 
     if ts.mode == "solo":
         # Restore session so the clean /therapy/solo route can identify the user
@@ -597,7 +608,7 @@ def api_auth_register():
         ))
     elif therapy_mode == "group" and not pending_group:
         # Only create a new session if not joining an existing one
-        random_session_id = ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
+        random_session_id = generate_group_session_id()
         db.session.add(TherapySession(
             id=random_session_id, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
