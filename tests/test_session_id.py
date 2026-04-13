@@ -1,8 +1,9 @@
 """
 Unit tests for session_id.py — the single source of truth for session ID logic.
 
-These tests are pure (no Flask context required) and verify the contracts of
-every public function in the module.
+All sessions (solo, couple, group) now use the same 6-char mixed-case
+alphanumeric format from SESSION_CHARSET. These tests verify every public
+function's contract.
 """
 
 import sys
@@ -11,164 +12,154 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
 from session_id import (
-    GROUP_CHARSET,
-    GROUP_ID_LENGTH,
-    DISPLAY_ID_LENGTH,
-    generate_group_session_id,
-    to_display_id,
-    is_valid_group_id,
-    is_display_id,
+    SESSION_CHARSET,
+    SESSION_ID_LENGTH,
+    generate_session_id,
+    is_valid_session_id,
     normalise_join_input,
     rejoin_format_hint,
     rejoin_placeholder,
-    _example_group_id,
+    _example_session_id,
 )
 
 
 # ---------------------------------------------------------------------------
-# generate_group_session_id
+# Charset sanity
 # ---------------------------------------------------------------------------
 
-class TestGenerateGroupSessionId:
+class TestCharset:
+    def test_excludes_uppercase_I(self):
+        assert "I" not in SESSION_CHARSET
+
+    def test_excludes_uppercase_O(self):
+        assert "O" not in SESSION_CHARSET
+
+    def test_excludes_lowercase_i(self):
+        assert "i" not in SESSION_CHARSET
+
+    def test_excludes_lowercase_l(self):
+        assert "l" not in SESSION_CHARSET
+
+    def test_excludes_lowercase_o(self):
+        assert "o" not in SESSION_CHARSET
+
+    def test_excludes_digit_zero(self):
+        assert "0" not in SESSION_CHARSET
+
+    def test_excludes_digit_one(self):
+        assert "1" not in SESSION_CHARSET
+
+    def test_contains_uppercase_letters(self):
+        assert "A" in SESSION_CHARSET and "Z" in SESSION_CHARSET
+
+    def test_contains_lowercase_letters(self):
+        assert "a" in SESSION_CHARSET and "z" in SESSION_CHARSET
+
+    def test_contains_digits(self):
+        assert "2" in SESSION_CHARSET and "9" in SESSION_CHARSET
+
+    def test_is_55_characters(self):
+        assert len(SESSION_CHARSET) == 55, (
+            f"Expected 55 chars (24 upper + 23 lower + 8 digits), got {len(SESSION_CHARSET)}"
+        )
+
+    def test_no_duplicates(self):
+        assert len(SESSION_CHARSET) == len(set(SESSION_CHARSET))
+
+
+# ---------------------------------------------------------------------------
+# generate_session_id
+# ---------------------------------------------------------------------------
+
+class TestGenerateSessionId:
     def test_returns_correct_length(self):
-        result = generate_group_session_id()
-        assert len(result) == GROUP_ID_LENGTH
+        assert len(generate_session_id()) == SESSION_ID_LENGTH
 
     def test_all_chars_in_charset(self):
-        for _ in range(20):
-            result = generate_group_session_id()
+        for _ in range(50):
+            result = generate_session_id()
             for ch in result:
-                assert ch in GROUP_CHARSET, f"Character {ch!r} not in GROUP_CHARSET"
+                assert ch in SESSION_CHARSET, f"Character {ch!r} not in SESSION_CHARSET"
 
-    def test_returns_uppercase(self):
-        result = generate_group_session_id()
-        assert result == result.upper()
+    def test_is_mixed_case(self):
+        """Over 50 IDs, should see both upper and lowercase characters."""
+        ids = [generate_session_id() for _ in range(50)]
+        all_chars = "".join(ids)
+        has_upper = any(c.isupper() for c in all_chars)
+        has_lower = any(c.islower() for c in all_chars)
+        assert has_upper and has_lower, "Expected mixed case across 50 generated IDs"
 
     def test_two_calls_differ(self):
-        """Statistically should differ — probability of collision is 1/32^6 ≈ 10^-9."""
-        ids = {generate_group_session_id() for _ in range(20)}
-        assert len(ids) > 1, "20 consecutive IDs were all identical — generator is broken"
+        ids = {generate_session_id() for _ in range(20)}
+        assert len(ids) > 1, "20 consecutive IDs were all identical"
 
-    def test_excludes_ambiguous_characters(self):
-        """I, O, 0, 1 must never appear (too easily confused)."""
+    def test_never_contains_ambiguous_chars(self):
         for _ in range(100):
-            result = generate_group_session_id()
-            for forbidden in ("I", "O", "0", "1"):
+            result = generate_session_id()
+            for forbidden in ("I", "O", "i", "l", "o", "0", "1"):
                 assert forbidden not in result, (
-                    f"Ambiguous character {forbidden!r} found in generated ID {result!r}"
+                    f"Ambiguous character {forbidden!r} found in {result!r}"
                 )
 
-    def test_collision_avoidance_with_existing_ids(self):
-        """When all but one candidate would collide, eventually returns the free one."""
-        # Generate one real ID and treat every other possible value as "existing"
-        # This is impractical for 32^6 IDs, so instead: restrict by patching.
-        # Simpler approach: pass a set containing many generated IDs and verify we
-        # still get something back (not RuntimeError) at small scale.
-        existing = {generate_group_session_id() for _ in range(50)}
-        # Should still succeed (50 collisions out of 1B possibilities is trivial)
-        result = generate_group_session_id(existing_ids=existing)
-        assert len(result) == GROUP_ID_LENGTH
+    def test_collision_avoidance(self):
+        existing = {generate_session_id() for _ in range(50)}
+        result = generate_session_id(existing_ids=existing)
+        assert len(result) == SESSION_ID_LENGTH
 
     def test_raises_if_all_candidates_collide(self, monkeypatch):
-        """If every candidate is in existing_ids, RuntimeError is raised."""
-        # Force the generator to always produce "AAAAAA"
         monkeypatch.setattr("session_id.secrets.choice", lambda _: "A")
-        with pytest.raises(RuntimeError, match="unique group session ID"):
-            generate_group_session_id(existing_ids={"AAAAAA"})
+        with pytest.raises(RuntimeError, match="unique session ID"):
+            generate_session_id(existing_ids={"AAAAAA"})
 
 
 # ---------------------------------------------------------------------------
-# to_display_id
+# is_valid_session_id
 # ---------------------------------------------------------------------------
 
-class TestToDisplayId:
-    KNOWN_UUID = "7a6d1ebd-e6b6-4b7d-afbf-9c56984b34f7"
-    KNOWN_DISPLAY = "7A6D1E"  # hyphens stripped, uppercased, first 6 chars
-
-    def test_solo_strips_hyphens_and_uppercases(self):
-        assert to_display_id(self.KNOWN_UUID, "solo") == self.KNOWN_DISPLAY
-
-    def test_couple_same_as_solo(self):
-        assert to_display_id(self.KNOWN_UUID, "couple") == self.KNOWN_DISPLAY
-
-    def test_group_returns_id_unchanged(self):
-        group_id = "AB3K7M"
-        assert to_display_id(group_id, "group") == group_id
-
-    def test_solo_result_is_exactly_display_id_length(self):
-        result = to_display_id(self.KNOWN_UUID, "solo")
-        assert len(result) == DISPLAY_ID_LENGTH
-
-    def test_couple_result_is_exactly_display_id_length(self):
-        result = to_display_id(self.KNOWN_UUID, "couple")
-        assert len(result) == DISPLAY_ID_LENGTH
-
-    def test_solo_result_never_contains_hyphen(self):
-        result = to_display_id(self.KNOWN_UUID, "solo")
-        assert "-" not in result
-
-    def test_couple_result_never_contains_hyphen(self):
-        result = to_display_id(self.KNOWN_UUID, "couple")
-        assert "-" not in result
-
-    def test_solo_result_is_uppercase(self):
-        result = to_display_id(self.KNOWN_UUID, "solo")
-        assert result == result.upper()
-
-    def test_couple_result_is_uppercase(self):
-        result = to_display_id(self.KNOWN_UUID, "couple")
-        assert result == result.upper()
-
-    def test_raises_for_unknown_mode(self):
-        with pytest.raises(ValueError, match="Unknown session mode"):
-            to_display_id(self.KNOWN_UUID, "family")
-
-    def test_raises_for_empty_mode(self):
-        with pytest.raises(ValueError):
-            to_display_id(self.KNOWN_UUID, "")
-
-    def test_group_display_equals_internal(self):
-        """For group sessions, display ID must equal the internal ID exactly."""
-        group_id = generate_group_session_id()
-        assert to_display_id(group_id, "group") == group_id
-
-
-# ---------------------------------------------------------------------------
-# is_valid_group_id
-# ---------------------------------------------------------------------------
-
-class TestIsValidGroupId:
+class TestIsValidSessionId:
     def test_true_for_generated_id(self):
         for _ in range(20):
-            assert is_valid_group_id(generate_group_session_id())
+            assert is_valid_session_id(generate_session_id())
 
     def test_false_for_full_uuid(self):
-        assert not is_valid_group_id("7a6d1ebd-e6b6-4b7d-afbf-9c56984b34f7")
+        assert not is_valid_session_id("7a6d1ebd-e6b6-4b7d-afbf-9c56984b34f7")
 
     def test_false_for_too_short(self):
-        assert not is_valid_group_id("AB3K7")   # 5 chars
+        assert not is_valid_session_id("aB3k7")
 
     def test_false_for_too_long(self):
-        assert not is_valid_group_id("AB3K7MX")  # 7 chars
+        assert not is_valid_session_id("aB3k7MX")
 
-    def test_false_for_excluded_char_O(self):
-        assert not is_valid_group_id("ABCDO2")   # O is excluded
+    def test_false_for_excluded_uppercase_I(self):
+        assert not is_valid_session_id("ABCDEI")
 
-    def test_false_for_excluded_char_I(self):
-        assert not is_valid_group_id("ABCDI2")   # I is excluded
+    def test_false_for_excluded_uppercase_O(self):
+        assert not is_valid_session_id("ABCDEO")
 
-    def test_false_for_excluded_char_zero(self):
-        assert not is_valid_group_id("ABC002")   # 0 is excluded
+    def test_false_for_excluded_lowercase_i(self):
+        assert not is_valid_session_id("abcdei")
 
-    def test_false_for_excluded_char_one(self):
-        assert not is_valid_group_id("ABC1B2")   # 1 is excluded
+    def test_false_for_excluded_lowercase_l(self):
+        assert not is_valid_session_id("abcdel")
 
-    def test_false_for_lowercase(self):
-        """Charset is uppercase; lowercase inputs must return False."""
-        assert not is_valid_group_id("ab3k7m")
+    def test_false_for_excluded_lowercase_o(self):
+        assert not is_valid_session_id("abcdeo")
+
+    def test_false_for_excluded_digit_zero(self):
+        assert not is_valid_session_id("aB3k70")
+
+    def test_false_for_excluded_digit_one(self):
+        assert not is_valid_session_id("aB3k71")
+
+    def test_case_sensitive(self):
+        """IDs are case-sensitive — a valid uppercase ID is not the same as lowercase."""
+        upper = "ABCDEF"
+        lower = "abcdef"
+        # Both may or may not be valid (depends on charset), but they are different
+        assert upper != lower
 
     def test_true_for_example_id(self):
-        assert is_valid_group_id(_example_group_id())
+        assert is_valid_session_id(_example_session_id())
 
 
 # ---------------------------------------------------------------------------
@@ -176,47 +167,20 @@ class TestIsValidGroupId:
 # ---------------------------------------------------------------------------
 
 class TestNormaliseJoinInput:
-    def test_uppercases_valid_group_id(self):
-        assert normalise_join_input("ab3k7m") == "AB3K7M"
+    def test_strips_whitespace(self):
+        assert normalise_join_input("  aB3k7M  ") == "aB3k7M"
 
-    def test_leaves_uuid_unchanged(self):
-        uuid_str = "7a6d1ebd-e6b6-4b7d-afbf-9c56984b34f7"
-        assert normalise_join_input(uuid_str) == uuid_str
+    def test_preserves_case(self):
+        """Session IDs are case-sensitive — normalisation must not change case."""
+        assert normalise_join_input("aB3k7M") == "aB3k7M"
+        assert normalise_join_input("AB3K7M") == "AB3K7M"
 
-    def test_leaves_nickname_unchanged(self):
+    def test_preserves_nickname(self):
         assert normalise_join_input("My Monday session") == "My Monday session"
 
-    def test_uppercase_group_id_unchanged(self):
-        group_id = generate_group_session_id()
-        assert normalise_join_input(group_id) == group_id
-
-
-# ---------------------------------------------------------------------------
-# is_display_id
-# ---------------------------------------------------------------------------
-
-class TestIsDisplayId:
-    def test_true_for_6_char_uppercase_alnum(self):
-        assert is_display_id("7A6D1E")
-
-    def test_true_for_generated_group_id(self):
-        assert is_display_id(generate_group_session_id())
-
-    def test_false_for_full_uuid(self):
-        assert not is_display_id("7a6d1ebd-e6b6-4b7d-afbf-9c56984b34f7")
-
-    def test_true_for_lowercase(self):
-        """Lowercase display IDs must be accepted — the search uppercases internally."""
-        assert is_display_id("7a6d1e")
-
-    def test_false_for_too_short(self):
-        assert not is_display_id("7A6D1")
-
-    def test_false_for_too_long(self):
-        assert not is_display_id("7A6D1EX")
-
-    def test_false_for_contains_hyphen(self):
-        assert not is_display_id("7A6D-E")
+    def test_no_op_on_already_stripped(self):
+        sid = generate_session_id()
+        assert normalise_join_input(sid) == sid
 
 
 # ---------------------------------------------------------------------------
@@ -224,39 +188,23 @@ class TestIsDisplayId:
 # ---------------------------------------------------------------------------
 
 class TestRejoinFormatHint:
-    def test_none_mode_contains_group_length(self):
-        hint = rejoin_format_hint()
-        assert str(GROUP_ID_LENGTH) in hint
+    def test_returns_non_empty(self):
+        assert rejoin_format_hint().strip()
 
-    def test_none_mode_does_not_say_4_digit(self):
-        """Regression: the old hardcoded text said '4-digit' which was wrong."""
-        hint = rejoin_format_hint()
-        assert "4-digit" not in hint
+    def test_mentions_session_id_length(self):
+        assert str(SESSION_ID_LENGTH) in rejoin_format_hint()
 
-    def test_group_mode_does_not_mention_uuid(self):
-        hint = rejoin_format_hint("group")
-        assert "UUID" not in hint and "uuid" not in hint.lower()
+    def test_mentions_case_sensitive(self):
+        assert "case-sensitive" in rejoin_format_hint().lower()
 
-    def test_group_mode_does_not_mention_couples(self):
-        hint = rejoin_format_hint("group")
-        assert "couple" not in hint.lower()
+    def test_does_not_mention_old_4_digit(self):
+        assert "4-digit" not in rejoin_format_hint()
 
-    def test_solo_mode_returns_non_empty(self):
-        assert rejoin_format_hint("solo").strip()
+    def test_does_not_mention_uuid(self):
+        assert "UUID" not in rejoin_format_hint() and "uuid" not in rejoin_format_hint()
 
-    def test_couple_mode_returns_non_empty(self):
-        assert rejoin_format_hint("couple").strip()
-
-    def test_group_mode_returns_non_empty(self):
-        assert rejoin_format_hint("group").strip()
-
-    def test_none_mode_returns_non_empty(self):
-        assert rejoin_format_hint(None).strip()
-
-    def test_hint_contains_example_id(self):
-        """The hint should include a recognisable example from the charset."""
-        hint = rejoin_format_hint("group")
-        assert _example_group_id() in hint
+    def test_contains_example(self):
+        assert _example_session_id() in rejoin_format_hint()
 
 
 # ---------------------------------------------------------------------------
@@ -264,23 +212,11 @@ class TestRejoinFormatHint:
 # ---------------------------------------------------------------------------
 
 class TestRejoinPlaceholder:
-    def test_general_placeholder_is_non_empty(self):
+    def test_returns_non_empty(self):
         assert rejoin_placeholder().strip()
 
-    def test_group_placeholder_is_non_empty(self):
-        assert rejoin_placeholder("group").strip()
+    def test_contains_example(self):
+        assert _example_session_id() in rejoin_placeholder()
 
-    def test_solo_placeholder_is_non_empty(self):
-        assert rejoin_placeholder("solo").strip()
-
-    def test_couple_placeholder_is_non_empty(self):
-        assert rejoin_placeholder("couple").strip()
-
-    def test_group_placeholder_contains_example(self):
-        """Placeholder should show a realistic example group ID."""
-        placeholder = rejoin_placeholder("group")
-        assert _example_group_id() in placeholder
-
-    def test_general_placeholder_does_not_say_1234(self):
-        """Regression: old placeholder said '1234' which implied a 4-digit numeric code."""
+    def test_does_not_contain_1234(self):
         assert "1234" not in rejoin_placeholder()

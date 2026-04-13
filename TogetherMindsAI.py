@@ -23,16 +23,7 @@ from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession
 from ai_therapist import process_input, generate_opening_message
-from session_id import (
-    generate_group_session_id,
-    to_display_id,
-    is_valid_group_id,
-    is_display_id,
-    display_id_filter,
-    normalise_join_input,
-    rejoin_format_hint,
-    rejoin_placeholder,
-)
+from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY or os.environ.get("SECRET_KEY", "dev-fallback-key")
@@ -151,23 +142,23 @@ def auth_post(therapy_mode):
     pending_couple = session.pop("pending_couple_session", None)
     pending_group  = session.pop("pending_group_session",  None)
 
-    random_session_id = None
-    if therapy_mode == "solo":
+    new_session_id = None
+    if therapy_mode == "solo" and not pending_couple and not pending_group:
+        new_session_id = generate_session_id()
         db.session.add(TherapySession(
-            id=user_id, mode="solo", created_by=user_id,
+            id=new_session_id, mode="solo", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
     elif therapy_mode == "couple" and not pending_couple:
-        # Only create a new session if not joining an existing one
+        new_session_id = generate_session_id()
         db.session.add(TherapySession(
-            id=user_id, mode="couple", created_by=user_id,
+            id=new_session_id, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
     elif therapy_mode == "group" and not pending_group:
-        # Only create a new session if not joining an existing one
-        random_session_id = generate_group_session_id()
+        new_session_id = generate_session_id()
         db.session.add(TherapySession(
-            id=random_session_id, mode="group", created_by=user_id,
+            id=new_session_id, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
 
@@ -175,60 +166,58 @@ def auth_post(therapy_mode):
     session["user_id"] = user_id
 
     if therapy_mode == "solo":
-        return redirect(url_for("therapy_solo"))
+        return redirect(url_for("therapy_solo", session_id=new_session_id))
     elif therapy_mode == "couple":
-        if pending_couple:
-            return redirect(url_for("therapy_couple", session_id=pending_couple))
-        return redirect(url_for("therapy_couple", session_id=user_id))
+        sid = pending_couple or new_session_id
+        return redirect(url_for("therapy_couple", session_id=sid))
     else:
-        if pending_group:
-            return redirect(url_for("therapy_group", session_id=pending_group))
-        return redirect(url_for("therapy_group", session_id=random_session_id))
+        sid = pending_group or new_session_id
+        return redirect(url_for("therapy_group", session_id=sid))
 
 
-@app.route("/therapy/solo", methods=["GET"])
-def therapy_solo():
+@app.route("/therapy/solo/<session_id>", methods=["GET"])
+def therapy_solo(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="solo"))
     messages = (
         ChatMessage.query
-        .filter_by(session_id=user_id)
+        .filter_by(session_id=session_id)
         .order_by(ChatMessage.timestamp.asc())
         .all()
     )
     if not messages and not config.IS_TESTING:
         opening = generate_opening_message("solo")
         msg = ChatMessage(
-            session_id=user_id, user_id="AI", text=opening,
+            session_id=session_id, user_id="AI", text=opening,
             timestamp=datetime.now(timezone.utc),
         )
         db.session.add(msg)
         db.session.commit()
         messages = [msg]
     return render_template("solo.html", messages=messages, user_id=user_id,
-                           display_id=to_display_id(user_id, "solo"))
+                           session_id=session_id)
 
 
-@app.route("/therapy/solo", methods=["POST"])
-def therapy_solo_post():
+@app.route("/therapy/solo/<session_id>", methods=["POST"])
+def therapy_solo_post(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="solo"))
     text = request.form.get("message", "").strip()
     if not text:
-        return redirect(url_for("therapy_solo"))
+        return redirect(url_for("therapy_solo", session_id=session_id))
     if len(text) > _MAX_MSG_LEN:
-        return redirect(url_for("therapy_solo"))
+        return redirect(url_for("therapy_solo", session_id=session_id))
     if not _check_rate_limit(user_id):
-        return redirect(url_for("therapy_solo"))
+        return redirect(url_for("therapy_solo", session_id=session_id))
 
     now = datetime.now(timezone.utc)
 
     # Fetch conversation history before adding the new message
     prior_msgs = (
         ChatMessage.query
-        .filter_by(session_id=user_id)
+        .filter_by(session_id=session_id)
         .order_by(ChatMessage.timestamp.asc())
         .all()
     )
@@ -238,7 +227,7 @@ def therapy_solo_post():
     ]
 
     user_msg = ChatMessage(
-        session_id=user_id, user_id=user_id, text=text, timestamp=now,
+        session_id=session_id, user_id=user_id, text=text, timestamp=now,
     )
     db.session.add(user_msg)
 
@@ -246,7 +235,7 @@ def therapy_solo_post():
     ai_text = process_input(text, mode="solo", session_message_count=session_message_count, history=history)
 
     ai_msg = ChatMessage(
-        session_id=user_id, user_id="AI", text=ai_text,
+        session_id=session_id, user_id="AI", text=ai_text,
         timestamp=datetime.now(timezone.utc),
     )
     db.session.add(ai_msg)
@@ -258,7 +247,7 @@ def therapy_solo_post():
     db.session.add(exercise)
     db.session.commit()
 
-    return redirect(url_for("therapy_solo"))
+    return redirect(url_for("therapy_solo", session_id=session_id))
 
 
 @app.route("/therapy/couple/<session_id>")
@@ -266,8 +255,7 @@ def therapy_couple(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="couple"))
-    return render_template("couple.html", user_id=user_id, session_id=session_id,
-                           display_id=to_display_id(session_id, "couple"))
+    return render_template("couple.html", user_id=user_id, session_id=session_id)
 
 
 @app.route("/therapy/group/<session_id>")
@@ -275,8 +263,7 @@ def therapy_group(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="group"))
-    return render_template("group.html", user_id=user_id, session_id=session_id,
-                           display_id=to_display_id(session_id, "group"))
+    return render_template("group.html", user_id=user_id, session_id=session_id)
 
 
 @app.route("/progress/<user_id>/<therapy_mode>")
@@ -329,34 +316,21 @@ def session_join_post():
     if not raw:
         return _join_template(error="Please enter a Session ID.")
 
-    # Normalise group IDs to uppercase (stored uppercase; user may type lowercase)
-    session_id = normalise_join_input(raw)
-
-    ts = db.session.get(TherapySession, session_id)
+    # Step 1: exact case-sensitive lookup by session ID
+    ts = db.session.get(TherapySession, raw)
     if not ts:
-        # Fall back to case-insensitive nickname search so any device can rejoin by name
+        # Step 2: case-insensitive nickname lookup
         ts = TherapySession.query.filter(
-            db.func.lower(TherapySession.nickname) == session_id.lower()
+            db.func.lower(TherapySession.nickname) == raw.lower()
         ).first()
-        if ts:
-            session_id = ts.id  # use the real session ID, not the nickname, for redirects
-    if not ts and is_display_id(session_id):
-        # Fall back to display ID prefix search for solo/couple sessions.
-        # The display ID (e.g. "7A6D1E") is shown to users but the DB stores
-        # the full UUID — find it by matching the first DISPLAY_ID_LENGTH chars.
-        id_filter, mode_filter = display_id_filter(
-            db.func, TherapySession.id, TherapySession.mode, session_id
-        )
-        ts = TherapySession.query.filter(id_filter, mode_filter).first()
-        if ts:
-            session_id = ts.id
     if not ts:
         return _join_template(error="Session not found. Check the ID and try again.")
 
+    session_id = ts.id  # always use the real ID from DB
+
     if ts.mode == "solo":
-        # Restore session so the clean /therapy/solo route can identify the user
-        session["user_id"] = session_id
-        return redirect(url_for("therapy_solo"))
+        session["user_id"] = ts.created_by
+        return redirect(url_for("therapy_solo", session_id=session_id))
 
     user_id = session.get("user_id")
     if not user_id:
@@ -396,10 +370,13 @@ def save_session_nickname(session_id):
 @app.route("/session/<session_id>/delete", methods=["POST"])
 def delete_session(session_id):
     """Delete all data for a session and return to home."""
+    ts = db.session.get(TherapySession, session_id)
+    user_id = ts.created_by if ts else None
     ChatMessage.query.filter_by(session_id=session_id).delete(synchronize_session=False)
     TherapySession.query.filter_by(id=session_id).delete(synchronize_session=False)
-    Exercise.query.filter_by(user_id=session_id).delete(synchronize_session=False)
-    User.query.filter_by(id=session_id).delete(synchronize_session=False)
+    if user_id:
+        Exercise.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+        User.query.filter_by(id=user_id).delete(synchronize_session=False)
     db.session.commit()
     session.clear()
     return jsonify({"deleted": True}), 200
@@ -428,15 +405,16 @@ def delete_user(user_id):
 # Routes — transcript download
 # ---------------------------------------------------------------------------
 
-def _transcript_data(user_id):
-    """Return (messages, mode, generated_at) for a given user_id."""
+def _transcript_data(session_id):
+    """Return (messages, mode, generated_at) for a given session_id."""
     messages = (
         ChatMessage.query
-        .filter_by(session_id=user_id)
+        .filter_by(session_id=session_id)
         .order_by(ChatMessage.timestamp.asc())
         .all()
     )
-    user = db.session.get(User, user_id)
+    ts = db.session.get(TherapySession, session_id)
+    user = db.session.get(User, ts.created_by) if ts else None
     mode = user.therapy_mode.capitalize() if user else "Unknown"
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return messages, mode, generated_at
@@ -447,15 +425,16 @@ _FONT_REGULAR = os.path.join(_FONT_DIR, "DejaVuSans.ttf")
 _FONT_BOLD    = os.path.join(_FONT_DIR, "DejaVuSans-Bold.ttf")
 
 
-@app.route("/transcript/<user_id>/pdf")
-def download_transcript_pdf(user_id):
-    if session.get("user_id") != user_id:
+@app.route("/transcript/<session_id>/pdf")
+def download_transcript_pdf(session_id):
+    ts = db.session.get(TherapySession, session_id)
+    if not ts or session.get("user_id") != ts.created_by:
         return jsonify({"error": "Forbidden"}), 403
 
     from fpdf import FPDF
     from fpdf.enums import XPos, YPos
 
-    messages, mode, generated_at = _transcript_data(user_id)
+    messages, mode, generated_at = _transcript_data(session_id)
 
     pdf = FPDF()
     pdf.set_margins(20, 20, 20)
@@ -472,7 +451,7 @@ def download_transcript_pdf(user_id):
     # Metadata
     pdf.set_font("DejaVu", "", 10)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, f"Session ID : {user_id}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 6, f"Session ID : {session_id}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Mode       : {mode}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Generated  : {generated_at}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(4)
@@ -509,23 +488,24 @@ def download_transcript_pdf(user_id):
             pdf.ln(3)
 
     buf = io.BytesIO(pdf.output())
-    filename = f"transcript_{user_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
+    filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
     response = make_response(buf.getvalue())
     response.headers["Content-Type"] = "application/pdf"
     response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
-@app.route("/transcript/<user_id>/docx")
-def download_transcript_docx(user_id):
-    if session.get("user_id") != user_id:
+@app.route("/transcript/<session_id>/docx")
+def download_transcript_docx(session_id):
+    ts = db.session.get(TherapySession, session_id)
+    if not ts or session.get("user_id") != ts.created_by:
         return jsonify({"error": "Forbidden"}), 403
 
     from docx import Document
     from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-    messages, mode, generated_at = _transcript_data(user_id)
+    messages, mode, generated_at = _transcript_data(session_id)
 
     doc = Document()
 
@@ -536,7 +516,7 @@ def download_transcript_docx(user_id):
     # Metadata table
     meta = doc.add_paragraph()
     meta.add_run("Session ID : ").bold = True
-    meta.add_run(user_id)
+    meta.add_run(session_id)
     meta2 = doc.add_paragraph()
     meta2.add_run("Mode       : ").bold = True
     meta2.add_run(mode)
@@ -568,7 +548,7 @@ def download_transcript_docx(user_id):
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
-    filename = f"transcript_{user_id[:8]}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.docx"
+    filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.docx"
     response = make_response(buf.getvalue())
     response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -607,27 +587,27 @@ def api_auth_register():
 
     response_data = {"user_id": user_id, "therapy_mode": therapy_mode}
 
-    if therapy_mode == "solo":
+    if therapy_mode == "solo" and not pending_couple and not pending_group:
+        new_sid = generate_session_id()
         db.session.add(TherapySession(
-            id=user_id, mode="solo", created_by=user_id,
+            id=new_sid, mode="solo", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
+        response_data["session_id"] = new_sid
     elif therapy_mode == "couple" and not pending_couple:
-        # Only create a new session if not joining an existing one.
-        # For couple sessions session_id == user_id (creator's UUID).
+        new_sid = generate_session_id()
         db.session.add(TherapySession(
-            id=user_id, mode="couple", created_by=user_id,
+            id=new_sid, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
-        response_data["session_id"] = user_id  # JS redirect needs this explicitly
+        response_data["session_id"] = new_sid
     elif therapy_mode == "group" and not pending_group:
-        # Only create a new session if not joining an existing one
-        random_session_id = generate_group_session_id()
+        new_sid = generate_session_id()
         db.session.add(TherapySession(
-            id=random_session_id, mode="group", created_by=user_id,
+            id=new_sid, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
-        response_data["session_id"] = random_session_id
+        response_data["session_id"] = new_sid
 
     if pending_couple:
         response_data["session_id"] = pending_couple
@@ -694,13 +674,8 @@ def api_auth_verify():
 
     session["user_id"] = user_id
 
-    session_id = None
-    if user.therapy_mode == "couple":
-        session_id = user_id
-    elif user.therapy_mode == "group":
-        ts = TherapySession.query.filter_by(created_by=user_id, mode="group").first()
-        if ts:
-            session_id = ts.id
+    ts = TherapySession.query.filter_by(created_by=user_id, mode=user.therapy_mode).first()
+    session_id = ts.id if ts else None
 
     return jsonify({
         "ok": True,

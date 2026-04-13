@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from TogetherMindsAI import app
 from models import db, User
+from session_id import generate_session_id, is_valid_session_id
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,16 @@ def _make_keypair():
 
 def _sign(priv, message: str) -> str:
     return base64.b64encode(priv.sign(message.encode(), ECDSA(SHA256()))).decode()
+
+
+def _register(client, mode="solo"):
+    """Register a new user and return (priv_key, user_id, session_id)."""
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": mode})
+    assert rv.status_code == 201
+    data = rv.get_json()
+    return priv, data["user_id"], data.get("session_id")
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +115,10 @@ def test_progress_page_returns_200(client):
 
 
 def test_therapy_solo_page_returns_200(client):
-    with app.app_context():
-        user_id = str(uuid.uuid4())
-        db.session.add(User(id=user_id, therapy_mode="solo"))
-        db.session.commit()
+    priv, user_id, session_id = _register(client, "solo")
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
-    assert client.get("/therapy/solo").status_code == 200
+    assert client.get(f"/therapy/solo/{session_id}").status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +166,9 @@ def test_golden_path_solo(client):
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "solo"})
     assert rv.status_code == 201
-    user_id = rv.get_json()["user_id"]
+    data = rv.get_json()
+    user_id = data["user_id"]
+    session_id = data["session_id"]
 
     # 2. Challenge
     rv = client.post("/api/auth/challenge", json={"user_id": user_id})
@@ -172,11 +182,11 @@ def test_golden_path_solo(client):
     assert rv.get_json()["ok"] is True
 
     # 4. Load therapy page
-    rv = client.get("/therapy/solo")
+    rv = client.get(f"/therapy/solo/{session_id}")
     assert rv.status_code == 200
 
     # 5. Send a message — should redirect back to therapy page
-    rv = client.post("/therapy/solo",
+    rv = client.post(f"/therapy/solo/{session_id}",
                      data={"message": "I feel anxious today"},
                      follow_redirects=True)
     assert rv.status_code == 200
@@ -186,12 +196,9 @@ def test_golden_path_solo(client):
 
 def test_golden_path_message_creates_exercise(client):
     """A sent message must be persisted as an Exercise record."""
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
+    priv, user_id, session_id = _register(client, "solo")
 
-    client.post("/therapy/solo",
+    client.post(f"/therapy/solo/{session_id}",
                 data={"message": "I feel very sad"})
 
     with app.app_context():
@@ -203,12 +210,9 @@ def test_golden_path_message_creates_exercise(client):
 
 
 def test_progress_page_shows_data_after_messages(client):
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
+    priv, user_id, session_id = _register(client, "solo")
 
-    client.post("/therapy/solo", data={"message": "Hello there"})
+    client.post(f"/therapy/solo/{session_id}", data={"message": "Hello there"})
 
     rv = client.get(f"/progress/{user_id}/solo")
     assert rv.status_code == 200
@@ -221,11 +225,8 @@ def test_progress_page_shows_data_after_messages(client):
 # ---------------------------------------------------------------------------
 
 def test_delete_user_removes_all_data(client):
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
-    client.post("/therapy/solo", data={"message": "Hello"})
+    priv, user_id, session_id = _register(client, "solo")
+    client.post(f"/therapy/solo/{session_id}", data={"message": "Hello"})
 
     rv = client.delete(f"/user/{user_id}")
     assert rv.status_code == 200
@@ -252,14 +253,9 @@ def test_delete_user_forbidden_for_wrong_session(client):
 # ---------------------------------------------------------------------------
 
 def test_oversized_message_does_not_crash_server(client):
-    with app.app_context():
-        user_id = str(uuid.uuid4())
-        db.session.add(User(id=user_id, therapy_mode="solo"))
-        db.session.commit()
+    priv, user_id, session_id = _register(client, "solo")
     huge = "x" * 100_000
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    rv = client.post("/therapy/solo", data={"message": huge})
+    rv = client.post(f"/therapy/solo/{session_id}", data={"message": huge})
     assert rv.status_code == 302   # redirect, not 500
 
 
@@ -274,13 +270,8 @@ def test_session_join_unknown_id_shows_error(client):
 # ---------------------------------------------------------------------------
 
 def test_solo_page_has_end_session_button(client):
-    with app.app_context():
-        user_id = str(uuid.uuid4())
-        db.session.add(User(id=user_id, therapy_mode="solo"))
-        db.session.commit()
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    rv = client.get("/therapy/solo")
+    priv, user_id, session_id = _register(client, "solo")
+    rv = client.get(f"/therapy/solo/{session_id}")
     assert rv.status_code == 200
     assert b"endSessionModal" in rv.data
     assert b"End Session" in rv.data
@@ -291,7 +282,7 @@ def test_couple_page_has_end_session_button(client):
     with app.app_context():
         from models import TherapySession
         user_id = str(uuid.uuid4())
-        session_id = str(uuid.uuid4())
+        session_id = generate_session_id()
         db.session.add(User(id=user_id, therapy_mode="couple"))
         db.session.add(TherapySession(
             id=session_id, mode="couple", created_by=user_id,
@@ -311,7 +302,7 @@ def test_group_page_has_end_session_button(client):
     with app.app_context():
         from models import TherapySession
         user_id = str(uuid.uuid4())
-        session_id = str(uuid.uuid4())
+        session_id = generate_session_id()
         db.session.add(User(id=user_id, therapy_mode="group"))
         db.session.add(TherapySession(
             id=session_id, mode="group", created_by=user_id,
@@ -331,31 +322,24 @@ def test_group_page_has_end_session_button(client):
 # ---------------------------------------------------------------------------
 
 def test_transcript_pdf_forbidden_without_session(client):
-    with app.app_context():
-        user_id = str(uuid.uuid4())
-        db.session.add(User(id=user_id, therapy_mode="solo"))
-        db.session.commit()
-    rv = client.get(f"/transcript/{user_id}/pdf")
+    """No flask session → 403 regardless of session_id."""
+    fake_session_id = generate_session_id()
+    rv = client.get(f"/transcript/{fake_session_id}/pdf")
     assert rv.status_code == 403
 
 
 def test_transcript_docx_forbidden_without_session(client):
-    with app.app_context():
-        user_id = str(uuid.uuid4())
-        db.session.add(User(id=user_id, therapy_mode="solo"))
-        db.session.commit()
-    rv = client.get(f"/transcript/{user_id}/docx")
+    """No flask session → 403 regardless of session_id."""
+    fake_session_id = generate_session_id()
+    rv = client.get(f"/transcript/{fake_session_id}/docx")
     assert rv.status_code == 403
 
 
 def test_transcript_pdf_returns_pdf(client):
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
-    client.post("/therapy/solo", data={"message": "I feel anxious"})
+    priv, user_id, session_id = _register(client, "solo")
+    client.post(f"/therapy/solo/{session_id}", data={"message": "I feel anxious"})
 
-    rv = client.get(f"/transcript/{user_id}/pdf")
+    rv = client.get(f"/transcript/{session_id}/pdf")
     assert rv.status_code == 200
     assert rv.content_type == "application/pdf"
     assert rv.data[:4] == b"%PDF"
@@ -363,13 +347,10 @@ def test_transcript_pdf_returns_pdf(client):
 
 
 def test_transcript_docx_returns_docx(client):
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
-    client.post("/therapy/solo", data={"message": "I feel anxious"})
+    priv, user_id, session_id = _register(client, "solo")
+    client.post(f"/therapy/solo/{session_id}", data={"message": "I feel anxious"})
 
-    rv = client.get(f"/transcript/{user_id}/docx")
+    rv = client.get(f"/transcript/{session_id}/docx")
     assert rv.status_code == 200
     assert "wordprocessingml" in rv.content_type
     # DOCX files are ZIP archives starting with PK
@@ -378,26 +359,28 @@ def test_transcript_docx_returns_docx(client):
 
 
 def test_transcript_pdf_empty_session(client):
+    from datetime import datetime, timezone
     with app.app_context():
+        from models import TherapySession
         user_id = str(uuid.uuid4())
+        session_id = generate_session_id()
         db.session.add(User(id=user_id, therapy_mode="solo"))
+        db.session.add(TherapySession(
+            id=session_id, mode="solo", created_by=user_id,
+            created_at=datetime.now(timezone.utc)
+        ))
         db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
-    rv = client.get(f"/transcript/{user_id}/pdf")
+    rv = client.get(f"/transcript/{session_id}/pdf")
     assert rv.status_code == 200
     assert rv.data[:4] == b"%PDF"
 
 
 def test_end_session_modal_present_in_base(client):
     """The modal container must be in the base layout (rendered on every therapy page)."""
-    with app.app_context():
-        user_id = str(uuid.uuid4())
-        db.session.add(User(id=user_id, therapy_mode="solo"))
-        db.session.commit()
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    rv = client.get("/therapy/solo")
+    priv, user_id, session_id = _register(client, "solo")
+    rv = client.get(f"/therapy/solo/{session_id}")
     assert b"endSessionIdDisplay" in rv.data
     assert b"endSessionConfirmBtn" in rv.data
     assert b"endSessionCopyBtn" in rv.data
@@ -407,13 +390,24 @@ def test_end_session_modal_present_in_base(client):
 # Session ID centralisation — integration tests
 # ---------------------------------------------------------------------------
 
-def test_couple_register_returns_session_id(client):
-    """Couple registration must return session_id in the API response.
+def test_solo_register_returns_valid_session_id(client):
+    """Solo registration must return a valid 6-char session_id, not a UUID."""
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "solo"})
+    assert rv.status_code == 201
+    data = rv.get_json()
+    assert "session_id" in data, "solo registration must include session_id in response"
+    assert is_valid_session_id(data["session_id"]), (
+        f"solo session_id {data['session_id']!r} is not a valid 6-char session ID"
+    )
+    assert data["session_id"] != data["user_id"], (
+        "session_id must be independent of user_id (no longer UUID-based)"
+    )
 
-    Regression: session_id was missing for couple creators, causing the JS
-    redirect to go to /therapy/couple/undefined and display 'UNDEFI'.
-    For couple sessions session_id == user_id (creator's UUID).
-    """
+
+def test_couple_register_returns_valid_session_id(client):
+    """Couple registration must return a valid 6-char session_id."""
     priv, pub_b64 = _make_keypair()
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "couple"})
@@ -423,23 +417,34 @@ def test_couple_register_returns_session_id(client):
         "couple registration must include session_id in response — "
         "JS redirect uses data.session_id to build the URL"
     )
-    assert data["session_id"] == data["user_id"], (
-        "for couple sessions, session_id must equal user_id"
+    assert is_valid_session_id(data["session_id"]), (
+        f"couple session_id {data['session_id']!r} is not a valid 6-char session ID"
     )
 
 
-def test_group_register_returns_valid_group_id(client):
-    """Group session ID from /api/auth/register must pass is_valid_group_id."""
-    from session_id import is_valid_group_id
+def test_group_register_returns_valid_session_id(client):
+    """Group session ID from /api/auth/register must pass is_valid_session_id."""
     priv, pub_b64 = _make_keypair()
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "group"})
     assert rv.status_code == 201
     session_id = rv.get_json().get("session_id")
     assert session_id is not None, "group registration must return a session_id"
-    assert is_valid_group_id(session_id), (
-        f"session_id {session_id!r} from /api/auth/register is not a valid group ID"
+    assert is_valid_session_id(session_id), (
+        f"session_id {session_id!r} from /api/auth/register is not a valid session ID"
     )
+
+
+def test_all_modes_return_different_session_and_user_ids(client):
+    """For every mode, session_id must be distinct from user_id (no longer UUID-derived)."""
+    for mode in ("solo", "couple", "group"):
+        priv, user_id, session_id = _register(client, mode)
+        assert session_id != user_id, (
+            f"{mode}: session_id should be a 6-char code, not the user UUID"
+        )
+        assert is_valid_session_id(session_id), (
+            f"{mode}: session_id {session_id!r} is not a valid 6-char session ID"
+        )
 
 
 def test_join_page_contains_dynamic_hint(client):
@@ -453,11 +458,11 @@ def test_join_page_contains_dynamic_hint(client):
 
 
 def test_join_page_placeholder_uses_charset_example(client):
-    """The join page placeholder must show a realistic group ID example."""
-    from session_id import _example_group_id
+    """The join page placeholder must show a realistic session ID example."""
+    from session_id import _example_session_id
     rv = client.get("/session/join")
     assert rv.status_code == 200
-    assert _example_group_id().encode() in rv.data
+    assert _example_session_id().encode() in rv.data
 
 
 def test_join_page_does_not_say_1234(client):
@@ -467,163 +472,101 @@ def test_join_page_does_not_say_1234(client):
     assert b"1234" not in rv.data
 
 
-def test_solo_display_id_is_short_and_no_raw_uuid_in_banner(client):
-    """The solo therapy page must show a 6-char display ID, not the raw UUID."""
-    from session_id import DISPLAY_ID_LENGTH
-    import re
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
+def test_solo_page_shows_session_id_in_banner(client):
+    """The solo therapy page must show the 6-char session ID, not a UUID."""
+    priv, user_id, session_id = _register(client, "solo")
 
-    rv = client.get("/therapy/solo")
+    rv = client.get(f"/therapy/solo/{session_id}")
     assert rv.status_code == 200
     body = rv.data.decode()
 
-    # The raw UUID (with hyphens) must NOT appear in the session banner or privacy banner
-    uuid_pattern = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
-                               re.IGNORECASE)
-    # Extract just the banner/alert sections to avoid false positives in hidden inputs
-    banner_section = body[body.find("Session ID:"):body.find("Session ID:") + 200] if "Session ID:" in body else ""
+    # The 6-char session ID must appear in the page
+    assert session_id in body, f"session_id {session_id!r} not found in solo page"
+
+    # No raw UUID (with hyphens) should appear in the session banner area
+    import re
+    uuid_pattern = re.compile(
+        r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+        re.IGNORECASE
+    )
+    banner_start = body.find("Session ID:")
+    banner_section = body[banner_start:banner_start + 200] if banner_start != -1 else ""
     assert not uuid_pattern.search(banner_section), (
-        f"Raw UUID found in session banner — display ID masking is broken.\n"
+        f"Raw UUID found in session banner — 6-char IDs should not contain hyphens.\n"
         f"Banner section: {banner_section!r}"
     )
 
 
-def test_couple_display_id_does_not_expose_raw_uuid(client):
-    """The couple therapy page session banner must show the masked display ID."""
-    from datetime import datetime, timezone
-    from models import TherapySession
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "couple"})
-    user_id = rv.get_json()["user_id"]
-    session_id = user_id  # for couple, session_id == user_id
+def test_couple_page_shows_session_id_in_banner(client):
+    """The couple therapy page session banner must show the 6-char session ID."""
+    priv, user_id, session_id = _register(client, "couple")
 
     rv = client.get(f"/therapy/couple/{session_id}")
     assert rv.status_code == 200
     body = rv.data.decode()
 
+    assert session_id in body, f"session_id {session_id!r} not found in couple page"
+
     import re
-    uuid_pattern = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
-                               re.IGNORECASE)
-    banner_section = body[body.find("Session ID:"):body.find("Session ID:") + 200] if "Session ID:" in body else ""
+    uuid_pattern = re.compile(
+        r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+        re.IGNORECASE
+    )
+    banner_start = body.find("Session ID:")
+    banner_section = body[banner_start:banner_start + 200] if banner_start != -1 else ""
     assert not uuid_pattern.search(banner_section), (
-        f"Raw UUID found in couple session banner — display ID masking is broken.\n"
-        f"Banner section: {banner_section!r}"
+        f"Raw UUID found in couple session banner.\nBanner section: {banner_section!r}"
     )
 
 
-def test_group_display_id_equals_session_id(client):
-    """For group sessions, display_id must equal the internal session_id."""
-    from session_id import is_valid_group_id
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "group"})
-    session_id = rv.get_json()["session_id"]
+def test_group_page_shows_session_id_in_banner(client):
+    """For group sessions, the 6-char session_id should appear in the rendered page."""
+    priv, user_id, session_id = _register(client, "group")
 
     rv = client.get(f"/therapy/group/{session_id}")
     assert rv.status_code == 200
-    # The session_id (e.g. "AB3K7M") should appear in the rendered page as the display ID
     assert session_id.encode() in rv.data
 
 
-def test_join_post_accepts_lowercase_group_id(client):
-    """Group IDs entered in lowercase must still be found (normalisation)."""
-    from datetime import datetime, timezone
-    from models import TherapySession
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "group"})
-    data = rv.get_json()
-    user_id = data["user_id"]
-    session_id = data["session_id"]
+def test_join_post_session_id_is_case_sensitive(client):
+    """Session IDs are case-sensitive: lowercase of a valid ID must not be found.
 
-    # Submit the group ID in lowercase
-    rv = client.post("/session/join", data={"session_id": session_id.lower()},
-                     follow_redirects=False)
-    # Should redirect (found), not render an error page
-    assert rv.status_code in (301, 302), (
-        f"Expected redirect for valid lowercase group ID, got {rv.status_code}. "
-        f"Response: {rv.data[:200]}"
-    )
-
-
-def test_solo_rejoin_by_display_id_lowercase(client):
-    """Entering the display ID in lowercase must also work.
-
-    Regression: is_display_id() required uppercase, so lowercase input skipped
-    the prefix search entirely and returned 'Session not found'.
+    Architecture: IDs are stored and compared exactly as generated.
+    A session stored as 'aB3k7M' cannot be found by 'ab3k7m'.
     """
-    from session_id import to_display_id
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
-    display_id = to_display_id(user_id, "solo").lower()  # force lowercase
+    priv, user_id, session_id = _register(client, "group")
 
-    rv = client.post("/session/join", data={"session_id": display_id},
+    # Flip the case of each character to guarantee a mismatch
+    flipped = session_id.swapcase()
+    # Only test if the flipped version is actually different (it always will be for mixed-case)
+    if flipped == session_id:
+        pytest.skip("generated ID has no case distinction — skipping")
+
+    rv = client.post("/session/join", data={"session_id": flipped},
                      follow_redirects=False)
-    assert rv.status_code in (301, 302), (
-        f"Solo rejoin by lowercase display ID '{display_id}' failed — got {rv.status_code}."
+    # Should NOT redirect (not found), should render error
+    assert rv.status_code == 200, (
+        f"Expected error page for wrong-case ID '{flipped}', got redirect. "
+        f"Session IDs must be case-sensitive."
     )
+    assert b"not found" in rv.data.lower()
 
 
-def test_solo_rejoin_by_display_id(client):
-    """Solo sessions must be rejoinable by the 6-char display ID shown in the header.
+def test_solo_rejoin_by_session_id(client):
+    """Solo sessions must be rejoinable by the exact 6-char session ID."""
+    priv, user_id, session_id = _register(client, "solo")
 
-    Regression: display ID is derived from the UUID but not stored in the DB,
-    so a direct primary-key lookup fails. The join route must fall back to a
-    prefix search.
-    """
-    from session_id import to_display_id
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
-    display_id = to_display_id(user_id, "solo")
-
-    rv = client.post("/session/join", data={"session_id": display_id},
+    rv = client.post("/session/join", data={"session_id": session_id},
                      follow_redirects=False)
     assert rv.status_code in (301, 302), (
-        f"Solo rejoin by display ID '{display_id}' failed — got {rv.status_code}. "
+        f"Solo rejoin by session ID '{session_id}' failed — got {rv.status_code}. "
         f"Response: {rv.data[:300]}"
     )
 
 
-def test_couple_rejoin_by_display_id(client):
-    """Couple sessions must be rejoinable by the 6-char display ID shown in the header."""
-    from session_id import to_display_id
-    from datetime import datetime, timezone
-    from models import TherapySession
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "couple"})
-    data = rv.get_json()
-    user_id = data["user_id"]
-    session_id = data["session_id"]  # == user_id for couple
-    display_id = to_display_id(session_id, "couple")
-
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-
-    rv = client.post("/session/join", data={"session_id": display_id},
-                     follow_redirects=False)
-    assert rv.status_code in (301, 302), (
-        f"Couple rejoin by display ID '{display_id}' failed — got {rv.status_code}. "
-        f"Response: {rv.data[:300]}"
-    )
-
-
-def test_group_rejoin_by_display_id(client):
-    """Group sessions must be rejoinable by the 6-char code (display ID == session ID)."""
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "group"})
-    data = rv.get_json()
-    user_id = data["user_id"]
-    session_id = data["session_id"]  # already the display ID for group
+def test_couple_rejoin_by_session_id(client):
+    """Couple sessions must be rejoinable by the exact 6-char session ID."""
+    priv, user_id, session_id = _register(client, "couple")
 
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
@@ -631,24 +574,34 @@ def test_group_rejoin_by_display_id(client):
     rv = client.post("/session/join", data={"session_id": session_id},
                      follow_redirects=False)
     assert rv.status_code in (301, 302), (
-        f"Group rejoin by display ID '{session_id}' failed — got {rv.status_code}. "
+        f"Couple rejoin by session ID '{session_id}' failed — got {rv.status_code}. "
+        f"Response: {rv.data[:300]}"
+    )
+
+
+def test_group_rejoin_by_session_id(client):
+    """Group sessions must be rejoinable by the exact 6-char session ID."""
+    priv, user_id, session_id = _register(client, "group")
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    rv = client.post("/session/join", data={"session_id": session_id},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Group rejoin by session ID '{session_id}' failed — got {rv.status_code}. "
         f"Response: {rv.data[:300]}"
     )
 
 
 def test_solo_rejoin_by_nickname(client):
     """Solo sessions must be rejoinable by friendly name."""
-    from datetime import datetime, timezone
-    from models import TherapySession
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    user_id = rv.get_json()["user_id"]
+    priv, user_id, session_id = _register(client, "solo")
 
     # Save a nickname server-side
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
-    client.post(f"/session/{user_id}/nickname",
+    client.post(f"/session/{session_id}/nickname",
                 json={"nickname": "My Monday session"},
                 content_type="application/json")
 
@@ -662,12 +615,12 @@ def test_solo_rejoin_by_nickname(client):
 
 def test_join_error_page_still_shows_hint(client):
     """Even on error, the join page must render the format hint (not blank)."""
-    from session_id import _example_group_id
+    from session_id import _example_session_id
     rv = client.post("/session/join", data={"session_id": "DOESNOTEXIST"})
     assert rv.status_code == 200
     assert b"not found" in rv.data.lower()
     # Hint must still be present — it's passed through _join_template on all paths
-    assert _example_group_id().encode() in rv.data
+    assert _example_session_id().encode() in rv.data
 
 
 # ---------------------------------------------------------------------------

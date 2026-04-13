@@ -136,7 +136,7 @@
         startAuth(THERAPY_MODE, function (data) {
             var mode = data.therapy_mode;
             if (mode === "solo") {
-                window.location.href = "/therapy/solo";
+                window.location.href = "/therapy/solo/" + data.session_id;
             } else if (mode === "couple") {
                 window.location.href = "/therapy/couple/" + data.session_id;
             } else {
