@@ -205,8 +205,9 @@ class TestIsDisplayId:
     def test_false_for_full_uuid(self):
         assert not is_display_id("7a6d1ebd-e6b6-4b7d-afbf-9c56984b34f7")
 
-    def test_false_for_lowercase(self):
-        assert not is_display_id("7a6d1e")
+    def test_true_for_lowercase(self):
+        """Lowercase display IDs must be accepted — the search uppercases internally."""
+        assert is_display_id("7a6d1e")
 
     def test_false_for_too_short(self):
         assert not is_display_id("7A6D1")

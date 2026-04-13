@@ -550,6 +550,26 @@ def test_join_post_accepts_lowercase_group_id(client):
     )
 
 
+def test_solo_rejoin_by_display_id_lowercase(client):
+    """Entering the display ID in lowercase must also work.
+
+    Regression: is_display_id() required uppercase, so lowercase input skipped
+    the prefix search entirely and returned 'Session not found'.
+    """
+    from session_id import to_display_id
+    priv, pub_b64 = _make_keypair()
+    rv = client.post("/api/auth/register",
+                     json={"public_key": pub_b64, "therapy_mode": "solo"})
+    user_id = rv.get_json()["user_id"]
+    display_id = to_display_id(user_id, "solo").lower()  # force lowercase
+
+    rv = client.post("/session/join", data={"session_id": display_id},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Solo rejoin by lowercase display ID '{display_id}' failed — got {rv.status_code}."
+    )
+
+
 def test_solo_rejoin_by_display_id(client):
     """Solo sessions must be rejoinable by the 6-char display ID shown in the header.
 

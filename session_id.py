@@ -198,19 +198,17 @@ def rejoin_placeholder(mode: str | None = None) -> str:
 def is_display_id(value: str) -> bool:
     """Return True if value looks like a 6-char display ID entered by the user.
 
-    A display ID is exactly DISPLAY_ID_LENGTH uppercase hex-ish characters with
-    no hyphens — the kind of thing shown in the session header for solo/couple.
-    Group IDs also match this shape (they are already their own display ID), so
-    callers should try the exact DB lookup first and only call this for the
-    solo/couple prefix-search fallback.
+    A display ID is exactly DISPLAY_ID_LENGTH alphanumeric characters with no
+    hyphens. Case is ignored here — the display ID prefix search uppercases
+    the value internally, so lowercase input (e.g. "f691c0") must be accepted.
 
     Args:
-        value: The normalised user input.
+        value: The user input (any case).
 
     Returns:
         True if value could be a display ID (solo, couple, or group).
     """
-    return len(value) == DISPLAY_ID_LENGTH and value == value.upper() and value.isalnum()
+    return len(value) == DISPLAY_ID_LENGTH and value.isalnum()
 
 
 def display_id_filter(db_func, TherapySession_id_col, TherapySession_mode_col, display_id: str):
