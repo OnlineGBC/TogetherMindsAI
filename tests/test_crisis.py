@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from unittest.mock import patch, MagicMock
-from ai_therapist import detect_crisis, analyze_sentiment, process_input, _sanitize_response
+from ai_therapist import detect_crisis, analyze_sentiment, process_input, _medical_guard, _claude_crisis_check
 
 
 # ---------------------------------------------------------------------------
@@ -120,14 +120,88 @@ def test_process_input_calls_claude_for_normal_message():
 
 
 # ---------------------------------------------------------------------------
-# Output sanitiser
+# Medical output guard — keyword layer
 # ---------------------------------------------------------------------------
 
-def test_sanitize_strips_diagnostic_language():
-    result = _sanitize_response("you have depression and you should take medication")
+def test_medical_guard_strips_diagnostic_language():
+    result = _medical_guard("you have depression and you should take medication")
     assert "you have depression" not in result.lower()
+    assert "medical advice" in result.lower()
 
 
-def test_sanitize_passes_clean_response():
+def test_medical_guard_passes_clean_response():
     clean = "Let's take a moment to reflect on how you're feeling."
-    assert _sanitize_response(clean) == clean
+    mock_msg = MagicMock()
+    mock_msg.content = [MagicMock(text="NO")]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_msg
+    with patch("ai_therapist._get_claude_client", return_value=mock_client):
+        assert _medical_guard(clean) == clean
+
+
+def test_medical_guard_claude_flags_drug_name():
+    """Claude layer intercepts a drug name the keyword list misses."""
+    response_with_drug = "You might consider taking ibuprofen for that."
+    mock_msg = MagicMock()
+    mock_msg.content = [MagicMock(text="YES")]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_msg
+    with patch("ai_therapist._get_claude_client", return_value=mock_client):
+        result = _medical_guard(response_with_drug)
+    assert "medical advice" in result.lower()
+
+
+def test_medical_guard_passes_through_on_api_failure():
+    """If the Claude check fails, response passes through rather than crashing."""
+    clean = "That sounds really difficult. How long have you felt this way?"
+    mock_client = MagicMock()
+    mock_client.messages.create.side_effect = Exception("API error")
+    with patch("ai_therapist._get_claude_client", return_value=mock_client):
+        result = _medical_guard(clean)
+    assert result == clean
+
+
+# ---------------------------------------------------------------------------
+# Claude contextual crisis check (2.1 Layer 2)
+# ---------------------------------------------------------------------------
+
+def test_claude_crisis_check_returns_true_for_contextual_crisis():
+    """Claude check catches contextual phrases keywords miss."""
+    mock_msg = MagicMock()
+    mock_msg.content = [MagicMock(text="YES")]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_msg
+    with patch("ai_therapist._get_claude_client", return_value=mock_client):
+        assert _claude_crisis_check("I can't go on anymore") is True
+
+
+def test_claude_crisis_check_returns_false_for_normal_message():
+    mock_msg = MagicMock()
+    mock_msg.content = [MagicMock(text="NO")]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_msg
+    with patch("ai_therapist._get_claude_client", return_value=mock_client):
+        assert _claude_crisis_check("I had a tough day at work") is False
+
+
+def test_claude_crisis_check_returns_false_on_api_failure():
+    """If Claude call fails, crisis check returns False so conversation continues."""
+    mock_client = MagicMock()
+    mock_client.messages.create.side_effect = Exception("API error")
+    with patch("ai_therapist._get_claude_client", return_value=mock_client):
+        assert _claude_crisis_check("I don't want to be here anymore") is False
+
+
+def test_process_input_crisis_caught_by_claude_layer():
+    """process_input returns CRISIS_RESPONSE when Claude layer fires."""
+    from ai_therapist import CRISIS_RESPONSE
+    # Keyword layer misses this phrase; Claude layer catches it
+    mock_crisis_msg = MagicMock()
+    mock_crisis_msg.content = [MagicMock(text="YES")]
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = mock_crisis_msg
+    with patch("ai_therapist._get_claude_client", return_value=mock_client), \
+         patch("ai_therapist._get_emotion_pipeline",
+               return_value=MagicMock(return_value=[[{"label": "sadness", "score": 0.9}]])):
+        result = process_input("I don't want to be here anymore")
+    assert result == CRISIS_RESPONSE
