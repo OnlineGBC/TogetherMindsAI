@@ -171,6 +171,34 @@ class TestPurgeExpiredSessions:
             assert TherapySession.query.get(active_sid) is not None
 
 
+# ---------------------------------------------------------------------------
+# Session cookie security flags (finding 3.4)
+# ---------------------------------------------------------------------------
+
+class TestSessionCookieConfig:
+    def test_httponly_flag_is_enabled(self):
+        assert app.config["SESSION_COOKIE_HTTPONLY"] is True
+
+    def test_samesite_is_lax(self):
+        assert app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
+
+    def test_secure_flag_off_in_test_mode(self):
+        # IS_PRODUCTION is False in tests (SQLite + TESTING=1) so the test
+        # client (plain HTTP) can still set and read cookies.
+        assert app.config["SESSION_COOKIE_SECURE"] is False
+
+    def test_permanent_session_lifetime_is_30_days(self):
+        assert app.config["PERMANENT_SESSION_LIFETIME"] == timedelta(days=30)
+
+    def test_response_cookie_has_httponly_and_samesite(self, enc_client):
+        """Actual Set-Cookie header must carry HttpOnly and SameSite=Lax."""
+        # /auth/solo POST sets session["user_id"] with no required fields
+        resp = enc_client.post("/auth/solo")
+        set_cookie = resp.headers.get("Set-Cookie", "")
+        assert "HttpOnly" in set_cookie
+        assert "SameSite=Lax" in set_cookie
+
+
 class TestValidateConfigEncryptionKey:
     def test_raises_when_field_encryption_key_missing(self):
         base_env = {

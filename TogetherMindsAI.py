@@ -31,6 +31,11 @@ app.config["SECRET_KEY"] = config.SECRET_KEY or os.environ.get("SECRET_KEY", "de
 app.config["SQLALCHEMY_DATABASE_URI"] = config.DATABASE_URL
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = config.SQLALCHEMY_ENGINE_OPTIONS
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# Session cookie hardening (HIPAA / finding 3.4)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = config.IS_PRODUCTION   # True on Cloud Run (HTTPS); False on localhost/test
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 db.init_app(app)
 
