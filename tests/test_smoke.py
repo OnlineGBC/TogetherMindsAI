@@ -824,6 +824,29 @@ def test_name_permanently_claimed_after_disconnect():
     session_taken_names.pop(sid, None)
 
 
+def test_history_includes_current_display_name_when_already_set(client):
+    """on_join history emit includes current_display_name when user already has one set,
+    so the client can skip the name-prompt modal on page reload."""
+    from TogetherMindsAI import _claim_display_name, session_display_names, session_taken_names
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Simulate name already claimed (e.g. from first page load)
+    _claim_display_name(session_id, user_id, "Riku")
+
+    # Hitting the solo page again (simulates page reload after message send)
+    rv = client.get(f"/therapy/solo/{session_id}")
+    assert rv.status_code == 200
+
+    # The server-side name is still set
+    assert session_display_names.get(session_id, {}).get(user_id) == "Riku"
+
+    # Cleanup
+    session_display_names.pop(session_id, None)
+    session_taken_names.pop(session_id, None)
+
+
 # ---------------------------------------------------------------------------
 # WebSocket upgrade disabled under werkzeug
 # ---------------------------------------------------------------------------

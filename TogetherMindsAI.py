@@ -952,10 +952,12 @@ def on_join(data):
             db.session.add(ai_msg)
             db.session.commit()
             messages = [ai_msg]
+        current_display_name = session_display_names.get(session_id, {}).get(user_id)
         emit("history", {
             "messages": [m.to_dict() for m in messages],
             "join_position": join_position,
             "default_name": default_name,
+            "current_display_name": current_display_name,
         })
         emit("participant_list",
              {"participants": list(room_participants[session_id])},

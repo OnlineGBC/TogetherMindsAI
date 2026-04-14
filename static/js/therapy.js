@@ -63,12 +63,19 @@ function joinRoom(sessionId, userId, mode, soloMode) {
     });
 
     socket.on("history", function (data) {
-        var messages    = data.messages    || [];
-        var defaultName = data.default_name || "";
+        var messages           = data.messages             || [];
+        var defaultName        = data.default_name         || "";
+        var currentDisplayName = data.current_display_name || null;
 
         if (soloMode) {
-            // Solo messages are already server-rendered — just trigger the name prompt
-            _showDisplayNamePrompt(sessionId, userId, defaultName, true);
+            // Solo messages are already server-rendered
+            if (currentDisplayName) {
+                // Name already set — skip modal, just restore state
+                _currentDisplayName = currentDisplayName;
+                _updateDisplayNameBanner(sessionId, currentDisplayName);
+            } else {
+                _showDisplayNamePrompt(sessionId, userId, defaultName, true);
+            }
             return;
         }
 
@@ -82,8 +89,13 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         }
         scrollToBottom(chatBox);
 
-        // Show name prompt for couple/group after history is rendered
-        _showDisplayNamePrompt(sessionId, userId, defaultName, false);
+        if (currentDisplayName) {
+            // Name already set — skip modal, just restore state
+            _currentDisplayName = currentDisplayName;
+            _updateDisplayNameBanner(sessionId, currentDisplayName);
+        } else {
+            _showDisplayNamePrompt(sessionId, userId, defaultName, false);
+        }
     });
 
     socket.on("new_message", function (data) {
