@@ -269,6 +269,17 @@ def test_oversized_message_does_not_crash_server(client):
         assert b"too long" in rv.data.lower()
 
 
+def test_nickname_route_removed(client):
+    """The server-side nickname route must no longer exist (friendly names are local-only)."""
+    priv, user_id, session_id = _register(client, "solo")
+    rv = client.post(f"/session/{session_id}/nickname",
+                     json={"nickname": "My Monday session"},
+                     content_type="application/json")
+    assert rv.status_code == 404, (
+        f"Expected 404 — nickname route should be removed, got {rv.status_code}"
+    )
+
+
 def test_session_join_unknown_id_shows_error(client):
     rv = client.post("/session/join", data={"session_id": "9999"})
     assert rv.status_code == 200

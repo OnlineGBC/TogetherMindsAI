@@ -174,7 +174,65 @@ def test_copy_button_present_in_modal(page, live_server_url):
 
 
 # ---------------------------------------------------------------------------
-# 11. Disclaimer bar contains befrienders.org link
+# 11. End-session modal saves friendly label to localStorage
+# ---------------------------------------------------------------------------
+
+def test_label_saved_to_localstorage_via_modal(page, live_server_url):
+    """Typing a label in the end-session modal must save it to localStorage.
+
+    Friendly names are local-only — nothing is sent to the server.
+    The label must be stored under the key session_nickname_<sessionId>.
+    """
+    _complete_auth(page, live_server_url, mode="solo")
+
+    page.locator("text=End Session").first.click()
+    page.wait_for_selector("#endSessionModal.show", timeout=5_000)
+
+    page.locator("#endSessionNickname").fill("My Monday session")
+    # Trigger the input event so localStorage is written
+    page.locator("#endSessionNickname").dispatch_event("input")
+
+    saved = page.evaluate("""() => {
+        for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.startsWith('session_nickname_')) return localStorage.getItem(k);
+        }
+        return null;
+    }""")
+    assert saved == "My Monday session"
+
+
+# ---------------------------------------------------------------------------
+# 12. Join form substitutes a locally-saved label for the real session ID
+# ---------------------------------------------------------------------------
+
+def test_join_form_substitutes_local_label_for_session_id(page, live_server_url):
+    """If the user types their local label into the join form, the JS must swap
+    it for the real session ID before submitting so the server lookup succeeds.
+    """
+    _complete_auth(page, live_server_url, mode="solo")
+
+    # Read the real session ID from the page URL
+    current_url = page.url
+    session_id = current_url.rstrip("/").split("/")[-1]
+
+    # Plant the label in localStorage as initSessionNickname / the modal would
+    page.evaluate(f"""() => {{
+        localStorage.setItem('session_nickname_{session_id}', 'My Monday session');
+    }}""")
+
+    # Navigate to the join page and submit the label
+    _go(page, live_server_url, "/session/join")
+    page.locator("#session_id").fill("My Monday session")
+    page.locator("button[type=submit]").click()
+
+    # Server must redirect to the correct therapy page using the real session ID
+    page.wait_for_url(lambda url: session_id in url, timeout=5_000)
+    assert session_id in page.url
+
+
+# ---------------------------------------------------------------------------
+# 13. Disclaimer bar contains befrienders.org link
 # ---------------------------------------------------------------------------
 
 def test_disclaimer_bar_has_befrienders_link(page, live_server_url):
