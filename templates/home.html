@@ -2,7 +2,7 @@
 {% block title %}TogetherMindsAI — Home{% endblock %}
 
 {% block content %}
-<div class="text-center mb-5">
+<div class="text-center mb-3 mb-md-4">
     <div class="hero-icon mx-auto mb-3">
         <i class="bi bi-heart-pulse-fill display-1 text-primary-green"></i>
     </div>
@@ -13,18 +13,18 @@
     <hr class="w-25 mx-auto border-green" />
 </div>
 
-<div class="row g-4 justify-content-center">
+<div class="row g-3 justify-content-center">
 
     <!-- Solo Therapy -->
-    <div class="col-md-4">
+    <div class="col-sm-6 col-lg-4">
         <a href="/auth/solo" class="text-decoration-none">
-            <div class="therapy-card card h-100 shadow-sm border-0 text-center p-4">
+            <div class="therapy-card card h-100 shadow-sm border-0 text-center p-3 p-md-4">
                 <div class="card-body d-flex flex-column align-items-center">
                     <div class="therapy-icon mb-3">
                         <i class="bi bi-person-fill display-4 text-primary-green"></i>
                     </div>
                     <h3 class="fw-bold mb-2">Solo Reflection</h3>
-                    <p class="text-muted mb-4">
+                    <p class="text-muted mb-3">
                         One-on-one AI-guided reflection. Share, vent, and grow at your own pace.
                     </p>
                     <span class="btn btn-primary-green w-100 mt-auto">
@@ -36,15 +36,15 @@
     </div>
 
     <!-- Couples Therapy -->
-    <div class="col-md-4">
+    <div class="col-sm-6 col-lg-4">
         <a href="/auth/couple" class="text-decoration-none">
-            <div class="therapy-card card h-100 shadow-sm border-0 text-center p-4">
+            <div class="therapy-card card h-100 shadow-sm border-0 text-center p-3 p-md-4">
                 <div class="card-body d-flex flex-column align-items-center">
                     <div class="therapy-icon mb-3">
                         <i class="bi bi-people-fill display-4 text-primary-green"></i>
                     </div>
                     <h3 class="fw-bold mb-2">Couple Check-in</h3>
-                    <p class="text-muted mb-4">
+                    <p class="text-muted mb-3">
                         Real-time shared session with your partner, guided by an AI companion.
                     </p>
                     <span class="btn btn-primary-green w-100 mt-auto">
@@ -56,15 +56,15 @@
     </div>
 
     <!-- Group Therapy -->
-    <div class="col-md-4">
+    <div class="col-sm-6 col-lg-4">
         <a href="/auth/group" class="text-decoration-none">
-            <div class="therapy-card card h-100 shadow-sm border-0 text-center p-4">
+            <div class="therapy-card card h-100 shadow-sm border-0 text-center p-3 p-md-4">
                 <div class="card-body d-flex flex-column align-items-center">
                     <div class="therapy-icon mb-3">
                         <i class="bi bi-person-lines-fill display-4 text-primary-green"></i>
                     </div>
                     <h3 class="fw-bold mb-2">Group Circle</h3>
-                    <p class="text-muted mb-4">
+                    <p class="text-muted mb-3">
                         Join or host a group session. Share experiences with others in a safe, supported space.
                     </p>
                     <span class="btn btn-primary-green w-100 mt-auto">
@@ -78,25 +78,25 @@
 </div>
 
 <!-- Rejoin strip -->
-<div class="text-center mt-4">
+<div class="text-center mt-3">
     <a href="/session/join" class="btn btn-outline-green rounded-pill px-4">
         <i class="bi bi-box-arrow-in-right me-2"></i>Rejoin an existing session
     </a>
 </div>
 
 <!-- Info strip -->
-<div class="row mt-4 g-3">
-    <div class="col-md-4 text-center">
+<div class="row mt-3 g-2 justify-content-center">
+    <div class="col-4 text-center">
         <i class="bi bi-lock-fill text-primary-green fs-3"></i>
-        <p class="mt-2 small text-muted">Private &amp; Secure<br/>Optional passphrase protection</p>
+        <p class="mt-1 small text-muted mb-0">Private &amp; Secure<br/>Anonymous sessions</p>
     </div>
-    <div class="col-md-4 text-center">
+    <div class="col-4 text-center">
         <i class="bi bi-robot text-primary-green fs-3"></i>
-        <p class="mt-2 small text-muted">AI-Powered<br/>Sentiment-aware responses</p>
+        <p class="mt-1 small text-muted mb-0">AI-Powered<br/>Sentiment-aware responses</p>
     </div>
-    <div class="col-md-4 text-center">
+    <div class="col-4 text-center">
         <i class="bi bi-bar-chart-fill text-primary-green fs-3"></i>
-        <p class="mt-2 small text-muted">Track Progress<br/>Weekly exercise charts</p>
+        <p class="mt-1 small text-muted mb-0">Track Progress<br/>Weekly exercise charts</p>
     </div>
 </div>
 {% endblock %}
