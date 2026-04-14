@@ -189,6 +189,11 @@ def home():
     return render_template("home.html")
 
 
+@app.route("/tos")
+def tos():
+    return render_template("tos.html")
+
+
 @app.route("/auth/<therapy_mode>", methods=["GET"])
 def auth_get(therapy_mode):
     return render_template("auth.html", therapy_mode=therapy_mode)

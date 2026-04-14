@@ -90,6 +90,14 @@ def test_home_page_returns_200(client):
     assert client.get("/").status_code == 200
 
 
+def test_tos_page_returns_200(client):
+    rv = client.get("/tos")
+    assert rv.status_code == 200
+    assert b"Terms of Service" in rv.data
+    assert b"togethermindsai@onlinegbc.com" in rv.data
+    assert b"findahelpline.com" in rv.data
+
+
 def test_auth_solo_page_returns_200(client):
     assert client.get("/auth/solo").status_code == 200
 

@@ -82,6 +82,12 @@
                     Neither this app nor the AI collect names or personal identifiers.
                 </div>
 
+                <!-- TOS agreement line -->
+                <p class="text-muted small text-center mb-3">
+                    By continuing, you agree to our
+                    <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-underline" data-bs-toggle="modal" data-bs-target="#tosModal">Terms of Service</button>.
+                </p>
+
                 <button type="button" id="continueBtn" class="btn btn-primary-green btn-lg w-100 rounded-3" disabled>
                     <span id="btnText">
                         <i class="bi bi-arrow-right-circle-fill me-2"></i>I agree — Continue
@@ -114,6 +120,73 @@
     to the therapy page — identical end result, no client-side crypto needed.
 -->
 <form id="legacyAuthForm" method="POST" action="/auth/{{ therapy_mode }}" class="d-none"></form>
+
+<!-- Terms of Service modal -->
+<div class="modal fade" id="tosModal" tabindex="-1" aria-labelledby="tosModalLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="tosModalLabel">
+                    <i class="bi bi-file-text-fill text-primary-green me-2"></i>Terms of Service
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2" style="max-height: 65vh; overflow-y: auto;">
+                <p class="text-muted small">Last updated: April 2026</p>
+
+                <h6 class="fw-semibold mt-3">1. What TogetherMindsAI is</h6>
+                <p>TogetherMindsAI is an AI-assisted reflective tool designed to support self-exploration and emotional well-being. It is <strong>not</strong> a licensed mental health service, a medical service, or a substitute for professional care of any kind.</p>
+                <p>The AI guide is not a therapist, psychologist, psychiatrist, counsellor, or licensed professional. Nothing it says constitutes diagnosis, treatment, or clinical advice.</p>
+
+                <h6 class="fw-semibold mt-3">2. Who can use this service</h6>
+                <p>You must be <strong>18 years of age or older</strong> to use TogetherMindsAI. By continuing past the Getting Started screen you confirm that you meet this requirement.</p>
+                <p>If you are under 18 and need support, please speak with a trusted adult or contact a crisis line such as <strong>988</strong> (US, free, 24/7) or text <strong>988</strong>, or text <strong>HOME</strong> to <strong>741741</strong>. Outside the US:
+                    <a href="https://www.findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a> or
+                    <a href="https://www.befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a>
+                    have directories for your country.
+                </p>
+
+                <h6 class="fw-semibold mt-3">3. This is not emergency support</h6>
+                <p>TogetherMindsAI is <strong>not an emergency service</strong>. If you or someone else is in immediate danger, call your local emergency services — <strong>911</strong> (US), <strong>999</strong> (UK), <strong>000</strong> (Australia), or <strong>112</strong> (EU) — or go to your nearest emergency room.</p>
+                <p>If you are experiencing a mental health crisis, please contact a crisis line:</p>
+                <ul>
+                    <li><strong>988</strong> — Suicide &amp; Crisis Lifeline (US, call or text, 24/7)</li>
+                    <li><strong>741741</strong> — Crisis Text Line (US, text HOME)</li>
+                    <li><strong>116 123</strong> — Samaritans (UK &amp; Ireland, free, 24/7)</li>
+                    <li><a href="https://www.findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a> — find a line in your country</li>
+                    <li><a href="https://www.befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a> — find a line in your country</li>
+                </ul>
+
+                <h6 class="fw-semibold mt-3">4. Your anonymity and your data</h6>
+                <p>TogetherMindsAI is built around anonymity. We do not collect your name, email address, phone number, or any other personally identifying information. Sessions are identified by a randomly generated code only.</p>
+                <p>Your conversation messages are stored on our servers to enable the AI to respond in context. They are <strong>not</strong> used to train AI models, sold to third parties, or shared with anyone. Messages are stored in encrypted form.</p>
+                <p>Sessions and their messages are <strong>automatically and permanently deleted after 30 days</strong>. You may also delete your data at any time from the Progress screen.</p>
+
+                <h6 class="fw-semibold mt-3">5. No guarantee of availability or accuracy</h6>
+                <p>TogetherMindsAI is provided <strong>as-is</strong>. We do not guarantee that the service will be available at any particular time, that the AI's responses will be accurate, appropriate, or complete, or that the service is suitable for your specific situation.</p>
+                <p>AI responses may sometimes be unhelpful, incomplete, or incorrect. Always exercise your own judgement. If something the AI says concerns you, please disregard it and seek qualified human support.</p>
+
+                <h6 class="fw-semibold mt-3">6. Limitation of liability</h6>
+                <p>To the maximum extent permitted by applicable law, TogetherMindsAI and its operators shall not be liable for any harm — including emotional distress, personal injury, or any other damages — arising from your use of this service. Your use is entirely at your own risk.</p>
+
+                <h6 class="fw-semibold mt-3">7. Acceptable use</h6>
+                <p>You agree not to use TogetherMindsAI to impersonate another person, attempt to extract harmful, illegal, or manipulative content from the AI, or use the service for any unlawful purpose.</p>
+
+                <h6 class="fw-semibold mt-3">8. Changes to these terms</h6>
+                <p>We may update these terms from time to time. Continued use of the service after changes are posted constitutes acceptance of the revised terms.</p>
+
+                <h6 class="fw-semibold mt-3">9. Contact</h6>
+                <p class="mb-0">If you have questions about these terms, please contact <a href="mailto:togethermindsai@onlinegbc.com">togethermindsai@onlinegbc.com</a>.</p>
+            </div>
+            <div class="modal-footer border-0 pt-0 gap-2">
+                <a href="/tos" target="_blank" class="btn btn-outline-green rounded-pill btn-sm">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Open full page
+                </a>
+                <button type="button" class="btn btn-primary-green rounded-pill btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
