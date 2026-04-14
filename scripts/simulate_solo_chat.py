@@ -43,6 +43,8 @@ MESSAGES = [
     "I like the idea of setting boundaries. How do I start that conversation with my manager?",
     "That's really helpful. I'll try that this week.",
     "One more thing — do you have any quick techniques for when anxiety spikes during the day?",
+    "The box breathing sounds manageable. I'll add it to my morning routine.",
+    "Thank you — this session has been really helpful. I feel a bit lighter already.",
 ]
 
 # ---------------------------------------------------------------------------
@@ -169,14 +171,18 @@ def run(base_url: str, headless: bool):
 
             time.sleep(0.3)
 
-        # ── Step 5: Download DOCX transcript ─────────────────────────────────
-        print("[ 5/5 ] Downloading transcript as DOCX…")
-        with page.expect_download(timeout=20_000) as dl_info:
-            page.goto(f"{base_url}/transcript/{session_id}/docx")
-        download = dl_info.value
-        dest = DOWNLOAD_DIR / download.suggested_filename
-        download.save_as(str(dest))
-        print(f"         Saved to : {dest.resolve()}\n")
+        # ── Step 5: Download transcripts (DOCX + PDF) ────────────────────────
+        print("[ 5/5 ] Downloading transcripts…")
+        for fmt in ("docx", "pdf"):
+            url = f"{base_url}/transcript/{session_id}/{fmt}"
+            with page.expect_download(timeout=30_000) as dl_info:
+                # Use evaluate to navigate — page.goto raises an error when a
+                # download starts instead of a normal page load
+                page.evaluate(f"window.location.href = '{url}'")
+            download = dl_info.value
+            dest = DOWNLOAD_DIR / download.suggested_filename
+            download.save_as(str(dest))
+            print(f"         {fmt.upper()} saved to : {dest.resolve()}")
 
         print("="*60)
         print("  Simulation complete.")
