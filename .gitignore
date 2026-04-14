@@ -211,12 +211,12 @@ __marimo__/
 certs/
 
 TogetherMindsAI.venv/
-  instance/                                                                                                                                                                                               
-  __pycache__/                                              
-  *.pyc                                                                                                                                                                                                   
-  *.pyo                                                     
-  .env
-  .claude/
+instance/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.claude/
 
 # Accidental pip shell-redirect artifacts (e.g. =0.40.0)
 =*
