@@ -378,6 +378,34 @@ MEDICAL_GUARD_SAFE_RESPONSE = (
     "Please speak with a healthcare professional about this."
 )
 
+OFFTOPIC_SAFE_RESPONSE = (
+    "I'm here to focus on your emotional wellbeing. "
+    "Is there something on your mind you'd like to explore?"
+)
+
+# Question words that signal a factual/informational query rather than personal sharing
+_QUESTION_WORDS = {"what", "where", "when", "who", "how", "why", "which"}
+
+# Emotional signal words — presence of any means the message is personal, not off-topic
+_EMOTIONAL_SIGNAL_WORDS = (
+    CRISIS_KEYWORDS | ESCALATION_KEYWORDS | NEGATIVE_KEYWORDS | POSITIVE_KEYWORDS
+)
+
+
+def _looks_like_factual_question(text: str) -> bool:
+    """Return True if the text looks like a factual/off-topic question.
+
+    Criteria (both must be true):
+      1. Contains at least one question word (what, where, when, who, how, why, which).
+      2. Contains no emotional signal words (crisis, escalation, negative, or positive
+         sentiment vocabulary) — presence of any emotional word means the person is
+         sharing something personal, not asking a factual trivia question.
+    """
+    words = set(text.lower().split())
+    has_question_word = bool(words & _QUESTION_WORDS)
+    has_emotional_word = any(kw in text.lower() for kw in _EMOTIONAL_SIGNAL_WORDS)
+    return has_question_word and not has_emotional_word
+
 
 def _medical_guard(response: str) -> str:
     """Two-layer output guard against medical diagnoses, drug names, or treatment instructions.
@@ -529,6 +557,10 @@ def process_input(text: str, mode: str = "solo", session_message_count: int = 0,
     # 2. Emotion detection
     emotion = analyze_emotion(text)
     sentiment = EMOTION_TO_SENTIMENT.get(emotion, "neutral")
+
+    # 2b. Off-topic pre-filter — catch obvious factual questions before calling Claude
+    if emotion == "neutral" and _looks_like_factual_question(text):
+        return OFFTOPIC_SAFE_RESPONSE
 
     # 3. Escalation flag
     needs_escalation = (

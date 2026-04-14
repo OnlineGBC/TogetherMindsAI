@@ -3,7 +3,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from unittest.mock import patch, MagicMock
-from ai_therapist import detect_crisis, analyze_sentiment, process_input, _medical_guard, _claude_crisis_check
+from ai_therapist import (detect_crisis, analyze_sentiment, process_input, _medical_guard,
+                          _claude_crisis_check, _looks_like_factual_question,
+                          OFFTOPIC_SAFE_RESPONSE)
 
 
 # ---------------------------------------------------------------------------
@@ -205,3 +207,57 @@ def test_process_input_crisis_caught_by_claude_layer():
                return_value=MagicMock(return_value=[[{"label": "sadness", "score": 0.9}]])):
         result = process_input("I don't want to be here anymore")
     assert result == CRISIS_RESPONSE
+
+
+# ---------------------------------------------------------------------------
+# Off-topic pre-filter — _looks_like_factual_question and process_input path
+# ---------------------------------------------------------------------------
+
+def test_looks_like_factual_question_detects_trivia():
+    assert _looks_like_factual_question("What is the capital of France?") is True
+
+
+def test_looks_like_factual_question_detects_how_question():
+    assert _looks_like_factual_question("How does photosynthesis work?") is True
+
+
+def test_looks_like_factual_question_false_for_emotional_content():
+    # "sad" is an emotional signal word — should not be flagged as off-topic
+    assert _looks_like_factual_question("Why do I feel so sad all the time?") is False
+
+
+def test_looks_like_factual_question_false_for_no_question_word():
+    assert _looks_like_factual_question("I went to the store today") is False
+
+
+def test_process_input_deflects_neutral_factual_question():
+    """Neutral emotion + factual question → OFFTOPIC_SAFE_RESPONSE, no Claude call."""
+    mock_client = MagicMock()
+    # Claude crisis check returns NO; if we reach Claude main call it should not happen
+    mock_no_msg = MagicMock()
+    mock_no_msg.content = [MagicMock(text="NO")]
+    mock_client.messages.create.return_value = mock_no_msg
+    with patch("ai_therapist._get_claude_client", return_value=mock_client), \
+         _mock_emotion("neutral"):
+        result = process_input("What is the capital of France?")
+    assert result == OFFTOPIC_SAFE_RESPONSE
+    # Sonnet should NOT have been called (only the Haiku crisis check may have been called)
+    calls = mock_client.messages.create.call_args_list
+    sonnet_calls = [c for c in calls if "system" in c.kwargs]
+    assert len(sonnet_calls) == 0
+
+
+def test_process_input_passes_emotional_question_to_claude():
+    """Emotional question (sad) with neutral classifier → not deflected."""
+    claude_reply = "It sounds like you're carrying something heavy."
+    with _mock_emotion("neutral"), _mock_claude(claude_reply):
+        result = process_input("Why do I feel so sad all the time?")
+    assert result == claude_reply
+
+
+def test_process_input_passes_non_neutral_factual_question_to_claude():
+    """Factual-looking question but non-neutral emotion → not deflected."""
+    claude_reply = "Let's explore what's behind that question."
+    with _mock_emotion("fear"), _mock_claude(claude_reply):
+        result = process_input("What is wrong with me?")
+    assert result == claude_reply

@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, init_encryption
-from ai_therapist import process_input, generate_opening_message, CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE
+from ai_therapist import process_input, generate_opening_message, CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 
@@ -360,6 +360,8 @@ def therapy_solo_post(session_id):
         log_event("crisis_detected", session_id=session_id, user_id=user_id, layer="keyword_or_claude")
     elif ai_text == MEDICAL_GUARD_SAFE_RESPONSE:
         log_event("medical_guard_fired", session_id=session_id, user_id=user_id)
+    elif ai_text == OFFTOPIC_SAFE_RESPONSE:
+        log_event("offtopic_deflected", session_id=session_id, user_id=user_id, mode="solo")
 
     return redirect(url_for("therapy_solo", session_id=session_id))
 
@@ -930,6 +932,8 @@ def on_send_message(data):
                       layer="keyword_or_claude")
         elif ai_text == MEDICAL_GUARD_SAFE_RESPONSE:
             log_event("medical_guard_fired", session_id=session_id, user_id=user_id)
+        elif ai_text == OFFTOPIC_SAFE_RESPONSE:
+            log_event("offtopic_deflected", session_id=session_id, user_id=user_id, mode=mode)
 
         emit("new_message",
              {"user_id": user_id, "text": text, "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
