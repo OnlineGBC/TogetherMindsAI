@@ -33,21 +33,19 @@
         </div>
 
         <!-- Session ID banner -->
-        <div class="alert alert-share rounded-4 mb-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2">
-            <div class="d-flex align-items-center gap-2 flex-grow-1 min-width-0">
+        <div class="alert alert-share rounded-4 mb-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <div class="d-flex align-items-center gap-2">
                 <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
-                <div class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
-                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span><span id="sessionNicknameDisplay" class="text-muted fst-italic"></span></small>
-                    <input type="text" id="sessionNicknameInline" class="form-control form-control-sm rounded-3 d-none"
-                           placeholder="Friendly name…" maxlength="60" style="max-width:180px;">
-                </div>
-            </div>
-            <div class="d-flex gap-1 flex-shrink-0">
-                <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameSessionBtn" title="Rename session">
-                    <i class="bi bi-pencil" style="color:#fd7e14"></i>
-                </button>
+                <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
                 <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
                     <i class="bi bi-clipboard"></i>
+                </button>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <small class="text-muted">You:</small>
+                <span id="displayNameLabel" class="font-monospace text-primary-green fw-semibold small">{{ session_id }}-{{ default_name }}</span>
+                <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameDisplayNameBtn" title="Change display name">
+                    <i class="bi bi-pencil" style="color:#fd7e14"></i>
                 </button>
             </div>
         </div>
@@ -93,9 +91,9 @@
                         </div>
                     </div>
                     {% else %}
-                    <div class="d-flex mb-3 align-items-end justify-content-end">
+                    <div class="d-flex mb-3 align-items-end justify-content-end" data-user-id="{{ msg.user_id }}">
                         <div class="bubble bubble-user">
-                            <span class="bubble-sender text-end d-block">You</span>
+                            <span class="bubble-sender text-end d-block">{{ session_id }}-{{ msg.display_name if msg.display_name else default_name }}</span>
                             <p class="mb-0">{{ msg.text }}</p>
                             <span class="bubble-time">{{ msg.timestamp.strftime("%H:%M") }}</span>
                         </div>
@@ -147,7 +145,9 @@
 {% block scripts %}
 <script>
     history.replaceState(null, '', '/');
-    var _DISPLAY_ID = "{{ session_id }}";
+    var USER_ID    = "{{ user_id }}";
+    var SESSION_ID = "{{ session_id }}";
+    var _DISPLAY_ID = SESSION_ID;
 
     function copySessionId(id) {
         if (navigator.clipboard && window.isSecureContext) {
@@ -184,19 +184,20 @@
     // Auto-scroll to bottom of chat
     (function () {
         var box = document.getElementById("chatBox");
-        if (box) {
-            box.scrollTop = box.scrollHeight;
-        }
+        if (box) { box.scrollTop = box.scrollHeight; }
     })();
 
     // Wellness check after 20 minutes of inactivity
     startWellnessCheck();
 
-    // Inline session nickname
-    initSessionNickname("{{ session_id }}");
-
     // End Session guard
-    initEndSessionGuard("{{ session_id }}", "/progress/{{ user_id }}/solo");
+    initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/solo");
+
+    // Join socket (solo mode — for display name prompt only; messages use HTTP form)
+    window.addEventListener("load", function () {
+        joinRoom(SESSION_ID, USER_ID, "solo", true /* soloMode */);
+        initDisplayNameRename(SESSION_ID, USER_ID, true /* isSolo */);
+    });
 
     // Suppress "Leave site?" dialog and show spinner when submitting a message
     document.getElementById("chatForm").addEventListener("submit", function () {

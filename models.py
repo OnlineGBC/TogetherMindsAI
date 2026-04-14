@@ -40,6 +40,7 @@ class ChatMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id = db.Column(db.String(36), index=True, nullable=False)
     user_id = db.Column(db.String(36), nullable=False)
+    display_name = db.Column(db.String(60), nullable=True)   # e.g. "Michael"; null for AI and legacy rows
     text = db.Column(EncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
     timestamp = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
@@ -53,6 +54,7 @@ class ChatMessage(db.Model):
             "id": self.id,
             "session_id": self.session_id,
             "user_id": self.user_id,
+            "display_name": self.display_name,
             "text": self.text,
             "timestamp": self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         }

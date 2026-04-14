@@ -117,6 +117,63 @@
     </div>
 </div>
 
+<!-- Display Name prompt modal (shown on therapy page load) -->
+<div class="modal fade" id="displayNameModal" tabindex="-1"
+     data-bs-backdrop="static" data-bs-keyboard="false"
+     aria-labelledby="displayNameModalLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="displayNameModalLabel">
+                    <i class="bi bi-person-badge-fill text-primary-green me-2"></i>Choose your display name
+                </h5>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="text-muted small mb-3">
+                    This is how you'll appear to everyone in this session.
+                    You can change it at any time using the <i class="bi bi-pencil" style="color:#fd7e14"></i> button.
+                </p>
+                <div id="displayNameError" class="alert alert-danger rounded-3 py-2 small d-none mb-2"></div>
+                <input type="text" id="displayNameInput" class="form-control rounded-3 mb-1"
+                       placeholder="Enter a name…" maxlength="40" autocomplete="off" />
+                <div class="form-text">Leave blank to use the default name shown on the button below.</div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" id="displayNameConfirmBtn" class="btn btn-primary-green rounded-pill w-100">
+                    <i class="bi bi-check2 me-1"></i>Join as <span id="displayNamePreview" class="font-monospace"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Display Name rename modal -->
+<div class="modal fade" id="renameDisplayNameModal" tabindex="-1"
+     aria-labelledby="renameDisplayNameModalLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="renameDisplayNameModalLabel">
+                    <i class="bi bi-pencil text-primary-green me-2"></i>Change your display name
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="text-muted small mb-2">Your old name will be permanently retired in this session — no one else can take it.</p>
+                <div id="renameError" class="alert alert-danger rounded-3 py-2 small d-none mb-2"></div>
+                <input type="text" id="renameInput" class="form-control rounded-3"
+                       placeholder="New display name…" maxlength="40" autocomplete="off" />
+            </div>
+            <div class="modal-footer border-0 pt-0 gap-2">
+                <button type="button" class="btn btn-outline-secondary rounded-pill" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" id="renameConfirmBtn" class="btn btn-primary-green rounded-pill">
+                    <i class="bi bi-check2 me-1"></i>Save name
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- End Session modal (populated by initEndSessionGuard) -->
 <div class="modal fade" id="endSessionModal" tabindex="-1" aria-labelledby="endSessionModalLabel" aria-modal="true" role="dialog">
     <div class="modal-dialog modal-dialog-centered">

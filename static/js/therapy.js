@@ -36,13 +36,17 @@ function _showWellnessModal() {
     _resetInactivityTimer();
 }
 
+// Current user's display name (set after name prompt is confirmed)
+var _currentDisplayName = null;
+
 /**
  * Establish a SocketIO connection and join a therapy room.
- * @param {string} sessionId - The room / session identifier
- * @param {string} userId    - The current user's UUID
- * @param {string} mode      - Therapy mode: "couple" or "group"
+ * @param {string} sessionId  - The room / session identifier
+ * @param {string} userId     - The current user's UUID
+ * @param {string} mode       - Therapy mode: "couple" or "group"
+ * @param {boolean} soloMode  - True for solo (server-rendered messages; skip history render)
  */
-function joinRoom(sessionId, userId, mode) {
+function joinRoom(sessionId, userId, mode, soloMode) {
     _currentUserId = userId;
 
     socket = io({
@@ -59,17 +63,27 @@ function joinRoom(sessionId, userId, mode) {
     });
 
     socket.on("history", function (data) {
-        var messages = data.messages || [];
-        var chatBox = document.getElementById("chatBox");
+        var messages    = data.messages    || [];
+        var defaultName = data.default_name || "";
 
+        if (soloMode) {
+            // Solo messages are already server-rendered — just trigger the name prompt
+            _showDisplayNamePrompt(sessionId, userId, defaultName, true);
+            return;
+        }
+
+        var chatBox = document.getElementById("chatBox");
         if (messages.length > 0) {
-            // Clear the "connecting…" empty state
             chatBox.innerHTML = "";
             messages.forEach(function (msg) {
-                appendMessage(chatBox, msg.user_id, msg.text, msg.timestamp, userId);
+                appendMessage(chatBox, msg.user_id, msg.text, msg.timestamp,
+                              userId, msg.display_name, sessionId);
             });
         }
         scrollToBottom(chatBox);
+
+        // Show name prompt for couple/group after history is rendered
+        _showDisplayNamePrompt(sessionId, userId, defaultName, false);
     });
 
     socket.on("new_message", function (data) {
@@ -81,12 +95,62 @@ function joinRoom(sessionId, userId, mode) {
             emptyState.remove();
         }
 
-        appendMessage(chatBox, data.user_id, data.text, data.timestamp, _currentUserId);
+        appendMessage(chatBox, data.user_id, data.text, data.timestamp,
+                      _currentUserId, data.display_name, sessionId);
         scrollToBottom(chatBox);
 
         // Restore send button once the AI reply arrives
         if (data.user_id === "AI") {
             _hideSendSpinner();
+        }
+    });
+
+    socket.on("name_set", function (data) {
+        if (data.user_id === _currentUserId) {
+            _currentDisplayName = data.display_name;
+            _updateDisplayNameBanner(sessionId, data.display_name);
+        }
+    });
+
+    socket.on("name_error", function (data) {
+        // Show error in whichever name modal is open
+        var promptErr  = document.getElementById("displayNameError");
+        var renameErr  = document.getElementById("renameError");
+        if (promptErr && !promptErr.closest(".modal").classList.contains("d-none")) {
+            promptErr.textContent = data.message;
+            promptErr.classList.remove("d-none");
+        }
+        if (renameErr) {
+            renameErr.textContent = data.message;
+            renameErr.classList.remove("d-none");
+        }
+    });
+
+    socket.on("name_changed", function (data) {
+        // Re-label all existing bubbles for this user
+        var wrappers = document.querySelectorAll('[data-user-id="' + data.user_id + '"]');
+        wrappers.forEach(function (wrapper) {
+            var label = wrapper.querySelector(".bubble-sender");
+            if (label) {
+                label.textContent = sessionId + "-" + data.new_name;
+            }
+        });
+
+        // Update our own banner if this is us
+        if (data.user_id === _currentUserId) {
+            _currentDisplayName = data.new_name;
+            _updateDisplayNameBanner(sessionId, data.new_name);
+        }
+
+        // System notice
+        var chatBox = document.getElementById("chatBox");
+        if (chatBox) {
+            var notice = document.createElement("div");
+            notice.className = "text-center text-muted small py-1 fst-italic";
+            notice.textContent = sessionId + "-" + data.old_name +
+                                 " is now known as " + sessionId + "-" + data.new_name;
+            chatBox.appendChild(notice);
+            scrollToBottom(chatBox);
         }
     });
 
@@ -184,20 +248,33 @@ function _hideSendSpinner() {
 
 /**
  * Build and append a chat bubble to the chat box.
- * @param {HTMLElement} chatBox   - The scrollable chat container
- * @param {string}      senderId  - User ID of the sender ("AI" or UUID)
- * @param {string}      text      - Message text
- * @param {string}      timestamp - Formatted timestamp string
- * @param {string}      myUserId  - The current viewer's user ID (to decide alignment)
+ * @param {HTMLElement} chatBox      - The scrollable chat container
+ * @param {string}      senderId     - User ID of the sender ("AI" or UUID)
+ * @param {string}      text         - Message text
+ * @param {string}      timestamp    - Formatted timestamp string
+ * @param {string}      myUserId     - The current viewer's user ID (to decide alignment)
+ * @param {string|null} displayName  - Participant display name (e.g. "Michael"); null for AI
+ * @param {string}      sessionId    - Session ID prefix for the label
  */
-function appendMessage(chatBox, senderId, text, timestamp, myUserId) {
-    var isAI   = senderId === "AI";
-    var isMe   = !isAI && senderId === myUserId;
+function appendMessage(chatBox, senderId, text, timestamp, myUserId, displayName, sessionId) {
+    var isAI = senderId === "AI";
+    var isMe = !isAI && senderId === myUserId;
 
     var wrapper = document.createElement("div");
     wrapper.className = "d-flex mb-3 align-items-end" + (isMe ? " justify-content-end" : "");
+    if (!isAI && senderId) {
+        wrapper.setAttribute("data-user-id", senderId);
+    }
 
-    var senderLabel = isAI ? "AI Guide" : (isMe ? "You" : "Partner");
+    var senderLabel;
+    if (isAI) {
+        senderLabel = "AI Guide";
+    } else if (displayName) {
+        senderLabel = (sessionId || "") + "-" + displayName;
+    } else {
+        // Fallback for legacy messages with no display_name stored
+        senderLabel = isMe ? "You" : "Partner";
+    }
 
     var timeStr = timestamp || "";
     // Extract HH:MM if a full datetime string was provided
@@ -210,7 +287,6 @@ function appendMessage(chatBox, senderId, text, timestamp, myUserId) {
 
     if (isAI || !isMe) {
         // Left-aligned bubble (AI or other participant)
-        var avatarClass = isAI ? "avatar-ai" : "avatar-other";
         var avatarIcon  = isAI ? "bi-robot" : "bi-person-fill";
         var bubbleClass = "bubble " + (isAI ? "bubble-ai" : "bubble-partner");
 
@@ -360,6 +436,202 @@ function initEndSessionGuard(sessionId, redirectUrl) {
             e.returnValue = "You have an active session. Save your Session ID (" + sessionId + ") before leaving.";
             return e.returnValue;
         }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Display name — prompt, banner update, rename
+// ---------------------------------------------------------------------------
+
+/**
+ * Show the display name prompt modal.
+ * For couple/group: emits set_display_name via socket.
+ * For solo: AJAX POST to /api/display-name.
+ *
+ * @param {string}  sessionId   - Session ID
+ * @param {string}  userId      - Current user's UUID
+ * @param {string}  defaultName - Pre-filled default (e.g. "Partner1")
+ * @param {boolean} isSolo      - True for solo (uses AJAX), false for socket
+ */
+function _showDisplayNamePrompt(sessionId, userId, defaultName, isSolo) {
+    var modalEl  = document.getElementById("displayNameModal");
+    var input    = document.getElementById("displayNameInput");
+    var preview  = document.getElementById("displayNamePreview");
+    var errorEl  = document.getElementById("displayNameError");
+    var confirmBtn = document.getElementById("displayNameConfirmBtn");
+    if (!modalEl) { return; }
+
+    var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+    input.value = defaultName;
+    preview.textContent = sessionId + "-" + defaultName;
+    errorEl.classList.add("d-none");
+
+    input.addEventListener("input", function () {
+        var val = input.value.trim() || defaultName;
+        preview.textContent = sessionId + "-" + val;
+    });
+
+    function _doConfirm() {
+        var name = input.value.trim() || defaultName;
+        errorEl.classList.add("d-none");
+
+        if (isSolo) {
+            fetch("/api/display-name", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sessionId, display_name: name }),
+            })
+            .then(function (r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+            .then(function (result) {
+                if (result.ok) {
+                    _currentDisplayName = result.data.display_name;
+                    _updateDisplayNameBanner(sessionId, result.data.display_name);
+                    modal.hide();
+                    // Re-label any existing server-rendered bubbles for this user
+                    var wrappers = document.querySelectorAll('[data-user-id="' + userId + '"]');
+                    wrappers.forEach(function (w) {
+                        var lbl = w.querySelector(".bubble-sender");
+                        if (lbl) { lbl.textContent = sessionId + "-" + result.data.display_name; }
+                    });
+                } else {
+                    errorEl.textContent = result.data.error || "Could not set name. Please try again.";
+                    errorEl.classList.remove("d-none");
+                }
+            })
+            .catch(function () {
+                errorEl.textContent = "Network error. Please try again.";
+                errorEl.classList.remove("d-none");
+            });
+        } else {
+            // couple / group — use socket
+            if (socket && socket.connected) {
+                socket.emit("set_display_name", {
+                    session_id: sessionId,
+                    user_id: userId,
+                    display_name: name,
+                });
+                // name_set / name_error handlers in joinRoom() will close modal or show error
+                socket.once("name_set", function (data) {
+                    if (data.user_id === userId) { modal.hide(); }
+                });
+            }
+        }
+    }
+
+    // Remove previous listener before adding new one (prevent duplicate fires)
+    var newBtn = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+    newBtn.addEventListener("click", _doConfirm);
+
+    input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); _doConfirm(); }
+    });
+
+    modal.show();
+    setTimeout(function () { input.focus(); input.select(); }, 300);
+}
+
+/**
+ * Update the display name label in the session banner.
+ * @param {string} sessionId
+ * @param {string} displayName
+ */
+function _updateDisplayNameBanner(sessionId, displayName) {
+    var el = document.getElementById("displayNameLabel");
+    if (el) {
+        el.textContent = sessionId + "-" + displayName;
+    }
+}
+
+/**
+ * Wire up the rename display name button in the session banner.
+ * For couple/group: emits rename via socket.
+ * For solo: AJAX POST to /api/display-name.
+ *
+ * @param {string}  sessionId
+ * @param {string}  userId
+ * @param {boolean} isSolo
+ */
+function initDisplayNameRename(sessionId, userId, isSolo) {
+    var btn      = document.getElementById("renameDisplayNameBtn");
+    var modalEl  = document.getElementById("renameDisplayNameModal");
+    var input    = document.getElementById("renameInput");
+    var errorEl  = document.getElementById("renameError");
+    var confirmBtn = document.getElementById("renameConfirmBtn");
+    if (!btn || !modalEl) { return; }
+
+    var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+    btn.addEventListener("click", function () {
+        input.value = _currentDisplayName || "";
+        errorEl.classList.add("d-none");
+        modal.show();
+        setTimeout(function () { input.focus(); input.select(); }, 300);
+    });
+
+    function _doRename() {
+        var newName = input.value.trim();
+        if (!newName) { return; }
+        errorEl.classList.add("d-none");
+
+        if (isSolo) {
+            fetch("/api/display-name", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sessionId, display_name: newName }),
+            })
+            .then(function (r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+            .then(function (result) {
+                if (result.ok) {
+                    var oldName = _currentDisplayName;
+                    _currentDisplayName = result.data.display_name;
+                    _updateDisplayNameBanner(sessionId, result.data.display_name);
+                    modal.hide();
+                    // Re-label solo bubbles
+                    var wrappers = document.querySelectorAll('[data-user-id="' + userId + '"]');
+                    wrappers.forEach(function (w) {
+                        var lbl = w.querySelector(".bubble-sender");
+                        if (lbl) { lbl.textContent = sessionId + "-" + result.data.display_name; }
+                    });
+                    // System notice
+                    var chatBox = document.getElementById("chatBox");
+                    if (chatBox && oldName) {
+                        var notice = document.createElement("div");
+                        notice.className = "text-center text-muted small py-1 fst-italic";
+                        notice.textContent = sessionId + "-" + oldName + " is now known as " +
+                                             sessionId + "-" + result.data.display_name;
+                        chatBox.appendChild(notice);
+                        scrollToBottom(chatBox);
+                    }
+                } else {
+                    errorEl.textContent = result.data.error || "Could not rename. Please try again.";
+                    errorEl.classList.remove("d-none");
+                }
+            })
+            .catch(function () {
+                errorEl.textContent = "Network error. Please try again.";
+                errorEl.classList.remove("d-none");
+            });
+        } else {
+            if (socket && socket.connected) {
+                socket.emit("rename", {
+                    session_id: sessionId,
+                    user_id: userId,
+                    new_name: newName,
+                });
+                socket.once("name_changed", function () { modal.hide(); });
+                socket.once("name_error", function (data) {
+                    errorEl.textContent = data.message;
+                    errorEl.classList.remove("d-none");
+                });
+            }
+        }
+    }
+
+    confirmBtn.addEventListener("click", _doRename);
+    input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); _doRename(); }
     });
 }
 

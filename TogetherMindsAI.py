@@ -82,6 +82,36 @@ room_participants: dict = defaultdict(set)   # session_id → set of user_ids
 sid_to_user: dict = {}                        # SocketIO SID → user_id
 sid_to_session: dict = {}                     # SocketIO SID → session_id
 
+# Display name tracking — all ephemeral, reset on server restart
+session_display_names: dict = {}  # session_id → {user_id: display_name}
+session_taken_names: dict   = {}  # session_id → set of lowercased names (permanent for session lifetime)
+session_joined_users: dict  = {}  # session_id → ordered list of user_ids (join order, for default names)
+
+
+def _default_display_name(mode: str, position: int) -> str:
+    """Return the default display name for a participant given their join position."""
+    if mode == "couple":
+        return f"Partner{position}"
+    elif mode == "group":
+        return f"GroupMember{position}"
+    return f"Solo{position}"
+
+
+def _claim_display_name(session_id: str, user_id: str, name: str) -> None:
+    """Store a display name in both active and taken dicts."""
+    session_display_names.setdefault(session_id, {})[user_id] = name
+    session_taken_names.setdefault(session_id, set()).add(name.lower())
+
+
+def _is_name_taken(session_id: str, user_id: str, name: str) -> bool:
+    """Return True if name is already taken by *another* user in this session."""
+    taken = session_taken_names.get(session_id, set())
+    if name.lower() not in taken:
+        return False
+    # Allow a user to re-confirm their own current name
+    current = session_display_names.get(session_id, {}).get(user_id, "")
+    return name.lower() != current.lower()
+
 
 # ---------------------------------------------------------------------------
 # Rate limiting — SQLite-backed sliding window
@@ -199,6 +229,17 @@ if not config.IS_TESTING:
         except Exception:
             pass  # column already exists
 
+    # Add display_name column to chat_messages for participant identification
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text(
+                "ALTER TABLE chat_messages ADD COLUMN display_name VARCHAR(60)"
+            ))
+            db.session.commit()
+        except Exception:
+            pass  # column already exists
+
     # Remove prompt/response columns from exercises — conversation text is now
     # stored only in chat_messages (encrypted). Metadata-only exercise records
     # are sufficient for the progress chart.
@@ -297,6 +338,14 @@ def therapy_solo(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="solo"))
+
+    # Assign join position for solo (always position 1 — only one participant)
+    joined = session_joined_users.setdefault(session_id, [])
+    if user_id not in joined:
+        joined.append(user_id)
+    join_position = joined.index(user_id) + 1
+    default_name = _default_display_name("solo", join_position)
+
     messages = (
         ChatMessage.query
         .filter_by(session_id=session_id)
@@ -313,7 +362,7 @@ def therapy_solo(session_id):
         db.session.commit()
         messages = [msg]
     return render_template("solo.html", messages=messages, user_id=user_id,
-                           session_id=session_id)
+                           session_id=session_id, default_name=default_name)
 
 
 @app.route("/therapy/solo/<session_id>", methods=["POST"])
@@ -358,8 +407,10 @@ def therapy_solo_post(session_id):
         for m in prior_msgs
     ]
 
+    display_name = session_display_names.get(session_id, {}).get(user_id)
     user_msg = ChatMessage(
-        session_id=session_id, user_id=user_id, text=text, timestamp=now,
+        session_id=session_id, user_id=user_id, text=text,
+        timestamp=now, display_name=display_name,
     )
     db.session.add(user_msg)
 
@@ -404,6 +455,34 @@ def therapy_group(session_id):
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="group"))
     return render_template("group.html", user_id=user_id, session_id=session_id)
+
+
+@app.route("/api/display-name", methods=["POST"])
+def api_set_display_name():
+    """AJAX endpoint used by solo mode to set or rename a display name.
+
+    Couple/group modes use the set_display_name / rename socket events instead.
+    Request JSON: {session_id, display_name}
+    Response JSON: {display_name} on success, {error} on conflict/validation error.
+    """
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id", "").strip()
+    name = data.get("display_name", "").strip()
+
+    if not name:
+        return jsonify({"error": "Display name cannot be empty."}), 400
+    if len(name) > 40:
+        return jsonify({"error": "Display name must be 40 characters or fewer."}), 400
+
+    if _is_name_taken(session_id, user_id, name):
+        return jsonify({"error": f"'{name}' is already taken in this session. Please choose another."}), 409
+
+    _claim_display_name(session_id, user_id, name)
+    return jsonify({"display_name": name}), 200
 
 
 @app.route("/progress/<user_id>/<therapy_mode>")
@@ -596,7 +675,12 @@ def download_transcript_pdf(session_id):
     else:
         for msg in messages:
             is_ai = msg.user_id == "AI"
-            speaker = "AI Therapist" if is_ai else "You"
+            if is_ai:
+                speaker = "AI Therapist"
+            elif msg.display_name:
+                speaker = f"{session_id}-{msg.display_name}"
+            else:
+                speaker = "User"
             ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
 
             # Speaker + timestamp line
@@ -659,7 +743,12 @@ def download_transcript_docx(session_id):
     else:
         for msg in messages:
             is_ai = msg.user_id == "AI"
-            speaker = "AI Therapist" if is_ai else "You"
+            if is_ai:
+                speaker = "AI Therapist"
+            elif msg.display_name:
+                speaker = f"{session_id}-{msg.display_name}"
+            else:
+                speaker = "User"
             ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
 
             # Speaker heading
@@ -841,6 +930,13 @@ def on_join(data):
         sid_to_user[request.sid]    = user_id
         sid_to_session[request.sid] = session_id
 
+        # Assign join position (used for default display names)
+        joined = session_joined_users.setdefault(session_id, [])
+        if user_id not in joined:
+            joined.append(user_id)
+        join_position = joined.index(user_id) + 1
+        default_name  = _default_display_name(mode, join_position)
+
         messages = (
             ChatMessage.query
             .filter_by(session_id=session_id)
@@ -856,7 +952,11 @@ def on_join(data):
             db.session.add(ai_msg)
             db.session.commit()
             messages = [ai_msg]
-        emit("history", {"messages": [m.to_dict() for m in messages]})
+        emit("history", {
+            "messages": [m.to_dict() for m in messages],
+            "join_position": join_position,
+            "default_name": default_name,
+        })
         emit("participant_list",
              {"participants": list(room_participants[session_id])},
              to=session_id)
@@ -872,6 +972,8 @@ def on_disconnect():
     session_id = sid_to_session.pop(request.sid, None)
     if user_id and session_id:
         room_participants[session_id].discard(user_id)
+        # Remove from active names; taken_names keeps the name permanently claimed
+        session_display_names.get(session_id, {}).pop(user_id, None)
         emit("participant_left",
              {"user_id": user_id},
              to=session_id)
@@ -914,8 +1016,10 @@ def on_send_message(data):
             for m in prior_msgs
         ]
 
+        display_name = session_display_names.get(session_id, {}).get(user_id)
         user_msg = ChatMessage(
-            session_id=session_id, user_id=user_id, text=text, timestamp=now,
+            session_id=session_id, user_id=user_id, text=text,
+            timestamp=now, display_name=display_name,
         )
         db.session.add(user_msg)
 
@@ -945,16 +1049,74 @@ def on_send_message(data):
             log_event("offtopic_deflected", session_id=session_id, user_id=user_id, mode=mode)
 
         emit("new_message",
-             {"user_id": user_id, "text": text, "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
+             {"user_id": user_id, "text": text, "display_name": display_name,
+              "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
              to=session_id)
         emit("new_message",
-             {"user_id": "AI", "text": ai_text,
+             {"user_id": "AI", "text": ai_text, "display_name": None,
               "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},
              to=session_id)
     except Exception as e:
         app.logger.error("on_send_message error: %s", type(e).__name__)
         db.session.rollback()
         emit("error", {"message": "Failed to send message. Please try again."})
+
+
+@socketio.on("set_display_name")
+def on_set_display_name(data):
+    """First-time display name assignment for couple/group participants.
+
+    The client emits this after the name prompt modal is confirmed.
+    On success emits name_set back to the caller.
+    On conflict emits name_error back to the caller only.
+    """
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    name       = data.get("display_name", "").strip()
+
+    if not name or len(name) > 40:
+        emit("name_error", {"message": "Display name must be between 1 and 40 characters."})
+        return
+
+    if _is_name_taken(session_id, user_id, name):
+        emit("name_error", {"message": f"'{name}' is already taken in this session. Please choose another."})
+        return
+
+    _claim_display_name(session_id, user_id, name)
+    emit("name_set", {"user_id": user_id, "display_name": name})
+    # Inform other participants
+    emit("participant_named", {"user_id": user_id, "display_name": name}, to=session_id)
+
+
+@socketio.on("rename")
+def on_rename(data):
+    """Rename a display name mid-session.
+
+    On success emits name_changed to the entire room (so all bubbles update).
+    On conflict emits name_error back to the caller only.
+    """
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    new_name   = data.get("new_name", "").strip()
+
+    if not new_name or len(new_name) > 40:
+        emit("name_error", {"message": "Display name must be between 1 and 40 characters."})
+        return
+
+    old_name = session_display_names.get(session_id, {}).get(user_id, "")
+
+    # No-op if same name (case-insensitive)
+    if new_name.lower() == old_name.lower():
+        emit("name_set", {"user_id": user_id, "display_name": new_name})
+        return
+
+    if _is_name_taken(session_id, user_id, new_name):
+        emit("name_error", {"message": f"'{new_name}' is already taken in this session. Please choose another."})
+        return
+
+    _claim_display_name(session_id, user_id, new_name)
+    # old_name stays in taken_names — it can never be reclaimed
+    emit("name_changed", {"user_id": user_id, "old_name": old_name, "new_name": new_name}, to=session_id)
 
 
 if __name__ == "__main__":

@@ -714,6 +714,117 @@ def test_second_user_can_join_group_session(client):
 
 
 # ---------------------------------------------------------------------------
+# Display name — default names, API endpoint, uniqueness, transcripts
+# ---------------------------------------------------------------------------
+
+def test_default_display_name_solo():
+    from TogetherMindsAI import _default_display_name
+    assert _default_display_name("solo", 1) == "Solo1"
+
+def test_default_display_name_couple():
+    from TogetherMindsAI import _default_display_name
+    assert _default_display_name("couple", 1) == "Partner1"
+    assert _default_display_name("couple", 2) == "Partner2"
+
+def test_default_display_name_group():
+    from TogetherMindsAI import _default_display_name
+    assert _default_display_name("group", 3) == "GroupMember3"
+
+def test_api_display_name_set(client):
+    """POST /api/display-name stores name and returns 200."""
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.post("/api/display-name",
+                     json={"session_id": session_id, "display_name": "Alice"},
+                     content_type="application/json")
+    assert rv.status_code == 200
+    assert rv.get_json()["display_name"] == "Alice"
+
+def test_api_display_name_uniqueness_case_insensitive(client):
+    """Second user cannot take a name already claimed (case-insensitive)."""
+    from TogetherMindsAI import _claim_display_name
+    _priv, user_id, session_id = _register(client, "solo")
+    _priv2, user_id2, _ = _register(client, "solo")
+
+    # User 1 claims "Alice"
+    _claim_display_name(session_id, user_id, "Alice")
+
+    # User 2 tries "alice" (different case) — should get 409
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id2
+    rv = client.post("/api/display-name",
+                     json={"session_id": session_id, "display_name": "alice"},
+                     content_type="application/json")
+    assert rv.status_code == 409
+
+def test_api_display_name_user_can_reconfirm_own_name(client):
+    """A user can re-submit their own current name without a 409."""
+    from TogetherMindsAI import _claim_display_name
+    _priv, user_id, session_id = _register(client, "solo")
+    _claim_display_name(session_id, user_id, "Alice")
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.post("/api/display-name",
+                     json={"session_id": session_id, "display_name": "Alice"},
+                     content_type="application/json")
+    assert rv.status_code == 200
+
+def test_api_display_name_stored_in_chat_message(client):
+    """display_name is stored in ChatMessage after being set via the API."""
+    from TogetherMindsAI import session_display_names
+    from models import ChatMessage
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Set display name
+    client.post("/api/display-name",
+                json={"session_id": session_id, "display_name": "Bob"},
+                content_type="application/json")
+
+    # Send a message via the solo form
+    client.post(f"/therapy/solo/{session_id}", data={"message": "Hello world"})
+    with app.app_context():
+        msg = ChatMessage.query.filter_by(session_id=session_id, user_id=user_id).first()
+        assert msg is not None
+        assert msg.display_name == "Bob"
+
+def test_solo_therapy_page_passes_default_name(client):
+    """The solo therapy page must render with a default_name template variable."""
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/solo/{session_id}")
+    assert rv.status_code == 200
+    # Default name for solo position 1 should appear in the rendered HTML
+    assert b"Solo1" in rv.data
+
+def test_name_permanently_claimed_after_disconnect():
+    """Once a user leaves, their name stays in taken_names and cannot be reclaimed."""
+    from TogetherMindsAI import (
+        _claim_display_name, _is_name_taken,
+        session_display_names, session_taken_names,
+    )
+    sid = "TEST99"
+    uid1 = "user-aaa"
+    uid2 = "user-bbb"
+
+    # uid1 claims "Sarah"
+    _claim_display_name(sid, uid1, "Sarah")
+    # uid1 "disconnects" — remove from active names
+    session_display_names.get(sid, {}).pop(uid1, None)
+
+    # uid2 tries to claim "sarah" — must still be blocked
+    assert _is_name_taken(sid, uid2, "sarah") is True
+
+    # Cleanup
+    session_display_names.pop(sid, None)
+    session_taken_names.pop(sid, None)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket upgrade disabled under werkzeug
 # ---------------------------------------------------------------------------
 
