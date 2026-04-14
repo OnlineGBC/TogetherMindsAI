@@ -27,6 +27,9 @@ from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySessi
 from ai_therapist import process_input, generate_opening_message, CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
+from log_filter import install_log_filter
+
+install_log_filter()   # redact PHI-bearing fields from all log output (finding 4.3)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY or os.environ.get("SECRET_KEY", "dev-fallback-key")
@@ -874,7 +877,7 @@ def on_join(data):
              to=session_id)
         emit("participant_joined", {"user_id": user_id}, to=session_id)
     except Exception as e:
-        app.logger.error("on_join error: %s", e)
+        app.logger.error("on_join error: %s", type(e).__name__)
         emit("error", {"message": "Failed to join session. Please refresh."})
 
 
@@ -964,7 +967,7 @@ def on_send_message(data):
               "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},
              to=session_id)
     except Exception as e:
-        app.logger.error("on_send_message error: %s", e)
+        app.logger.error("on_send_message error: %s", type(e).__name__)
         db.session.rollback()
         emit("error", {"message": "Failed to send message. Please try again."})
 

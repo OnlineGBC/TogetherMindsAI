@@ -356,7 +356,7 @@ def _generate_claude_response(
         return response.content[0].text
 
     except Exception as exc:
-        logger.error("Claude API error (%s); falling back to static response.", exc)
+        logger.error("Claude API error (%s); falling back to static response.", type(exc).__name__)
         sentiment = EMOTION_TO_SENTIMENT.get(emotion, "neutral")
         bank = _FALLBACK.get(mode, _FALLBACK["solo"])
         return random.choice(bank[sentiment])
