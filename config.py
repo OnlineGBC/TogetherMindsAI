@@ -13,6 +13,7 @@ import before the app is created.
 """
 
 import os
+import subprocess
 import sys
 
 from dotenv import load_dotenv
@@ -85,10 +86,49 @@ RATE_MAX_MESSAGES: int = int(os.environ.get("RATE_MAX_MESSAGES", "20"))
 MAX_MESSAGE_LENGTH: int = int(os.environ.get("MAX_MESSAGE_LENGTH", "8000"))
 
 # ---------------------------------------------------------------------------
+# Field-level encryption
+# ---------------------------------------------------------------------------
+
+# Fernet key (locally) or KMS URI (Cloud Run).
+# WARNING: never rotate this key without first re-encrypting all existing
+# ChatMessage rows — otherwise all stored messages become unreadable.
+FIELD_ENCRYPTION_KEY: str = os.environ.get("FIELD_ENCRYPTION_KEY", "")
+
+# ---------------------------------------------------------------------------
 # Startup validation — called once from TogetherMindsAI.py
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def secure_env_file() -> None:
+    """Restrict .env file permissions to the current OS user on every startup.
+
+    On Windows uses icacls; on Unix/Mac uses chmod 600.
+    Skips silently if .env does not exist (e.g. Cloud Run where secrets are
+    injected from Secret Manager and no .env file is present).
+    Logs a warning if the permission command fails but does not raise —
+    a permission failure should not prevent the app from starting.
+    """
+    import logging
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if not os.path.exists(env_path):
+        return
+
+    try:
+        if sys.platform == "win32":
+            username = os.environ.get("USERNAME", "")
+            subprocess.run(
+                ["icacls", env_path, "/inheritance:r", "/grant:r", f"{username}:R"],
+                check=True,
+                capture_output=True,
+            )
+        else:
+            subprocess.run(["chmod", "600", env_path], check=True, capture_output=True)
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Could not restrict .env file permissions: %s", exc
+        )
 
 
 def validate_config() -> None:
@@ -108,6 +148,8 @@ def validate_config() -> None:
         missing.append("SECRET_KEY")
     if not ANTHROPIC_API_KEY:
         missing.append("ANTHROPIC_API_KEY")
+    if not FIELD_ENCRYPTION_KEY:
+        missing.append("FIELD_ENCRYPTION_KEY")
 
     if IS_PRODUCTION:
         if not DATABASE_URL:

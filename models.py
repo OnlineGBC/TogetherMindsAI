@@ -1,7 +1,23 @@
 from datetime import datetime, timezone
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy_utils import EncryptedType
+from sqlalchemy_utils.types.encrypted.encrypted_type import FernetEngine
 
 db = SQLAlchemy()
+
+# Populated by init_encryption() called from TogetherMindsAI.py after config is loaded.
+# Using a mutable container so the reference inside EncryptedType columns stays live.
+_encryption_key: list = [""]
+
+
+def init_encryption(key: str) -> None:
+    """Store the field encryption key so EncryptedType columns can use it.
+
+    Must be called once at app startup before any DB read/write.
+    WARNING: never rotate this key without first re-encrypting all existing
+    ChatMessage rows — otherwise stored messages become permanently unreadable.
+    """
+    _encryption_key[0] = key
 
 
 class User(db.Model):
@@ -24,7 +40,7 @@ class ChatMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id = db.Column(db.String(36), index=True, nullable=False)
     user_id = db.Column(db.String(36), nullable=False)
-    text = db.Column(db.Text, nullable=False)
+    text = db.Column(EncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
     timestamp = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )

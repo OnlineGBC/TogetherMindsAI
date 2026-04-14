@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, init_encryption
 from ai_therapist import process_input, generate_opening_message
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 
@@ -79,7 +79,9 @@ def _check_rate_limit(user_id: str) -> bool:
 
 
 if not config.IS_TESTING:
+    config.secure_env_file()
     config.validate_config()
+    init_encryption(config.FIELD_ENCRYPTION_KEY)
     with app.app_context():
         db.create_all()
         # One-time migration: add nickname column if it doesn't exist yet.
