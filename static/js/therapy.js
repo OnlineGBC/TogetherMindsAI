@@ -468,7 +468,6 @@ function initEndSessionGuard(sessionId, redirectUrl) {
 function _showDisplayNamePrompt(sessionId, userId, defaultName, isSolo) {
     var modalEl  = document.getElementById("displayNameModal");
     var input    = document.getElementById("displayNameInput");
-    var preview  = document.getElementById("displayNamePreview");
     var errorEl  = document.getElementById("displayNameError");
     var confirmBtn = document.getElementById("displayNameConfirmBtn");
     if (!modalEl) { return; }
@@ -476,13 +475,7 @@ function _showDisplayNamePrompt(sessionId, userId, defaultName, isSolo) {
     var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
     input.value = defaultName;
-    preview.textContent = sessionId + "-" + defaultName;
     errorEl.classList.add("d-none");
-
-    input.addEventListener("input", function () {
-        var val = input.value.trim() || defaultName;
-        preview.textContent = sessionId + "-" + val;
-    });
 
     function _doConfirm() {
         var name = input.value.trim() || defaultName;
