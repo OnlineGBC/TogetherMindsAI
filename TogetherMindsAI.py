@@ -21,8 +21,9 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, init_encryption
-from ai_therapist import process_input, generate_opening_message
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, init_encryption
+from ai_therapist import process_input, generate_opening_message, CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE
+from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 
 app = Flask(__name__)
@@ -83,6 +84,7 @@ def _check_rate_limit(user_id: str) -> bool:
 def _purge_expired_sessions():
     """Delete sessions (and their messages) whose 30-day retention window has expired.
 
+    Also retires audit log rows older than 6 years (HIPAA § 164.312(b)).
     Called once on startup and then every 24 hours by APScheduler.
     Safe to call in tests — uses app.app_context() internally.
     """
@@ -93,16 +95,32 @@ def _purge_expired_sessions():
                 TherapySession.retention_expires_at != None,
                 TherapySession.retention_expires_at < now,
             ).all()
-            count = 0
+
+            # Capture IDs before deletion so we can log after the commit
+            purged = [(ts.id, ts.created_by) for ts in expired]
+
             for ts in expired:
                 ChatMessage.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 Exercise.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 RateLimitEntry.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 db.session.delete(ts)
-                count += 1
-            if count:
+
+            if purged:
                 db.session.commit()
-                app.logger.info("Purged %d expired session(s).", count)
+                app.logger.info("Purged %d expired session(s).", len(purged))
+                for sid, uid in purged:
+                    log_event("session_purged_auto", session_id=sid, user_id=uid,
+                              trigger="scheduler")
+
+            # Retire audit logs older than 6 years (HIPAA minimum retention satisfied)
+            six_years_ago = now - timedelta(days=6 * 365)
+            old_count = AuditLog.query.filter(AuditLog.timestamp < six_years_ago).delete(
+                synchronize_session=False
+            )
+            if old_count:
+                db.session.commit()
+                app.logger.info("Retired %d audit log row(s) older than 6 years.", old_count)
+
     except Exception as exc:
         app.logger.error("Session purge job failed: %s", exc)
 
@@ -236,6 +254,10 @@ def auth_post(therapy_mode):
     db.session.commit()
     session["user_id"] = user_id
 
+    if new_session_id:
+        log_event("session_created", session_id=new_session_id, user_id=user_id,
+                  mode=therapy_mode)
+
     if therapy_mode == "solo":
         return redirect(url_for("therapy_solo", session_id=new_session_id))
     elif therapy_mode == "couple":
@@ -331,6 +353,13 @@ def therapy_solo_post(session_id):
     )
     db.session.add(exercise)
     db.session.commit()
+
+    log_event("message_sent", session_id=session_id, user_id=user_id,
+              mode="solo", message_length=len(text))
+    if ai_text == CRISIS_RESPONSE:
+        log_event("crisis_detected", session_id=session_id, user_id=user_id, layer="keyword_or_claude")
+    elif ai_text == MEDICAL_GUARD_SAFE_RESPONSE:
+        log_event("medical_guard_fired", session_id=session_id, user_id=user_id)
 
     return redirect(url_for("therapy_solo", session_id=session_id))
 
@@ -463,6 +492,8 @@ def delete_session(session_id):
         Exercise.query.filter_by(user_id=user_id).delete(synchronize_session=False)
         User.query.filter_by(id=user_id).delete(synchronize_session=False)
     db.session.commit()
+    log_event("session_deleted_user", session_id=session_id, user_id=user_id,
+              trigger="user")
     session.clear()
     return jsonify({"deleted": True}), 200
 
@@ -481,6 +512,7 @@ def delete_user(user_id):
     RateLimitEntry.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     User.query.filter_by(id=user_id).delete(synchronize_session=False)
     db.session.commit()
+    log_event("data_deleted_user", user_id=user_id, trigger="user_gdpr_request")
 
     session.clear()
     return jsonify({"deleted": True}), 200
@@ -704,6 +736,12 @@ def api_auth_register():
 
     db.session.commit()
     session["user_id"] = user_id
+
+    created_sid = response_data.get("session_id")
+    if created_sid and not pending_couple and not pending_group:
+        log_event("session_created", session_id=created_sid, user_id=user_id,
+                  mode=therapy_mode)
+
     return jsonify(response_data), 201
 
 
@@ -884,6 +922,14 @@ def on_send_message(data):
         )
         db.session.add(exercise)
         db.session.commit()
+
+        log_event("message_sent", session_id=session_id, user_id=user_id,
+                  mode=mode, message_length=len(text))
+        if ai_text == CRISIS_RESPONSE:
+            log_event("crisis_detected", session_id=session_id, user_id=user_id,
+                      layer="keyword_or_claude")
+        elif ai_text == MEDICAL_GUARD_SAFE_RESPONSE:
+            log_event("medical_guard_fired", session_id=session_id, user_id=user_id)
 
         emit("new_message",
              {"user_id": user_id, "text": text, "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},

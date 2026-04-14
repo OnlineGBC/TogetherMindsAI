@@ -64,10 +64,10 @@ CRISIS_RESPONSE = (
 )
 
 HUMAN_REFERRAL_NOTE = (
-    "\n\nI want to be transparent: I am an AI, not a licensed therapist, "
+    "\n\nI want to be transparent: I am an AI, not a licensed professional, "
     "and I have real limitations. What you are describing may benefit from "
     "the support of a qualified human professional. "
-    "Psychology Today's therapist finder (psychologytoday.com/us/therapists) "
+    "Psychology Today's finder (psychologytoday.com/us/therapists) "
     "is a good place to start. You do not have to navigate this alone."
 )
 
@@ -363,7 +363,7 @@ def _generate_claude_response(
 
 
 # ---------------------------------------------------------------------------
-# Output guard — defensive check against diagnostic/prescriptive language
+# Output guard — two-layer check against medical/diagnostic language
 # ---------------------------------------------------------------------------
 
 _FORBIDDEN_OUTPUT_PHRASES = [
@@ -373,13 +373,51 @@ _FORBIDDEN_OUTPUT_PHRASES = [
     "you need medication", "take this drug",
 ]
 
+MEDICAL_GUARD_SAFE_RESPONSE = (
+    "I'm not able to give medical advice. "
+    "Please speak with a healthcare professional about this."
+)
 
-def _sanitize_response(response: str) -> str:
-    """Strip any response that inadvertently contains diagnostic/prescriptive language."""
+
+def _medical_guard(response: str) -> str:
+    """Two-layer output guard against medical diagnoses, drug names, or treatment instructions.
+
+    Layer 1 — keyword pre-filter: catches obvious forbidden phrases instantly.
+    Layer 2 — Claude Haiku check: catches hallucinated drug names, dosage
+              recommendations, or diagnostic language that keywords would miss.
+
+    Returns the original response if clean, or MEDICAL_GUARD_SAFE_RESPONSE if flagged.
+    Falls back gracefully if the Claude check fails.
+    """
+    # Layer 1: fast keyword pre-filter
     lowered = response.lower()
     if any(phrase in lowered for phrase in _FORBIDDEN_OUTPUT_PHRASES):
-        logger.warning("Sanitizer caught forbidden phrase in response; substituting fallback.")
-        return random.choice(_FALLBACK["solo"]["neutral"])
+        logger.warning("Medical guard (keyword) caught forbidden phrase in response.")
+        return MEDICAL_GUARD_SAFE_RESPONSE
+
+    # Layer 2: Claude Haiku safety check
+    try:
+        client = _get_claude_client()
+        result = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=5,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Does the following text contain specific medical diagnoses, "
+                    "drug names, dosage recommendations, or treatment instructions? "
+                    "Answer YES or NO only.\n\n"
+                    f"Text: {response[:1000]}"
+                ),
+            }],
+        )
+        answer = result.content[0].text.strip().upper()
+        if answer.startswith("YES"):
+            logger.warning("Medical guard (Claude) flagged response as containing medical advice.")
+            return MEDICAL_GUARD_SAFE_RESPONSE
+    except Exception as exc:
+        logger.warning("Medical guard Claude check failed (%s); skipping.", exc)
+
     return response
 
 
@@ -397,6 +435,41 @@ def detect_escalation(text: str) -> bool:
     """Return True if the text signals a need for professional human support."""
     lowered = text.lower()
     return any(kw in lowered for kw in ESCALATION_KEYWORDS)
+
+
+def _claude_crisis_check(text: str) -> bool:
+    """Secondary crisis check using Claude for contextual understanding.
+
+    Called only when keyword detection misses — catches phrases like
+    "I can't go on anymore" or "I don't want to be here" that keywords
+    would not catch.
+
+    Uses Claude Haiku for speed and minimal cost (max_tokens=5, YES/NO only).
+    Returns False on any API failure so the conversation always continues.
+    """
+    try:
+        client = _get_claude_client()
+        result = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=5,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Does the following message express suicidal ideation, "
+                    "self-harm intent, or a wish to not be alive? "
+                    "Answer YES or NO only.\n\n"
+                    f"Message: {text[:500]}"
+                ),
+            }],
+        )
+        answer = result.content[0].text.strip().upper()
+        if answer.startswith("YES"):
+            logger.warning("Claude crisis check flagged contextual crisis language.")
+            return True
+        return False
+    except Exception as exc:
+        logger.warning("Claude crisis check failed (%s); skipping secondary check.", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -439,13 +512,18 @@ def process_input(text: str, mode: str = "solo", session_message_count: int = 0,
 
     Pipeline
     --------
-    1. Crisis keyword check  → return CRISIS_RESPONSE immediately (no Claude call).
-    2. Emotion classification → j-hartmann/emotion-english-distilroberta-base (CPU).
-    3. Claude Sonnet 4.6     → generates the response with the emotion as context.
-    4. Output guard          → strip any forbidden diagnostic/prescriptive language.
+    1a. Crisis keyword check  → return CRISIS_RESPONSE immediately (fast, no API call).
+    1b. Claude crisis check   → contextual check for phrases keywords miss.
+    2.  Emotion classification → j-hartmann/emotion-english-distilroberta-base (CPU).
+    3.  Claude Sonnet 4.6     → generates the response with the emotion as context.
+    4.  Medical output guard  → keyword + Claude check for medical/diagnostic language.
     """
-    # 1. Crisis check — always takes priority
+    # 1a. Crisis check Layer 1 — keywords (zero latency)
     if detect_crisis(text):
+        return CRISIS_RESPONSE
+
+    # 1b. Crisis check Layer 2 — Claude contextual check for phrases keywords miss
+    if _claude_crisis_check(text):
         return CRISIS_RESPONSE
 
     # 2. Emotion detection
@@ -461,5 +539,5 @@ def process_input(text: str, mode: str = "solo", session_message_count: int = 0,
     # 4. Generate response via Claude
     response = _generate_claude_response(text, emotion, mode, needs_escalation, history=history)
 
-    # 5. Output guard
-    return _sanitize_response(response)
+    # 5. Medical output guard (keyword + Claude)
+    return _medical_guard(response)

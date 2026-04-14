@@ -73,6 +73,30 @@ class Exercise(db.Model):
         return f"<Exercise id={self.id} user={self.user_id} type={self.type}>"
 
 
+class AuditLog(db.Model):
+    """Tamper-evident, append-only security audit log (HIPAA § 164.312(b)).
+
+    Rows are never updated or deleted by application code.
+    A SHA-256 hash chain links every row to its predecessor so any
+    modification or deletion is detectable by verify_audit_chain().
+    Retention: 6 years (purged by the scheduler, not on user request).
+    """
+    __tablename__ = "audit_logs"
+
+    id            = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    event_type    = db.Column(db.String(64),  nullable=False, index=True)
+    session_id    = db.Column(db.String(36),  nullable=True,  index=True)
+    user_id       = db.Column(db.String(36),  nullable=True)
+    details       = db.Column(db.Text,        nullable=True)          # JSON metadata — no message content
+    prev_hash     = db.Column(db.String(64),  nullable=False)         # hash of preceding row
+    row_hash      = db.Column(db.String(64),  nullable=False, unique=True)
+    timestamp     = db.Column(db.DateTime,    nullable=False)
+    timestamp_str = db.Column(db.String(40),  nullable=False)         # exact ISO string used in hash
+
+    def __repr__(self):
+        return f"<AuditLog id={self.id} event={self.event_type} ts={self.timestamp}>"
+
+
 class RateLimitEntry(db.Model):
     __tablename__ = "rate_limit_entries"
 
