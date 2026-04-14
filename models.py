@@ -91,3 +91,4 @@ class TherapySession(db.Model):
     created_by = db.Column(db.String(36), nullable=False)    # user_id of creator
     created_at = db.Column(db.DateTime, nullable=False)
     nickname = db.Column(db.String(60), nullable=True)       # user-set friendly name
+    retention_expires_at = db.Column(db.DateTime, nullable=True)  # auto-purge after 30 days

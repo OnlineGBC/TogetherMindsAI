@@ -11,7 +11,7 @@ import secrets
 import time
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import io
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response
@@ -45,9 +45,11 @@ socketio = SocketIO(
     allow_upgrades=not (config.FLASK_DEBUG or config.IS_TESTING),
 )
 
-_RATE_WINDOW   = config.RATE_WINDOW_SECONDS
-_RATE_MAX_MSGS = config.RATE_MAX_MESSAGES
-_MAX_MSG_LEN   = config.MAX_MESSAGE_LENGTH
+_RATE_WINDOW     = config.RATE_WINDOW_SECONDS
+_RATE_MAX_MSGS   = config.RATE_MAX_MESSAGES
+_MAX_MSG_LEN     = config.MAX_MESSAGE_LENGTH
+_RETENTION_DAYS  = 30
+_RETENTION_DELTA = timedelta(days=_RETENTION_DAYS)
 
 
 # In-memory maps (ephemeral — reset on restart, which is acceptable for these)
@@ -76,6 +78,33 @@ def _check_rate_limit(user_id: str) -> bool:
     db.session.add(RateLimitEntry(user_id=user_id, timestamp=now))
     db.session.commit()
     return True
+
+
+def _purge_expired_sessions():
+    """Delete sessions (and their messages) whose 30-day retention window has expired.
+
+    Called once on startup and then every 24 hours by APScheduler.
+    Safe to call in tests — uses app.app_context() internally.
+    """
+    try:
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+            expired = TherapySession.query.filter(
+                TherapySession.retention_expires_at != None,
+                TherapySession.retention_expires_at < now,
+            ).all()
+            count = 0
+            for ts in expired:
+                ChatMessage.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
+                Exercise.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
+                RateLimitEntry.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
+                db.session.delete(ts)
+                count += 1
+            if count:
+                db.session.commit()
+                app.logger.info("Purged %d expired session(s).", count)
+    except Exception as exc:
+        app.logger.error("Session purge job failed: %s", exc)
 
 
 if not config.IS_TESTING:
@@ -118,6 +147,24 @@ if not config.IS_TESTING:
                 app.logger.warning("Emotion model warm-up failed (%s); will retry on first use.", exc)
         threading.Thread(target=_warmup_emotion_model, daemon=True).start()
 
+    # Add retention_expires_at column if it doesn't exist yet (one-time migration)
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text(
+                "ALTER TABLE therapy_sessions ADD COLUMN retention_expires_at DATETIME"
+            ))
+            db.session.commit()
+        except Exception:
+            pass  # column already exists
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+    _scheduler = BackgroundScheduler()
+    _scheduler.add_job(_purge_expired_sessions, "interval", hours=24, id="purge_expired_sessions")
+    _scheduler.start()
+    # Run once immediately on startup to catch any sessions that expired while the app was down
+    threading.Thread(target=_purge_expired_sessions, daemon=True).start()
+
 
 # ---------------------------------------------------------------------------
 # Routes — pages
@@ -150,18 +197,21 @@ def auth_post(therapy_mode):
         db.session.add(TherapySession(
             id=new_session_id, mode="solo", created_by=user_id,
             created_at=datetime.now(timezone.utc),
+            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
         ))
     elif therapy_mode == "couple" and not pending_couple:
         new_session_id = generate_session_id()
         db.session.add(TherapySession(
             id=new_session_id, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
+            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
         ))
     elif therapy_mode == "group" and not pending_group:
         new_session_id = generate_session_id()
         db.session.add(TherapySession(
             id=new_session_id, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
+            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
         ))
 
     db.session.commit()
@@ -609,6 +659,7 @@ def api_auth_register():
         db.session.add(TherapySession(
             id=new_sid, mode="solo", created_by=user_id,
             created_at=datetime.now(timezone.utc),
+            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
         ))
         response_data["session_id"] = new_sid
     elif therapy_mode == "couple" and not pending_couple:
@@ -616,6 +667,7 @@ def api_auth_register():
         db.session.add(TherapySession(
             id=new_sid, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
+            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
         ))
         response_data["session_id"] = new_sid
     elif therapy_mode == "group" and not pending_group:
@@ -623,6 +675,7 @@ def api_auth_register():
         db.session.add(TherapySession(
             id=new_sid, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
+            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
         ))
         response_data["session_id"] = new_sid
 

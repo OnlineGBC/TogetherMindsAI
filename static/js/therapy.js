@@ -197,7 +197,7 @@ function appendMessage(chatBox, senderId, text, timestamp, myUserId) {
     var wrapper = document.createElement("div");
     wrapper.className = "d-flex mb-3 align-items-end" + (isMe ? " justify-content-end" : "");
 
-    var senderLabel = isAI ? "AI Therapist" : (isMe ? "You" : "Partner");
+    var senderLabel = isAI ? "AI Guide" : (isMe ? "You" : "Partner");
 
     var timeStr = timestamp || "";
     // Extract HH:MM if a full datetime string was provided

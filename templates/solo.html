@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Solo Therapy — TogetherMindsAI{% endblock %}
+{% block title %}Solo Reflection — TogetherMindsAI{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -10,7 +10,7 @@
             <div class="d-flex align-items-center gap-2">
                 <i class="bi bi-robot text-primary-green fs-3"></i>
                 <div>
-                    <h4 class="mb-0 fw-bold">Solo Therapy with AI Therapist</h4>
+                    <h4 class="mb-0 fw-bold">Solo Reflection with AI Guide</h4>
                     <small class="text-muted">Your private, judgment-free space</small>
                 </div>
             </div>
@@ -74,7 +74,7 @@
                 <div class="text-center text-muted py-5" id="emptyState">
                     <i class="bi bi-chat-heart-fill display-4 text-primary-green opacity-50"></i>
                     <p class="mt-3">
-                        Hi there! I'm your AI therapist. Tell me how you're feeling today —
+                        Hi there! I'm your AI guide. Tell me how you're feeling today —
                         I'm here to listen and support you.
                     </p>
                 </div>
@@ -87,7 +87,7 @@
                             <i class="bi bi-robot"></i>
                         </div>
                         <div class="bubble bubble-ai">
-                            <span class="bubble-sender">AI Therapist</span>
+                            <span class="bubble-sender">AI Guide</span>
                             <p class="mb-0">{{ msg.text }}</p>
                             <span class="bubble-time">{{ msg.timestamp.strftime("%H:%M") }}</span>
                         </div>

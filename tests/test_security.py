@@ -5,6 +5,7 @@ Tests covering security hardening:
   - secure_env_file() runs without error on the current OS
   - ChatMessage.text is stored encrypted (raw DB value is not readable plaintext)
   - validate_config() raises when FIELD_ENCRYPTION_KEY is missing
+  - 30-day purge job deletes expired sessions and their messages
 """
 
 import os
@@ -14,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
 from unittest.mock import patch
+from datetime import datetime, timezone, timedelta
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -25,8 +27,8 @@ os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5001")
 TEST_KEY = Fernet.generate_key().decode()
 os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 
-from TogetherMindsAI import app
-from models import db, ChatMessage, init_encryption
+from TogetherMindsAI import app, _purge_expired_sessions
+from models import db, ChatMessage, TherapySession, init_encryption
 from session_id import generate_session_id
 
 # Initialise encryption with the test key once at import time
@@ -127,6 +129,47 @@ class TestFieldEncryption:
 # ---------------------------------------------------------------------------
 # validate_config raises when FIELD_ENCRYPTION_KEY missing
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 30-day purge job
+# ---------------------------------------------------------------------------
+
+class TestPurgeExpiredSessions:
+    def test_expired_session_and_messages_are_deleted(self, enc_client):
+        """Sessions past retention_expires_at must be deleted along with their messages."""
+        with app.app_context():
+            expired_sid = generate_session_id()
+            ts = TherapySession(
+                id=expired_sid, mode="solo", created_by="purge-test-user",
+                created_at=datetime.now(timezone.utc) - timedelta(days=31),
+                retention_expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            )
+            msg = ChatMessage(session_id=expired_sid, user_id="purge-test-user", text="should be deleted")
+            db.session.add(ts)
+            db.session.add(msg)
+            db.session.commit()
+
+            _purge_expired_sessions()
+
+            assert TherapySession.query.get(expired_sid) is None
+            assert ChatMessage.query.filter_by(session_id=expired_sid).count() == 0
+
+    def test_non_expired_session_is_kept(self, enc_client):
+        """Sessions within the retention window must not be deleted."""
+        with app.app_context():
+            active_sid = generate_session_id()
+            ts = TherapySession(
+                id=active_sid, mode="solo", created_by="keep-test-user",
+                created_at=datetime.now(timezone.utc),
+                retention_expires_at=datetime.now(timezone.utc) + timedelta(days=29),
+            )
+            db.session.add(ts)
+            db.session.commit()
+
+            _purge_expired_sessions()
+
+            assert TherapySession.query.get(active_sid) is not None
+
 
 class TestValidateConfigEncryptionKey:
     def test_raises_when_field_encryption_key_missing(self):

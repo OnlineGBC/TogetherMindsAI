@@ -13,8 +13,10 @@
             {% else %}
                 <i class="bi bi-person-lines-fill display-3 text-primary-green"></i>
             {% endif %}
-            <h2 class="fw-bold mt-3 text-capitalize">
-                Getting Started with {{ therapy_mode }} Therapy
+            <h2 class="fw-bold mt-3">
+                {% if therapy_mode == "solo" %}Getting Started with Solo Reflection
+                {% elif therapy_mode == "couple" %}Getting Started with Couple Check-in
+                {% else %}Getting Started with Group Circle{% endif %}
             </h2>
             <p class="text-muted">You're moments away from your session.</p>
         </div>
@@ -57,7 +59,7 @@
                     <label class="consent-item d-flex align-items-start gap-3 p-3 rounded-3 border border-2 cursor-pointer" for="aiCheck">
                         <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="aiCheck" required>
                         <span>
-                            I understand TogetherMindsAI is an <strong>AI tool, not a licensed therapist</strong>,
+                            I understand TogetherMindsAI is an <strong>AI tool, not a licensed professional</strong>,
                             and is <strong>not a substitute</strong> for professional mental health care.
                             It cannot diagnose conditions or prescribe treatment.
                         </span>
