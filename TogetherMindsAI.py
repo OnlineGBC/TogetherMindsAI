@@ -75,6 +75,25 @@ _RETENTION_DAYS  = 30
 _RETENTION_DELTA = timedelta(days=_RETENTION_DAYS)
 
 
+# ---------------------------------------------------------------------------
+# HTTPS redirect (finding 3.1) — production only
+# ---------------------------------------------------------------------------
+
+@app.before_request
+def redirect_http_to_https():
+    """In production, redirect any plain-HTTP request to HTTPS.
+
+    Cloud Run terminates TLS at the load balancer and forwards requests to the
+    container over HTTP, setting X-Forwarded-Proto to indicate the original
+    protocol.  We trust that header only in production; in local dev and tests
+    the header is absent and the redirect never fires.
+    """
+    if config.IS_PRODUCTION:
+        if request.headers.get("X-Forwarded-Proto", "https") == "http":
+            url = request.url.replace("http://", "https://", 1)
+            return redirect(url, code=301)
+
+
 # In-memory maps (ephemeral — reset on restart, which is acceptable for these)
 room_mode: dict = {}
 room_participants: dict = defaultdict(set)   # session_id → set of user_ids
