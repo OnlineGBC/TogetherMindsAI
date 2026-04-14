@@ -215,6 +215,9 @@ TogetherMindsAI.venv/
   __pycache__/                                              
   *.pyc                                                                                                                                                                                                   
   *.pyo                                                     
-  .env 
+  .env
   .claude/
+
+# Accidental pip shell-redirect artifacts (e.g. =0.40.0)
+=*
 
