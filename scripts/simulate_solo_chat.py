@@ -99,9 +99,12 @@ def run(base_url: str, headless: bool):
         for checkbox_id in ("#ageCheck", "#aiCheck", "#dataCheck"):
             page.locator(checkbox_id).check()
 
-        # Continue button should now be enabled
+        # Wait for the continue button to become enabled (disabled attr removed)
         continue_btn = page.locator("#continueBtn")
-        continue_btn.wait_for(state="enabled", timeout=5_000)
+        page.wait_for_function(
+            "!document.getElementById('continueBtn').disabled",
+            timeout=5_000,
+        )
         continue_btn.click()
 
         # ── Step 2: Wait for redirect to therapy page ────────────────────────
