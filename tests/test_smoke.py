@@ -206,7 +206,7 @@ def test_golden_path_message_creates_exercise(client):
         exercises = Exercise.query.filter_by(user_id=user_id).all()
     assert len(exercises) == 1
     assert exercises[0].mode == "solo"
-    assert exercises[0].prompt == "I feel very sad"
+    assert exercises[0].type == "solo_chat"
 
 
 def test_progress_page_shows_data_after_messages(client):

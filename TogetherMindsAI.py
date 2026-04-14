@@ -158,6 +158,20 @@ if not config.IS_TESTING:
         except Exception:
             pass  # column already exists
 
+    # Remove prompt/response columns from exercises — conversation text is now
+    # stored only in chat_messages (encrypted). Metadata-only exercise records
+    # are sufficient for the progress chart.
+    with app.app_context():
+        from sqlalchemy import text, inspect as sa_inspect
+        col_names = {c["name"] for c in sa_inspect(db.engine).get_columns("exercises")}
+        for col in ("prompt", "response"):
+            if col in col_names:
+                try:
+                    db.session.execute(text(f"ALTER TABLE exercises DROP COLUMN {col}"))
+                    db.session.commit()
+                except Exception:
+                    pass
+
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(_purge_expired_sessions, "interval", hours=24, id="purge_expired_sessions")
@@ -308,8 +322,7 @@ def therapy_solo_post(session_id):
     db.session.add(ai_msg)
 
     exercise = Exercise(
-        user_id=user_id, type="solo_chat", mode="solo",
-        prompt=text, response=ai_text, timestamp=now,
+        user_id=user_id, type="solo_chat", mode="solo", timestamp=now,
     )
     db.session.add(exercise)
     db.session.commit()
@@ -862,8 +875,7 @@ def on_send_message(data):
         db.session.add(ai_msg)
 
         exercise = Exercise(
-            user_id=user_id, type="realtime_chat", mode=mode,
-            prompt=text, response=ai_text, timestamp=now,
+            user_id=user_id, type="realtime_chat", mode=mode, timestamp=now,
         )
         db.session.add(exercise)
         db.session.commit()

@@ -65,8 +65,6 @@ class Exercise(db.Model):
     user_id = db.Column(db.String(36), index=True, nullable=False)
     type = db.Column(db.String(50), nullable=False)
     mode = db.Column(db.String(20), nullable=True)               # "solo", "couple", "group"
-    prompt = db.Column(db.Text, nullable=False)
-    response = db.Column(db.Text, nullable=False)
     timestamp = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
