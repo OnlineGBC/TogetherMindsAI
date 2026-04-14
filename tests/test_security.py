@@ -175,6 +175,43 @@ class TestPurgeExpiredSessions:
 # Session cookie security flags (finding 3.4)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Registration rate limiting (finding 3.9)
+# ---------------------------------------------------------------------------
+
+class TestRegistrationRateLimit:
+
+    def test_api_register_blocked_after_10_requests(self, enc_client):
+        """11th POST to /api/auth/register from the same IP must return 429."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        import base64
+
+        def _register():
+            key = ec.generate_private_key(ec.SECP256R1())
+            pub_b64 = base64.b64encode(
+                key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+            ).decode()
+            return enc_client.post("/api/auth/register",
+                                   json={"therapy_mode": "solo", "public_key": pub_b64})
+
+        for _ in range(10):
+            resp = _register()
+            assert resp.status_code == 201
+
+        resp = _register()
+        assert resp.status_code == 429
+
+    def test_legacy_register_blocked_after_10_requests(self, enc_client):
+        """11th POST to /auth/solo from the same IP must return 429."""
+        for _ in range(10):
+            resp = enc_client.post("/auth/solo")
+            assert resp.status_code in (200, 302)   # redirect on success
+
+        resp = enc_client.post("/auth/solo")
+        assert resp.status_code == 429
+
+
 class TestSessionCookieConfig:
     def test_httponly_flag_is_enabled(self):
         assert app.config["SESSION_COOKIE_HTTPONLY"] is True

@@ -15,6 +15,21 @@ import time
 import pytest
 from unittest.mock import MagicMock, patch
 
+# ---------------------------------------------------------------------------
+# Rate limiter reset — runs before every test to prevent counter bleed-over
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """Reset flask-limiter's in-memory counters before each test.
+
+    Without this, rate-limit tests that exhaust the counter would cause
+    subsequent tests in the same process to receive unexpected 429 responses.
+    """
+    from TogetherMindsAI import limiter
+    limiter.reset()
+    yield
+
 
 # ---------------------------------------------------------------------------
 # Emotion classifier mock — returned for every test automatically

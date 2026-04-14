@@ -15,6 +15,8 @@ from datetime import datetime, timezone, timedelta
 
 import io
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, join_room, emit
 from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
 from cryptography.hazmat.primitives.hashes import SHA256
@@ -38,6 +40,18 @@ app.config["SESSION_COOKIE_SECURE"] = config.IS_PRODUCTION   # True on Cloud Run
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 db.init_app(app)
+
+# Per-IP rate limiter (finding 3.9).
+# On Cloud Run, the real client IP arrives in X-Forwarded-For; using
+# PROXIES_COUNT=1 tells flask-limiter to trust the first forwarded address.
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[],                          # no global default — limits are per-route only
+    storage_uri="memory://",                    # in-process; resets on restart (acceptable for rate limiting)
+    headers_enabled=True,                       # send X-RateLimit-* headers so clients can back off
+)
+app.config["RATELIMIT_PROXIES_COUNT"] = 1       # trust one proxy hop (Cloud Run load balancer)
 
 socketio = SocketIO(
     app,
@@ -223,6 +237,7 @@ def auth_get(therapy_mode):
 
 
 @app.route("/auth/<therapy_mode>", methods=["POST"])
+@limiter.limit("10 per hour")
 def auth_post(therapy_mode):
     """Legacy form-based auth kept as fallback. New users go through /api/auth/register."""
     user_id = str(uuid.uuid4())
@@ -684,6 +699,7 @@ def download_transcript_docx(session_id):
 # ---------------------------------------------------------------------------
 
 @app.route("/api/auth/register", methods=["POST"])
+@limiter.limit("10 per hour")
 def api_auth_register():
     data = request.get_json()
     if not data:
