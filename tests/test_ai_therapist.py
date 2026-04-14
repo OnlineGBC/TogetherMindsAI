@@ -40,6 +40,14 @@ def _make_claude_client(reply: str):
     return client
 
 
+def _find_sonnet_call(client):
+    """Return the main Sonnet call — the only call that includes a 'system' kwarg."""
+    return next(
+        c for c in client.messages.create.call_args_list
+        if "system" in c.kwargs
+    )
+
+
 # ---------------------------------------------------------------------------
 # Emotion classifier
 # ---------------------------------------------------------------------------
@@ -103,8 +111,8 @@ class TestClaudeGenerator:
         with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
              patch("ai_therapist._get_claude_client", return_value=client):
             process_input("I feel down", mode="solo")
-        call_kwargs = client.messages.create.call_args
-        user_content = call_kwargs.kwargs["messages"][0]["content"]
+        sonnet_call = _find_sonnet_call(client)
+        user_content = sonnet_call.kwargs["messages"][0]["content"]
         assert "sadness" in user_content
 
     def test_prompt_caching_applied_to_system(self):
@@ -113,7 +121,8 @@ class TestClaudeGenerator:
         with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
              patch("ai_therapist._get_claude_client", return_value=client):
             process_input("Hello", mode="solo")
-        system_arg = client.messages.create.call_args.kwargs["system"]
+        sonnet_call = _find_sonnet_call(client)
+        system_arg = sonnet_call.kwargs["system"]
         assert isinstance(system_arg, list)
         assert system_arg[0]["cache_control"] == {"type": "ephemeral"}
 
@@ -123,7 +132,8 @@ class TestClaudeGenerator:
         with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
              patch("ai_therapist._get_claude_client", return_value=client):
             process_input("Hello", mode="solo")
-        model = client.messages.create.call_args.kwargs["model"]
+        sonnet_call = _find_sonnet_call(client)
+        model = sonnet_call.kwargs["model"]
         assert "sonnet" in model
 
     def test_escalation_hint_injected_when_needed(self):
@@ -132,7 +142,8 @@ class TestClaudeGenerator:
         with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
              patch("ai_therapist._get_claude_client", return_value=client):
             process_input("I need a therapist", mode="solo")
-        user_content = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        sonnet_call = _find_sonnet_call(client)
+        user_content = sonnet_call.kwargs["messages"][0]["content"]
         assert "escalation" in user_content.lower() or "professional" in user_content.lower()
 
     def test_no_escalation_hint_for_normal_message(self):
@@ -141,7 +152,8 @@ class TestClaudeGenerator:
         with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
              patch("ai_therapist._get_claude_client", return_value=client):
             process_input("I feel good today", mode="solo", session_message_count=0)
-        user_content = client.messages.create.call_args.kwargs["messages"][0]["content"]
+        sonnet_call = _find_sonnet_call(client)
+        user_content = sonnet_call.kwargs["messages"][0]["content"]
         assert "Internal note" not in user_content
 
     def test_couple_mode_system_prompt_mentions_partners(self):
@@ -150,7 +162,8 @@ class TestClaudeGenerator:
         with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
              patch("ai_therapist._get_claude_client", return_value=client):
             process_input("We are struggling", mode="couple")
-        system_text = client.messages.create.call_args.kwargs["system"][0]["text"]
+        sonnet_call = _find_sonnet_call(client)
+        system_text = sonnet_call.kwargs["system"][0]["text"]
         assert "couple" in system_text.lower() or "partner" in system_text.lower()
 
     def test_group_mode_system_prompt_mentions_group(self):
@@ -159,7 +172,8 @@ class TestClaudeGenerator:
         with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
              patch("ai_therapist._get_claude_client", return_value=client):
             process_input("Hello group", mode="group")
-        system_text = client.messages.create.call_args.kwargs["system"][0]["text"]
+        sonnet_call = _find_sonnet_call(client)
+        system_text = sonnet_call.kwargs["system"][0]["text"]
         assert "group" in system_text.lower()
 
 
