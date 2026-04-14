@@ -146,6 +146,7 @@
 
 {% block scripts %}
 <script>
+    history.replaceState(null, '', '/');
     var _DISPLAY_ID = "{{ session_id }}";
 
     function copySessionId(id) {

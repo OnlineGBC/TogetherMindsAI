@@ -127,6 +127,7 @@
 
 {% block scripts %}
 <script>
+    history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
     var SESSION_ID = "{{ session_id }}";
     var DISPLAY_ID = "{{ session_id }}";
