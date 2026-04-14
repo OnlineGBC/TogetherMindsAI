@@ -21,6 +21,8 @@ from ai_therapist import (
     detect_escalation,
     EMOTION_TO_SENTIMENT,
     CRISIS_RESPONSE,
+    OFFTOPIC_SAFE_RESPONSE,
+    _looks_like_factual_question,
 )
 
 
@@ -232,3 +234,65 @@ class TestCrisisBypass:
     def test_crisis_response_exact_content(self):
         result = process_input("I want to kill myself")
         assert result == CRISIS_RESPONSE
+
+
+# ---------------------------------------------------------------------------
+# Off-topic pre-filter — _looks_like_factual_question
+# ---------------------------------------------------------------------------
+
+class TestOffTopicPreFilter:
+
+    def test_short_trivia_question_flagged(self):
+        assert _looks_like_factual_question("What is the capital of France?") is True
+
+    def test_personal_coping_question_not_flagged(self):
+        # Contains emotional word "stress" + question word — must NOT deflect
+        assert _looks_like_factual_question(
+            "What are some practical things I can do to manage this stress?"
+        ) is False
+
+    def test_long_personal_question_not_flagged(self):
+        # > 60 chars — must never be flagged regardless of content
+        assert _looks_like_factual_question(
+            "How can I cope when things get really hard between us and I feel lost?"
+        ) is False
+
+    def test_no_question_mark_not_flagged(self):
+        assert _looks_like_factual_question("Tell me about Paris") is False
+
+    def test_question_word_not_at_start_not_flagged(self):
+        # "what" not first word
+        assert _looks_like_factual_question("I don't know what to do?") is False
+
+    def test_metaphorical_withdrawal_not_deflected(self):
+        # "I make myself smaller" — emotional content, no question mark
+        # Should never be flagged as off-topic
+        assert _looks_like_factual_question(
+            "I make myself smaller so I don't mess things up more"
+        ) is False
+
+    def test_process_input_personal_coping_question_reaches_claude(self):
+        """process_input must NOT return OFFTOPIC_SAFE_RESPONSE for therapy-relevant questions."""
+        client = _make_claude_client("That's a great question about managing stress.")
+        pipe = _make_emotion_pipe("neutral")
+        with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
+             patch("ai_therapist._get_claude_client", return_value=client):
+            result = process_input(
+                "What are some practical things I can do to manage this stress?",
+                mode="solo",
+            )
+        assert result != OFFTOPIC_SAFE_RESPONSE
+
+    def test_process_input_withdrawal_language_not_deflected(self):
+        """'I make myself smaller' must not trigger off-topic or crisis response."""
+        client = _make_claude_client("I hear how much you shrink yourself to keep the peace.")
+        pipe = _make_emotion_pipe("sadness")
+        with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
+             patch("ai_therapist._get_claude_client", return_value=client), \
+             patch("ai_therapist._claude_crisis_check", return_value=False):
+            result = process_input(
+                "I make myself smaller so I don't mess things up more",
+                mode="couple",
+            )
+        assert result != OFFTOPIC_SAFE_RESPONSE
+        assert result != CRISIS_RESPONSE

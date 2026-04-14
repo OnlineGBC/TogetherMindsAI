@@ -86,6 +86,7 @@ sid_to_session: dict = {}                     # SocketIO SID → session_id
 session_display_names: dict = {}  # session_id → {user_id: display_name}
 session_taken_names: dict   = {}  # session_id → set of lowercased names (permanent for session lifetime)
 session_joined_users: dict  = {}  # session_id → ordered list of user_ids (join order, for default names)
+session_opening_sent: set   = set()  # session_ids that have already had their opening message generated
 
 
 def _default_display_name(mode: str, position: int) -> str:
@@ -943,7 +944,8 @@ def on_join(data):
             .order_by(ChatMessage.timestamp.asc())
             .all()
         )
-        if not messages and not config.IS_TESTING:
+        if not messages and not config.IS_TESTING and session_id not in session_opening_sent:
+            session_opening_sent.add(session_id)
             opening = generate_opening_message(mode)
             ai_msg = ChatMessage(
                 session_id=session_id, user_id="AI", text=opening,

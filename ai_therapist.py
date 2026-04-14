@@ -36,9 +36,13 @@ ESCALATION_KEYWORDS = {
 }
 
 NEGATIVE_KEYWORDS = {
-    "sad", "depressed", "anxious", "worried", "stressed", "overwhelmed",
+    "sad", "depressed", "anxious", "worried", "stressed", "stress", "overwhelmed",
     "hopeless", "angry", "afraid", "hurt", "lonely", "terrible", "awful",
     "bad", "crying", "frustrated", "scared", "upset", "exhausted", "miserable",
+    "hard", "difficult", "struggle", "struggling", "cope", "coping", "pain",
+    "tired", "lost", "confused", "broken", "numb", "empty", "stuck", "failing",
+    "fail", "scared", "alone", "helpless", "worthless", "useless", "ashamed",
+    "guilt", "guilty", "dread", "anxious", "panic", "fear", "grief", "grieve",
 }
 
 POSITIVE_KEYWORDS = {
@@ -393,18 +397,30 @@ _EMOTIONAL_SIGNAL_WORDS = (
 
 
 def _looks_like_factual_question(text: str) -> bool:
-    """Return True if the text looks like a factual/off-topic question.
+    """Return True only when the text is clearly a short, impersonal factual question.
 
-    Criteria (both must be true):
-      1. Contains at least one question word (what, where, when, who, how, why, which).
-      2. Contains no emotional signal words (crisis, escalation, negative, or positive
-         sentiment vocabulary) — presence of any emotional word means the person is
-         sharing something personal, not asking a factual trivia question.
+    All three criteria must hold:
+      1. Ends with a question mark — the person is explicitly asking something.
+      2. Starts with a question word (what, where, when, who, how, why, which).
+      3. No emotional signal words anywhere in the text — any emotional word means
+         the person is sharing something personal, not asking a factual trivia question.
+      4. Short message (≤ 60 characters) — longer messages are almost always personal
+         sharing even when they contain a question word.
+
+    This conservative threshold ensures personal questions like
+    "How can I cope with this?" or "What does this mean for us?" are never
+    deflected — only clearly off-topic trivia like "What is the capital of France?"
     """
-    words = set(text.lower().split())
-    has_question_word = bool(words & _QUESTION_WORDS)
-    has_emotional_word = any(kw in text.lower() for kw in _EMOTIONAL_SIGNAL_WORDS)
-    return has_question_word and not has_emotional_word
+    stripped = text.strip()
+    if not stripped.endswith("?"):
+        return False
+    if len(stripped) > 60:
+        return False
+    first_word = stripped.lower().split()[0] if stripped.split() else ""
+    if first_word not in _QUESTION_WORDS:
+        return False
+    has_emotional_word = any(kw in stripped.lower() for kw in _EMOTIONAL_SIGNAL_WORDS)
+    return not has_emotional_word
 
 
 def _medical_guard(response: str) -> str:
@@ -483,8 +499,14 @@ def _claude_crisis_check(text: str) -> bool:
             messages=[{
                 "role": "user",
                 "content": (
-                    "Does the following message express suicidal ideation, "
-                    "self-harm intent, or a wish to not be alive? "
+                    "Does the following message contain a DIRECT, EXPLICIT statement of "
+                    "suicidal ideation, intent to harm oneself, or a wish to be dead?\n\n"
+                    "Answer YES only for clear, unambiguous expressions such as "
+                    "'I want to kill myself', 'I'm going to hurt myself', or 'I want to die'.\n\n"
+                    "Answer NO for: metaphorical language ('I want to disappear', "
+                    "'I make myself smaller', 'I feel invisible'), relational withdrawal "
+                    "('I go quiet', 'I shut down'), frustration with others "
+                    "('I could kill him'), or general hopelessness without explicit intent.\n\n"
                     "Answer YES or NO only.\n\n"
                     f"Message: {text[:500]}"
                 ),
