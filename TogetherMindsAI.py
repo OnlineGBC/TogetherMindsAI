@@ -497,6 +497,15 @@ def save_session_nickname(session_id):
         return jsonify({"error": "Session not found"}), 404
     data = request.get_json(silent=True) or {}
     nickname = (data.get("nickname") or "").strip()[:60]
+    if nickname:
+        # Case-insensitive uniqueness check — exclude the current session so
+        # re-saving the same name does not block the user
+        conflict = TherapySession.query.filter(
+            db.func.lower(TherapySession.nickname) == nickname.lower(),
+            TherapySession.id != session_id,
+        ).first()
+        if conflict:
+            return jsonify({"error": "That name is already in use — please try another."}), 409
     ts.nickname = nickname if nickname else None
     db.session.commit()
     return jsonify({"ok": True}), 200
