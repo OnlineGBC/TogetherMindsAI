@@ -549,28 +549,27 @@ def test_group_page_shows_session_id_in_banner(client):
     assert session_id.encode() in rv.data
 
 
-def test_join_post_session_id_is_case_sensitive(client):
-    """Session IDs are case-sensitive: lowercase of a valid ID must not be found.
+def test_join_post_session_id_is_case_insensitive(client):
+    """Session IDs are case-insensitive: submitting a wrong-case version of a
+    valid ID must still find the session and redirect successfully.
 
-    Architecture: IDs are stored and compared exactly as generated.
-    A session stored as 'aB3k7M' cannot be found by 'ab3k7m'.
+    Architecture: both the stored ID and the submitted input are uppercased
+    before comparison, so 'aB3k7M' and 'AB3K7M' resolve to the same session.
     """
-    priv, user_id, session_id = _register(client, "group")
+    priv, user_id, session_id = _register(client, "solo")
 
-    # Flip the case of each character to guarantee a mismatch
-    flipped = session_id.swapcase()
-    # Only test if the flipped version is actually different (it always will be for mixed-case)
-    if flipped == session_id:
-        pytest.skip("generated ID has no case distinction — skipping")
+    # Submit the ID in all-lowercase to guarantee a case mismatch with stored form
+    lowered = session_id.lower()
 
-    rv = client.post("/session/join", data={"session_id": flipped},
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    rv = client.post("/session/join", data={"session_id": lowered},
                      follow_redirects=False)
-    # Should NOT redirect (not found), should render error
-    assert rv.status_code == 200, (
-        f"Expected error page for wrong-case ID '{flipped}', got redirect. "
-        f"Session IDs must be case-sensitive."
+    assert rv.status_code in (301, 302), (
+        f"Expected redirect for wrong-case ID '{lowered}' (stored as '{session_id}'), "
+        f"got {rv.status_code}. Session ID lookup must be case-insensitive."
     )
-    assert b"not found" in rv.data.lower()
 
 
 def test_solo_rejoin_by_session_id(client):
@@ -623,6 +622,95 @@ def test_join_error_page_still_shows_hint(client):
     assert b"not found" in rv.data.lower()
     # Hint must still be present — it's passed through _join_template on all paths
     assert _example_session_id().encode() in rv.data
+
+
+# ---------------------------------------------------------------------------
+# Item 8 — Nicknames/labels cannot be used for server-side joining
+# ---------------------------------------------------------------------------
+
+def test_solo_nickname_cannot_be_used_to_join(client):
+    """Submitting a label/nickname to the join form must return 'not found'.
+
+    Friendly names are local-only (localStorage). The server never translates
+    a label to a session ID — only the 6-character session ID is accepted.
+    """
+    _register(client, "solo")  # creates a session, but we submit a label instead
+    rv = client.post("/session/join", data={"session_id": "My Monday session"},
+                     follow_redirects=False)
+    assert rv.status_code == 200, "Should render error page, not redirect"
+    assert b"not found" in rv.data.lower()
+
+
+def test_couple_nickname_cannot_be_used_to_join(client):
+    """Same label-rejection test for couple sessions."""
+    _register(client, "couple")
+    rv = client.post("/session/join", data={"session_id": "JohnAndJane"},
+                     follow_redirects=False)
+    assert rv.status_code == 200, "Should render error page, not redirect"
+    assert b"not found" in rv.data.lower()
+
+
+def test_group_nickname_cannot_be_used_to_join(client):
+    """Same label-rejection test for group sessions."""
+    _register(client, "group")
+    rv = client.post("/session/join", data={"session_id": "ThursdayGroup"},
+                     follow_redirects=False)
+    assert rv.status_code == 200, "Should render error page, not redirect"
+    assert b"not found" in rv.data.lower()
+
+
+# ---------------------------------------------------------------------------
+# Item 12 — Second user can join an existing couple or group session
+# ---------------------------------------------------------------------------
+
+def test_second_user_can_join_couple_session(client):
+    """A second user (no existing session cookie) who submits a couple session ID
+    must be redirected to /auth/couple so they can register and join the session.
+
+    This tests the core couple mechanic: User A creates the session, User B
+    joins using the shared session ID.
+    """
+    # User A creates a couple session
+    _priv, _user_id, session_id = _register(client, "couple")
+
+    # User B: clear any session cookie so this is a fresh (unauthenticated) user
+    with client.session_transaction() as sess:
+        sess.clear()
+
+    rv = client.post("/session/join", data={"session_id": session_id},
+                     follow_redirects=False)
+    # Server must redirect User B to auth/couple (not error, not solo)
+    assert rv.status_code in (301, 302), (
+        f"Expected redirect to auth page for second user joining couple session, "
+        f"got {rv.status_code}"
+    )
+    location = rv.headers.get("Location", "")
+    assert "/auth/couple" in location, (
+        f"Second user should be redirected to /auth/couple, got: {location}"
+    )
+
+
+def test_second_user_can_join_group_session(client):
+    """A second user (no existing session cookie) who submits a group session ID
+    must be redirected to /auth/group so they can register and join the session.
+    """
+    # User A creates a group session
+    _priv, _user_id, session_id = _register(client, "group")
+
+    # User B: clear any session cookie so this is a fresh (unauthenticated) user
+    with client.session_transaction() as sess:
+        sess.clear()
+
+    rv = client.post("/session/join", data={"session_id": session_id},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Expected redirect to auth page for second user joining group session, "
+        f"got {rv.status_code}"
+    )
+    location = rv.headers.get("Location", "")
+    assert "/auth/group" in location, (
+        f"Second user should be redirected to /auth/group, got: {location}"
+    )
 
 
 # ---------------------------------------------------------------------------

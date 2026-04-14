@@ -455,8 +455,11 @@ def session_join_post():
     if not raw:
         return _join_template(error="Please enter a Session ID.")
 
-    # Exact case-sensitive lookup by session ID
-    ts = db.session.get(TherapySession, raw)
+    # Case-insensitive lookup: normalize both sides to uppercase
+    from sqlalchemy import func as sa_func
+    ts = TherapySession.query.filter(
+        sa_func.upper(TherapySession.id) == raw.upper()
+    ).first()
     if not ts:
         return _join_template(error="Session not found. Check the ID and try again.")
 

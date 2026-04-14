@@ -5,7 +5,7 @@ All sessions (solo, couple, group) use the same 6-character mixed-case
 alphanumeric ID drawn from SESSION_CHARSET. The ID stored in the DB is
 exactly what is shown to the user — no derivation, no transformation.
 
-Comparisons are case-sensitive: 'aB3k7M' and 'AB3K7M' are different IDs.
+Lookups are case-insensitive: 'aB3k7M' and 'AB3K7M' find the same session.
 Ambiguous characters are excluded to prevent misreading:
   - uppercase: no I (eye), no O (oh)
   - lowercase: no i (eye), no l (ell), no o (oh)
@@ -64,7 +64,7 @@ def is_valid_session_id(value: str) -> bool:
     """Return True if value is a well-formed session ID.
 
     Checks exact length and that every character is in SESSION_CHARSET.
-    Comparison is case-sensitive: 'aB3k7M' and 'AB3K7M' are different IDs.
+    Validation is case-sensitive (checks the stored form); lookups are case-insensitive.
 
     Args:
         value: The string to test.
@@ -84,17 +84,17 @@ def is_valid_session_id(value: str) -> bool:
 def normalise_join_input(raw: str) -> str:
     """Normalise a user-submitted session ID for lookup.
 
-    Session IDs are case-sensitive, so the raw input is returned as-is.
-    Only whitespace stripping is applied (caller should already strip, but
-    this is a safe no-op if they haven't).
+    Session IDs are case-insensitive for lookup: the input is uppercased so
+    a user who types 'ab3k7m' matches a session stored as 'aB3k7M'.
+    Whitespace is stripped first.
 
     Args:
         raw: The user input from the join form.
 
     Returns:
-        The stripped input unchanged.
+        The stripped, uppercased input.
     """
-    return raw.strip()
+    return raw.strip().upper()
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +111,8 @@ def rejoin_format_hint() -> str:
     """
     return (
         f"Enter the {SESSION_ID_LENGTH}-character Session ID shown in your session header "
-        f"(e.g. {_example_session_id()}), or the friendly name you gave the session. "
-        f"Session IDs are case-sensitive."
+        f"(e.g. {_example_session_id()}). "
+        f"Session IDs are not case-sensitive — you can type in any mix of upper and lower case."
     )
 
 
