@@ -604,25 +604,6 @@ def test_group_rejoin_by_session_id(client):
     )
 
 
-def test_solo_rejoin_by_nickname(client):
-    """Solo sessions must be rejoinable by friendly name."""
-    priv, user_id, session_id = _register(client, "solo")
-
-    # Save a nickname server-side
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    client.post(f"/session/{session_id}/nickname",
-                json={"nickname": "My Monday session"},
-                content_type="application/json")
-
-    rv = client.post("/session/join", data={"session_id": "My Monday session"},
-                     follow_redirects=False)
-    assert rv.status_code in (301, 302), (
-        f"Solo rejoin by nickname failed — got {rv.status_code}. "
-        f"Response: {rv.data[:300]}"
-    )
-
-
 def test_join_error_page_still_shows_hint(client):
     """Even on error, the join page must render the format hint (not blank)."""
     from session_id import _example_session_id

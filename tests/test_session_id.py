@@ -175,9 +175,6 @@ class TestNormaliseJoinInput:
         assert normalise_join_input("aB3k7M") == "aB3k7M"
         assert normalise_join_input("AB3K7M") == "AB3K7M"
 
-    def test_preserves_nickname(self):
-        assert normalise_join_input("My Monday session") == "My Monday session"
-
     def test_no_op_on_already_stripped(self):
         sid = generate_session_id()
         assert normalise_join_input(sid) == sid

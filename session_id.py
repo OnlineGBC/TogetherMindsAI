@@ -82,7 +82,7 @@ def is_valid_session_id(value: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def normalise_join_input(raw: str) -> str:
-    """Normalise a user-submitted session ID or nickname for lookup.
+    """Normalise a user-submitted session ID for lookup.
 
     Session IDs are case-sensitive, so the raw input is returned as-is.
     Only whitespace stripping is applied (caller should already strip, but

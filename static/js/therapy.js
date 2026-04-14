@@ -317,38 +317,15 @@ function initEndSessionGuard(sessionId, redirectUrl) {
         });
     }
 
-    // Confirm button — save nickname then redirect (blocks on 409)
+    // Confirm button — save nickname to localStorage then redirect
     var confirmBtn = document.getElementById("endSessionConfirmBtn");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
-            var nicknameVal = nicknameInput ? nicknameInput.value.trim() : "";
-
-            // Clear any previous modal nickname error
-            var existingErr = document.getElementById("endSessionNicknameError");
-            if (existingErr) { existingErr.remove(); }
-
-            if (!nicknameVal) {
-                // No nickname — proceed straight to redirect
-                _sessionEnded = true;
-                window.location.href = redirectUrl;
-                return;
+            if (nicknameInput && nicknameInput.value.trim()) {
+                localStorage.setItem(_storageKey, nicknameInput.value.trim());
             }
-
-            // Save nickname first; only redirect if the server accepts it
-            _persistNicknameToServer(sessionId, nicknameVal).then(function () {
-                localStorage.setItem(_storageKey, nicknameVal);
-                _sessionEnded = true;
-                window.location.href = redirectUrl;
-            }).catch(function (err) {
-                // Show error inside the modal; keep modal open for retry
-                var errEl = document.createElement("div");
-                errEl.id = "endSessionNicknameError";
-                errEl.className = "text-danger small mt-2";
-                errEl.textContent = err.message || "Could not save name — please try another.";
-                nicknameInput.insertAdjacentElement("afterend", errEl);
-                nicknameInput.focus();
-                nicknameInput.select();
-            });
+            _sessionEnded = true;
+            window.location.href = redirectUrl;
         });
     }
 
@@ -437,56 +414,17 @@ function initSessionNickname(sessionId) {
 
     function _saveNickname() {
         var val = input.value.trim();
-
-        // Clear any previous inline error
-        var existingErr = document.getElementById("nicknameInlineError");
-        if (existingErr) { existingErr.remove(); }
-
-        if (!val) {
-            localStorage.removeItem(storageKey);
-            display.textContent = "";
-            input.classList.add("d-none");
-            _persistNicknameToServer(sessionId, "");
-            return;
-        }
-
-        // Persist server-side; wait for response before committing locally
-        _persistNicknameToServer(sessionId, val).then(function () {
+        if (val) {
             localStorage.setItem(storageKey, val);
             display.textContent = " \u00B7 \u201C" + val + "\u201D";
-            input.classList.add("d-none");
-        }).catch(function (err) {
-            // Show inline error beneath the input; keep input open for retry
-            var errEl = document.createElement("div");
-            errEl.id = "nicknameInlineError";
-            errEl.className = "text-danger small mt-1";
-            errEl.textContent = err.message || "Could not save — please try another name.";
-            input.insertAdjacentElement("afterend", errEl);
-            input.focus();
-            input.select();
-        });
+        } else {
+            localStorage.removeItem(storageKey);
+            display.textContent = "";
+        }
+        input.classList.add("d-none");
     }
 }
 
-/**
- * POST the nickname to the server.
- * Returns a Promise that resolves with {ok: true} on success or
- * rejects with an Error whose message is the server's error string on failure.
- */
-function _persistNicknameToServer(sessionId, nickname) {
-    return fetch("/session/" + sessionId + "/nickname", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname: nickname }),
-    }).then(function (res) {
-        return res.json().then(function (body) {
-            if (!res.ok) {
-                throw new Error(body.error || "Could not save name (" + res.status + ")");
-            }
-            return body;
-        });
-    });
-}
 
 // ---------------------------------------------------------------------------
 // Participant presence panel helpers

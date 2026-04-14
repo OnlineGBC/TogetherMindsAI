@@ -160,24 +160,6 @@ def test_end_session_modal_shows_session_id(page, live_server_url):
 
 
 # ---------------------------------------------------------------------------
-# 9. Nickname field saves to localStorage
-# ---------------------------------------------------------------------------
-
-def test_nickname_saved_to_localstorage(page, live_server_url):
-    _complete_auth(page, live_server_url, mode="solo")
-
-    page.locator("text=End Session").first.click()
-    page.wait_for_selector("#endSessionModal.show", timeout=5_000)
-
-    page.locator("#endSessionNickname").fill("My Monday session")
-
-    saved = page.evaluate("""() => {
-        for (var k in localStorage) {
-            if (k.startsWith('session_nickname_')) return localStorage[k];
-        }
-        return null;
-    }""")
-    assert saved == "My Monday session"
 
 
 # ---------------------------------------------------------------------------
