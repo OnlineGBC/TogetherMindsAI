@@ -35,8 +35,9 @@ BASE_URL     = "https://localhost:5001"
 DOWNLOAD_DIR = Path("downloads")
 
 NAMES = [
-    "Alex", "Jamie", "Sam", "Morgan", "Riley",
-    "Casey", "Jordan", "Quinn", "Avery", "Blake",
+    "Aisha", "Marcus", "Priya", "Darius", "Yuki",
+    "Fatima", "Andre", "Soren", "Lucia", "Omar",
+    "Mei", "Tariq", "Kofi", "Amara", "Ravi",
 ]
 
 # Each scenario is a list of 10 messages following a realistic emotional arc

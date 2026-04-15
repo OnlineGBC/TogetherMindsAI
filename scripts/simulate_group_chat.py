@@ -56,9 +56,11 @@ NUM_MEMBERS  = 4           # number of group participants (2–6)
 LLM_MODEL    = "claude-haiku-4-5-20251001"   # fast + cheap for simulation
 
 NAMES = [
-    "Alex", "Jamie", "Sam", "Morgan",
-    "Riley", "Casey", "Jordan", "Quinn",
-    "Avery", "Blake", "Reese", "Skyler",
+    "Aisha", "Marcus", "Priya", "Darius",
+    "Yuki", "Fatima", "Andre", "Soren",
+    "Lucia", "Omar", "Mei", "Tariq",
+    "Ingrid", "Kofi", "Amara", "Ravi",
+    "Elena", "Jamal", "Nadia", "Diego",
 ]
 
 # Short reactive phrases used for interrupts (no LLM call needed)
