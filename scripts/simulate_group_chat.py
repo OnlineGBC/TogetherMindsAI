@@ -460,7 +460,10 @@ async def run_member(
             if ready_count[0] >= num_members:
                 all_ready_event.set()
 
-        await all_ready_event.wait()
+        try:
+            await asyncio.wait_for(all_ready_event.wait(), timeout=120)
+        except asyncio.TimeoutError:
+            print(f"{label} [warn] not all members joined in time — proceeding with those present")
         await asyncio.sleep(1)  # small settling pause
 
         # ── Turn loop ────────────────────────────────────────────────────────
@@ -535,7 +538,10 @@ async def schedule_turns(
     member, that member's weight is heavily reduced.
     """
     # Wait until all members are ready before scheduling turns
-    await all_ready_event.wait()
+    try:
+        await asyncio.wait_for(all_ready_event.wait(), timeout=120)
+    except asyncio.TimeoutError:
+        print("  [scheduler] not all members joined in time — starting with those present")
     await asyncio.sleep(2)  # let everyone settle after the ready signal
 
     n = len(queues)
