@@ -97,7 +97,8 @@ Rules:
 - You are NOT a therapist. You are a person in therapy.
 - Speak naturally — messy, emotional, real. No bullet points, no neat advice.
 - Vary your length: sometimes one short sentence, sometimes two or three.
-- React to what {partner_name} and the AI guide have actually said.
+- ALWAYS react to the most recent thing said — by the AI guide or by {partner_name}.
+  Do NOT restate something you have already expressed. Move the conversation forward.
 - Don't be a pushover but don't be a villain either — you're a flawed but loving person."""
     else:
         return f"""You are {my_name}. Your partner in this couple's therapy session is {partner_name}.
@@ -118,7 +119,8 @@ Rules:
 - You are NOT a therapist. You are a person in therapy.
 - Speak naturally — raw, sometimes messy. No neat summaries or bullet points.
 - Vary your length: sometimes a sharp frustrated line, sometimes a longer plea.
-- React to what {partner_name} and the AI guide have actually said.
+- ALWAYS react to the most recent thing said — by the AI guide or by {partner_name}.
+  Do NOT restate something you have already expressed. Move the conversation forward.
 - Don't be a villain — you're scared of losing the relationship."""
 
 
@@ -360,25 +362,37 @@ async def schedule_turns(
     num_turns: int,
 ):
     """
-    Distribute turns between partners probabilistically.
-    Early turns weighted towards heated back-and-forth;
-    later turns allow longer stretches from one partner.
+    Distribute turns between partners keeping both roughly balanced.
+
+    Dynamic rebalancing: if one partner is 2+ turns ahead, heavily favour
+    the other. This prevents one partner dominating while still allowing
+    natural short runs of 2 turns in a row.
     """
     await asyncio.sleep(4)  # wait for both partners to set display names
 
-    # weights[0] = P(partner1 speaks), weights[1] = P(partner2 speaks)
-    weights = [0.5, 0.5]
+    p1_turns = 0
+    p2_turns = 0
 
     for turn in range(num_turns):
-        # Shift weights slightly over time — add variety
-        weights[0] = 0.35 + 0.30 * (0.5 + 0.5 * ((-1) ** turn) * 0.4)
-        weights[1] = 1.0 - weights[0]
+        # Rebalance: if one partner is 2+ turns ahead, strongly favour the other
+        diff = p1_turns - p2_turns
+        if diff >= 2:
+            weights = [0.15, 0.85]
+        elif diff <= -2:
+            weights = [0.85, 0.15]
+        else:
+            # Small natural variation around 50/50
+            weights = [0.45, 0.55] if turn % 2 == 0 else [0.55, 0.45]
 
         who = random.choices([0, 1], weights=weights)[0]
-        burst = random.choices([1, 2, 3], weights=[0.58, 0.30, 0.12])[0]
+        burst = random.choices([1, 2, 3], weights=[0.62, 0.28, 0.10])[0]
 
-        target_q = q1 if who == 0 else q2
-        await target_q.put(burst)
+        if who == 0:
+            p1_turns += 1
+            await q1.put(burst)
+        else:
+            p2_turns += 1
+            await q2.put(burst)
 
         # Pause between turns — shorter early on (heated), longer later (settling)
         progress = turn / max(num_turns - 1, 1)

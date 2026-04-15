@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, init_encryption
-from ai_therapist import process_input, generate_opening_message, CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE
+from ai_therapist import process_input, generate_opening_message, contains_referral, CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 from log_filter import install_log_filter
@@ -88,6 +88,7 @@ session_taken_names: dict   = {}  # session_id → set of lowercased names (perm
 session_joined_users: dict  = {}  # session_id → ordered list of user_ids (join order, for default names)
 session_opening_sent: set   = set()  # session_ids that have already had their opening message generated
 session_ai_last_response: dict = {}  # session_id → datetime of last AI response (cooldown guard)
+session_referral_made: set  = set()  # session_ids where the professional referral has been made once
 
 
 def _default_display_name(mode: str, position: int) -> str:
@@ -417,7 +418,14 @@ def therapy_solo_post(session_id):
     db.session.add(user_msg)
 
     session_message_count = len(prior_msgs) + 1
-    ai_text = process_input(text, mode="solo", session_message_count=session_message_count, history=history)
+    ai_text = process_input(
+        text, mode="solo",
+        session_message_count=session_message_count,
+        history=history,
+        referral_already_made=(session_id in session_referral_made),
+    )
+    if contains_referral(ai_text):
+        session_referral_made.add(session_id)
 
     ai_msg = ChatMessage(
         session_id=session_id, user_id="AI", text=ai_text,
@@ -1047,7 +1055,7 @@ def on_send_message(data):
 
         # AI response cooldown — prevent consecutive AI messages when partners
         # send messages in rapid succession (couple/group only; solo always responds)
-        _AI_COOLDOWN_SECONDS = 10
+        _AI_COOLDOWN_SECONDS = 20
         skip_ai_response = False
         if mode in ("couple", "group"):
             last_ai = session_ai_last_response.get(session_id)
@@ -1093,8 +1101,15 @@ def on_send_message(data):
             return
 
         session_message_count = len(prior_msgs) + 1
-        ai_text = process_input(text, mode=mode, session_message_count=session_message_count, history=history)
+        ai_text = process_input(
+            text, mode=mode,
+            session_message_count=session_message_count,
+            history=history,
+            referral_already_made=(session_id in session_referral_made),
+        )
         session_ai_last_response[session_id] = datetime.now(timezone.utc)
+        if contains_referral(ai_text):
+            session_referral_made.add(session_id)
 
         ai_msg = ChatMessage(
             session_id=session_id, user_id="AI", text=ai_text,

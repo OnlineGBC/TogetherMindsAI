@@ -19,6 +19,7 @@ from ai_therapist import (
     process_input,
     detect_crisis,
     detect_escalation,
+    contains_referral,
     EMOTION_TO_SENTIMENT,
     CRISIS_RESPONSE,
     OFFTOPIC_SAFE_RESPONSE,
@@ -296,3 +297,52 @@ class TestOffTopicPreFilter:
             )
         assert result != OFFTOPIC_SAFE_RESPONSE
         assert result != CRISIS_RESPONSE
+
+
+# ---------------------------------------------------------------------------
+# Referral tracking
+# ---------------------------------------------------------------------------
+
+class TestReferralTracking:
+
+    def test_contains_referral_detects_licensed_therapist(self):
+        assert contains_referral("I'd encourage you to see a licensed therapist.") is True
+
+    def test_contains_referral_detects_couples_therapist(self):
+        assert contains_referral("A couples therapist could help you both.") is True
+
+    def test_contains_referral_false_for_normal_response(self):
+        assert contains_referral("That sounds really difficult. Tell me more.") is False
+
+    def test_referral_already_made_suppresses_hint_in_prompt(self):
+        """When referral_already_made=True, the escalation hint must say NOT to repeat."""
+        client = _make_claude_client("I hear you.")
+        pipe = _make_emotion_pipe("sadness")
+        with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
+             patch("ai_therapist._get_claude_client", return_value=client), \
+             patch("ai_therapist._claude_crisis_check", return_value=False):
+            process_input(
+                "I need a therapist",
+                mode="solo",
+                referral_already_made=True,
+            )
+        # The internal note injected must say NOT to repeat
+        sonnet_call = _find_sonnet_call(client)
+        user_content = sonnet_call.kwargs["messages"][-1]["content"]
+        assert "NOT" in user_content or "not" in user_content
+
+    def test_referral_not_made_allows_escalation_hint(self):
+        """When referral_already_made=False and escalation needed, hint is injected."""
+        client = _make_claude_client("Consider speaking to a professional.")
+        pipe = _make_emotion_pipe("fear")
+        with patch("ai_therapist._get_emotion_pipeline", return_value=pipe), \
+             patch("ai_therapist._get_claude_client", return_value=client), \
+             patch("ai_therapist._claude_crisis_check", return_value=False):
+            process_input(
+                "I need a therapist",
+                mode="solo",
+                referral_already_made=False,
+            )
+        sonnet_call = _find_sonnet_call(client)
+        user_content = sonnet_call.kwargs["messages"][-1]["content"]
+        assert "professional" in user_content.lower() or "support" in user_content.lower()

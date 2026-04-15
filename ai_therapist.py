@@ -308,23 +308,45 @@ def _get_claude_client():
     return _claude_client
 
 
+_REFERRAL_PHRASES = (
+    "licensed therapist", "licensed couples therapist", "couples therapist",
+    "human therapist", "licensed professional", "licensed clinician",
+    "licensed counsell",
+)
+
+
+def contains_referral(text: str) -> bool:
+    """Return True if the response already contains a professional referral recommendation."""
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in _REFERRAL_PHRASES)
+
+
 def _generate_claude_response(
     text: str,
     emotion: str,
     mode: str,
     needs_escalation: bool,
     history: list = None,
+    referral_already_made: bool = False,
 ) -> str:
     """Call Claude Sonnet with a cached system prompt and full conversation history.
 
     Falls back to the static response bank if the API call fails.
     """
-    escalation_hint = (
-        "\n\n[Internal note: This user may benefit from professional human support. "
-        "At a natural point in your response, gently mention that a licensed professional "
-        "can offer deeper support — without being alarmist or abrupt.]"
-        if needs_escalation else ""
-    )
+    if referral_already_made:
+        escalation_hint = (
+            "\n\n[Internal note: You have already made the professional referral "
+            "recommendation once in this session. Do NOT mention it again under any "
+            "circumstances — not even briefly. Focus entirely on the therapeutic work.]"
+        )
+    elif needs_escalation:
+        escalation_hint = (
+            "\n\n[Internal note: This person may benefit from professional human support. "
+            "If it feels natural, you may gently mention once that a licensed professional "
+            "can offer deeper support — without being alarmist or abrupt.]"
+        )
+    else:
+        escalation_hint = ""
 
     current_user_message = (
         f"[Internal context — detected emotional tone: {emotion}]\n\n"
@@ -559,7 +581,13 @@ def generate_opening_message(mode: str = "solo") -> str:
         return "Hello, and welcome. What's brought you here today?"
 
 
-def process_input(text: str, mode: str = "solo", session_message_count: int = 0, history: list = None) -> str:
+def process_input(
+    text: str,
+    mode: str = "solo",
+    session_message_count: int = 0,
+    history: list = None,
+    referral_already_made: bool = False,
+) -> str:
     """Return a context-aware therapeutic response for the given user input.
 
     Pipeline
@@ -593,7 +621,11 @@ def process_input(text: str, mode: str = "solo", session_message_count: int = 0,
     )
 
     # 4. Generate response via Claude
-    response = _generate_claude_response(text, emotion, mode, needs_escalation, history=history)
+    response = _generate_claude_response(
+        text, emotion, mode, needs_escalation,
+        history=history,
+        referral_already_made=referral_already_made,
+    )
 
     # 5. Medical output guard (keyword + Claude)
     return _medical_guard(response)
