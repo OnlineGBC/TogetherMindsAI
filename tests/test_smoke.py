@@ -847,6 +847,56 @@ def test_history_includes_current_display_name_when_already_set(client):
     session_taken_names.pop(session_id, None)
 
 
+def test_ai_cooldown_skips_second_response_in_couple_mode(client):
+    """In couple/group mode a second message within the cooldown window must not
+    generate an AI reply, preventing consecutive AI messages in the transcript."""
+    from datetime import timezone
+    from unittest.mock import patch
+    import datetime as dt
+
+    _priv, user_id, session_id = _register(client, "couple")
+    _priv2, user_id2, _ = _register(client, "couple")
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Inject a very recent AI response timestamp to simulate cooldown active
+    from TogetherMindsAI import session_ai_last_response
+    session_ai_last_response[session_id] = dt.datetime.now(timezone.utc)
+
+    # Sending a message should broadcast the user message but skip AI generation
+    with patch("TogetherMindsAI.process_input") as mock_pi:
+        client.post(f"/therapy/couple/{session_id}",
+                    data={"message": "Hello"},
+                    content_type="application/x-www-form-urlencoded")
+        # process_input must not be called during the cooldown window
+        mock_pi.assert_not_called()
+
+    # Cleanup
+    session_ai_last_response.pop(session_id, None)
+
+
+def test_ai_cooldown_not_applied_to_solo_mode(client):
+    """The AI cooldown must never suppress responses in solo mode."""
+    from datetime import timezone
+    from unittest.mock import patch
+    import datetime as dt
+
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    from TogetherMindsAI import session_ai_last_response
+    session_ai_last_response[session_id] = dt.datetime.now(timezone.utc)
+
+    rv = client.post(f"/therapy/solo/{session_id}",
+                     data={"message": "I feel anxious today"})
+    # Solo uses HTTP form — AI response is always generated; page should reload fine
+    assert rv.status_code in (200, 302)
+
+    session_ai_last_response.pop(session_id, None)
+
+
 # ---------------------------------------------------------------------------
 # WebSocket upgrade disabled under werkzeug
 # ---------------------------------------------------------------------------

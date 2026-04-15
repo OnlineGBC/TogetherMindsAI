@@ -87,6 +87,7 @@ session_display_names: dict = {}  # session_id → {user_id: display_name}
 session_taken_names: dict   = {}  # session_id → set of lowercased names (permanent for session lifetime)
 session_joined_users: dict  = {}  # session_id → ordered list of user_ids (join order, for default names)
 session_opening_sent: set   = set()  # session_ids that have already had their opening message generated
+session_ai_last_response: dict = {}  # session_id → datetime of last AI response (cooldown guard)
 
 
 def _default_display_name(mode: str, position: int) -> str:
@@ -668,6 +669,22 @@ def download_transcript_pdf(session_id):
     pdf.line(20, pdf.get_y(), 190, pdf.get_y())
     pdf.ln(6)
 
+    # Assign a distinct RGB color to each human participant
+    _PDF_PARTICIPANT_COLORS = [
+        (30,  80,  160),   # blue
+        (146, 39,  15),    # rust red
+        (107, 33,  168),   # purple
+        (13,  110, 110),   # teal
+        (180, 90,  9),     # amber
+        (26,  92,  46),    # dark green
+    ]
+    pdf_participant_color: dict = {}
+    _pdf_color_idx = 0
+    for msg in messages:
+        if msg.user_id != "AI" and msg.user_id not in pdf_participant_color:
+            pdf_participant_color[msg.user_id] = _PDF_PARTICIPANT_COLORS[_pdf_color_idx % len(_PDF_PARTICIPANT_COLORS)]
+            _pdf_color_idx += 1
+
     if not messages:
         pdf.set_text_color(120, 120, 120)
         pdf.set_font("DejaVu", "", 11)
@@ -689,7 +706,8 @@ def download_transcript_pdf(session_id):
             if is_ai:
                 pdf.set_text_color(30, 120, 60)
             else:
-                pdf.set_text_color(30, 80, 160)
+                r, g, b = pdf_participant_color.get(msg.user_id, (30, 80, 160))
+                pdf.set_text_color(r, g, b)
             pdf.cell(0, 7, f"{speaker}  [{ts}]",
                      new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
@@ -738,6 +756,22 @@ def download_transcript_docx(session_id):
 
     doc.add_paragraph("─" * 40)
 
+    # Assign a distinct color to each human participant (AI is always green)
+    _PARTICIPANT_COLORS = [
+        RGBColor(0x1E, 0x50, 0xA0),  # blue
+        RGBColor(0x92, 0x27, 0x0F),  # rust red
+        RGBColor(0x6B, 0x21, 0xA8),  # purple
+        RGBColor(0x0D, 0x6E, 0x6E),  # teal
+        RGBColor(0xB4, 0x5A, 0x09),  # amber
+        RGBColor(0x1A, 0x5C, 0x2E),  # dark green
+    ]
+    participant_color: dict = {}
+    _color_idx = 0
+    for msg in messages:
+        if msg.user_id != "AI" and msg.user_id not in participant_color:
+            participant_color[msg.user_id] = _PARTICIPANT_COLORS[_color_idx % len(_PARTICIPANT_COLORS)]
+            _color_idx += 1
+
     if not messages:
         p = doc.add_paragraph("No messages recorded for this session.")
         p.runs[0].italic = True
@@ -757,7 +791,10 @@ def download_transcript_docx(session_id):
             run = p.add_run(f"{speaker}  [{ts}]")
             run.bold = True
             run.font.size = Pt(10)
-            run.font.color.rgb = RGBColor(0x1E, 0x78, 0x3C) if is_ai else RGBColor(0x1E, 0x50, 0xA0)
+            if is_ai:
+                run.font.color.rgb = RGBColor(0x1E, 0x78, 0x3C)
+            else:
+                run.font.color.rgb = participant_color.get(msg.user_id, RGBColor(0x1E, 0x50, 0xA0))
 
             # Message body
             doc.add_paragraph(msg.text)
@@ -1008,6 +1045,15 @@ def on_send_message(data):
         now  = datetime.now(timezone.utc)
         mode = room_mode.get(session_id, "solo")
 
+        # AI response cooldown — prevent consecutive AI messages when partners
+        # send messages in rapid succession (couple/group only; solo always responds)
+        _AI_COOLDOWN_SECONDS = 10
+        skip_ai_response = False
+        if mode in ("couple", "group"):
+            last_ai = session_ai_last_response.get(session_id)
+            if last_ai and (now - last_ai).total_seconds() < _AI_COOLDOWN_SECONDS:
+                skip_ai_response = True
+
         # Fetch conversation history before adding the new message
         prior_msgs = (
             ChatMessage.query
@@ -1027,19 +1073,34 @@ def on_send_message(data):
         )
         db.session.add(user_msg)
 
+        exercise = Exercise(
+            user_id=user_id, type="realtime_chat", mode=mode, timestamp=now,
+        )
+        db.session.add(exercise)
+
+        # Always broadcast the user's own message
+        emit("new_message",
+             {"user_id": user_id, "text": text, "display_name": display_name,
+              "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
+             to=session_id)
+
+        if skip_ai_response:
+            # Another AI response fired within the cooldown window — save user
+            # message without generating a new AI reply to avoid consecutive responses
+            db.session.commit()
+            log_event("message_sent", session_id=session_id, user_id=user_id,
+                      mode=mode, message_length=len(text))
+            return
+
         session_message_count = len(prior_msgs) + 1
         ai_text = process_input(text, mode=mode, session_message_count=session_message_count, history=history)
+        session_ai_last_response[session_id] = datetime.now(timezone.utc)
 
         ai_msg = ChatMessage(
             session_id=session_id, user_id="AI", text=ai_text,
             timestamp=datetime.now(timezone.utc),
         )
         db.session.add(ai_msg)
-
-        exercise = Exercise(
-            user_id=user_id, type="realtime_chat", mode=mode, timestamp=now,
-        )
-        db.session.add(exercise)
         db.session.commit()
 
         log_event("message_sent", session_id=session_id, user_id=user_id,
@@ -1052,10 +1113,6 @@ def on_send_message(data):
         elif ai_text == OFFTOPIC_SAFE_RESPONSE:
             log_event("offtopic_deflected", session_id=session_id, user_id=user_id, mode=mode)
 
-        emit("new_message",
-             {"user_id": user_id, "text": text, "display_name": display_name,
-              "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
-             to=session_id)
         emit("new_message",
              {"user_id": "AI", "text": ai_text, "display_name": None,
               "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},
