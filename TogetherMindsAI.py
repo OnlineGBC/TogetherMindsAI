@@ -1033,8 +1033,11 @@ def on_disconnect():
     session_id = sid_to_session.pop(request.sid, None)
     if user_id and session_id:
         room_participants[session_id].discard(user_id)
-        # Remove from active names; taken_names keeps the name permanently claimed
-        session_display_names.get(session_id, {}).pop(user_id, None)
+        # session_display_names is intentionally NOT cleared on disconnect.
+        # Socket.IO long-polling causes frequent disconnect/reconnect cycles;
+        # clearing the name here causes the display name modal to re-appear
+        # on every reconnect. session_taken_names permanently blocks reuse,
+        # so keeping session_display_names across reconnects is safe.
         emit("participant_left",
              {"user_id": user_id},
              to=session_id)
