@@ -898,6 +898,44 @@ def test_ai_cooldown_not_applied_to_solo_mode(client):
 
 
 # ---------------------------------------------------------------------------
+# Escalation hint gate — referral invitation sent at most once per session
+# ---------------------------------------------------------------------------
+
+def test_escalation_hint_sent_only_once_in_solo(client):
+    """process_input must receive referral_already_made=False on the first
+    escalation-triggering message and True on every subsequent one."""
+    from unittest.mock import patch
+
+    priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Reset the gate so this test is self-contained
+    from TogetherMindsAI import session_escalation_hint_sent
+    session_escalation_hint_sent.discard(session_id)
+
+    with patch("TogetherMindsAI.process_input", return_value="I hear you.") as mock_pi:
+        # First message with escalation keyword — hint not yet sent
+        client.post(f"/therapy/solo/{session_id}",
+                    data={"message": "I really need a therapist"})
+        first_kwargs = mock_pi.call_args_list[0].kwargs
+        assert first_kwargs.get("referral_already_made") is False, (
+            "First escalation message must pass referral_already_made=False"
+        )
+
+        # Second message — gate already set
+        client.post(f"/therapy/solo/{session_id}",
+                    data={"message": "I still need a therapist"})
+        second_kwargs = mock_pi.call_args_list[1].kwargs
+        assert second_kwargs.get("referral_already_made") is True, (
+            "Second message must pass referral_already_made=True once gate is set"
+        )
+
+    # Cleanup
+    session_escalation_hint_sent.discard(session_id)
+
+
+# ---------------------------------------------------------------------------
 # WebSocket upgrade disabled under werkzeug
 # ---------------------------------------------------------------------------
 

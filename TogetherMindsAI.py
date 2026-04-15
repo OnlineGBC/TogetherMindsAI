@@ -24,7 +24,11 @@ from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, init_encryption
-from ai_therapist import process_input, generate_opening_message, contains_referral, CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE
+from ai_therapist import (
+    process_input, generate_opening_message,
+    contains_referral, strip_referral_sentences, detect_escalation,
+    CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE,
+)
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 from log_filter import install_log_filter
@@ -86,9 +90,9 @@ sid_to_session: dict = {}                     # SocketIO SID → session_id
 session_display_names: dict = {}  # session_id → {user_id: display_name}
 session_taken_names: dict   = {}  # session_id → set of lowercased names (permanent for session lifetime)
 session_joined_users: dict  = {}  # session_id → ordered list of user_ids (join order, for default names)
-session_opening_sent: set   = set()  # session_ids that have already had their opening message generated
-session_ai_last_response: dict = {}  # session_id → datetime of last AI response (cooldown guard)
-session_referral_made: set  = set()  # session_ids where the professional referral has been made once
+session_opening_sent: set        = set()  # session_ids that have already had their opening message generated
+session_ai_last_response: dict   = {}    # session_id → datetime of last AI response (cooldown guard)
+session_escalation_hint_sent: set = set() # session_ids where Claude has been invited to make the referral once
 
 
 def _default_display_name(mode: str, position: int) -> str:
@@ -418,14 +422,18 @@ def therapy_solo_post(session_id):
     db.session.add(user_msg)
 
     session_message_count = len(prior_msgs) + 1
+    hint_already_sent = session_id in session_escalation_hint_sent
+    if not hint_already_sent and (detect_escalation(text) or session_message_count >= 10):
+        session_escalation_hint_sent.add(session_id)
+
     ai_text = process_input(
         text, mode="solo",
         session_message_count=session_message_count,
         history=history,
-        referral_already_made=(session_id in session_referral_made),
+        referral_already_made=hint_already_sent,
     )
-    if contains_referral(ai_text):
-        session_referral_made.add(session_id)
+    if hint_already_sent:
+        ai_text = strip_referral_sentences(ai_text)
 
     ai_msg = ChatMessage(
         session_id=session_id, user_id="AI", text=ai_text,
@@ -1054,13 +1062,18 @@ def on_send_message(data):
         mode = room_mode.get(session_id, "solo")
 
         # AI response cooldown — prevent consecutive AI messages when partners
-        # send messages in rapid succession (couple/group only; solo always responds)
+        # send messages in rapid succession (couple/group only; solo always responds).
+        # The slot is pre-claimed immediately (before the Claude call) so that any
+        # concurrent handler arriving while Claude is processing correctly sees an
+        # active cooldown and skips — no race condition.
         _AI_COOLDOWN_SECONDS = 20
         skip_ai_response = False
         if mode in ("couple", "group"):
             last_ai = session_ai_last_response.get(session_id)
             if last_ai and (now - last_ai).total_seconds() < _AI_COOLDOWN_SECONDS:
                 skip_ai_response = True
+            else:
+                session_ai_last_response[session_id] = now
 
         # Fetch conversation history before adding the new message
         prior_msgs = (
@@ -1101,15 +1114,18 @@ def on_send_message(data):
             return
 
         session_message_count = len(prior_msgs) + 1
+        hint_already_sent = session_id in session_escalation_hint_sent
+        if not hint_already_sent and (detect_escalation(text) or session_message_count >= 10):
+            session_escalation_hint_sent.add(session_id)
+
         ai_text = process_input(
             text, mode=mode,
             session_message_count=session_message_count,
             history=history,
-            referral_already_made=(session_id in session_referral_made),
+            referral_already_made=hint_already_sent,
         )
-        session_ai_last_response[session_id] = datetime.now(timezone.utc)
-        if contains_referral(ai_text):
-            session_referral_made.add(session_id)
+        if hint_already_sent:
+            ai_text = strip_referral_sentences(ai_text)
 
         ai_msg = ChatMessage(
             session_id=session_id, user_id="AI", text=ai_text,

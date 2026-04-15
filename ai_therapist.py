@@ -308,17 +308,55 @@ def _get_claude_client():
     return _claude_client
 
 
-_REFERRAL_PHRASES = (
-    "licensed therapist", "licensed couples therapist", "couples therapist",
-    "human therapist", "licensed professional", "licensed clinician",
-    "licensed counsell",
-)
+_REFERRAL_THERAPY_NOUNS = {
+    "therapist", "counsellor", "counselor", "clinician",
+    "psychologist", "psychiatrist", "practitioner",
+}
+
+# Compound phrases that are professional referrals regardless of surrounding words
+_REFERRAL_EXACT_PHRASES = {
+    "couples therapist", "couples counsellor", "couples counselor",
+}
+
+_REFERRAL_RECOMMENDATION_WORDS = {
+    "licensed", "qualified", "trained", "certified",
+    "human", "working with", "seeing a", "see a",
+    "seek", "encourage", "recommend", "consider",
+    "find a", "look for", "looking for",
+}
 
 
 def contains_referral(text: str) -> bool:
-    """Return True if the response already contains a professional referral recommendation."""
+    """Return True if the text contains a professional referral recommendation.
+
+    Two-path detection:
+    1. Exact compound phrases that are always referrals (e.g. 'couples therapist').
+    2. Any therapy noun paired with a recommendation word
+       (e.g. 'licensed therapist', 'working with a counsellor').
+    """
     lowered = text.lower()
-    return any(phrase in lowered for phrase in _REFERRAL_PHRASES)
+    if any(phrase in lowered for phrase in _REFERRAL_EXACT_PHRASES):
+        return True
+    has_therapy_noun = any(noun in lowered for noun in _REFERRAL_THERAPY_NOUNS)
+    has_recommendation = any(word in lowered for word in _REFERRAL_RECOMMENDATION_WORDS)
+    return has_therapy_noun and has_recommendation
+
+
+def strip_referral_sentences(text: str) -> str:
+    """Remove sentences containing professional referral language.
+
+    Used as a safety net when the escalation hint has already been sent for this
+    session — strips any referral sentence that slipped through Claude's suppression
+    instruction before it reaches the user or gets saved to conversation history.
+    Never returns an empty string.
+    """
+    import re
+    parts = re.split(r'(?<=[.!?])\s+', text.strip())
+    kept = [s for s in parts if s.strip() and not contains_referral(s)]
+    if not kept:
+        # Entire response was referral content — return first sentence unchanged
+        return parts[0] if parts else text
+    return " ".join(kept)
 
 
 def _generate_claude_response(

@@ -20,6 +20,7 @@ from ai_therapist import (
     detect_crisis,
     detect_escalation,
     contains_referral,
+    strip_referral_sentences,
     EMOTION_TO_SENTIMENT,
     CRISIS_RESPONSE,
     OFFTOPIC_SAFE_RESPONSE,
@@ -346,3 +347,82 @@ class TestReferralTracking:
         sonnet_call = _find_sonnet_call(client)
         user_content = sonnet_call.kwargs["messages"][-1]["content"]
         assert "professional" in user_content.lower() or "support" in user_content.lower()
+
+
+# ---------------------------------------------------------------------------
+# Broadened referral detection
+# ---------------------------------------------------------------------------
+
+class TestContainsReferralBroadened:
+
+    def test_detects_human_couples_counsellor(self):
+        assert contains_referral("working with a human couples counsellor") is True
+
+    def test_detects_qualified_therapist(self):
+        assert contains_referral("a qualified therapist could really help here") is True
+
+    def test_detects_certified_practitioner(self):
+        assert contains_referral("a certified practitioner can offer more") is True
+
+    def test_detects_see_a_counselor(self):
+        assert contains_referral("I'd encourage you to see a counselor") is True
+
+    def test_detects_find_a_therapist(self):
+        assert contains_referral("it's worth looking for a therapist you trust") is True
+
+    def test_false_for_plain_therapeutic_reflection(self):
+        assert contains_referral("That sounds really difficult. Tell me more.") is False
+
+    def test_false_for_therapy_noun_without_recommendation(self):
+        # "therapist" alone — no recommendation word
+        assert contains_referral("You mentioned a therapist in the past.") is False
+
+
+# ---------------------------------------------------------------------------
+# Referral sentence stripping
+# ---------------------------------------------------------------------------
+
+class TestStripReferralSentences:
+
+    def test_removes_referral_sentence_keeps_rest(self):
+        text = (
+            "That sounds really hard. "
+            "I'd encourage you to see a licensed therapist. "
+            "Let's stay with that feeling for a moment."
+        )
+        result = strip_referral_sentences(text)
+        assert "licensed therapist" not in result
+        assert "That sounds really hard" in result
+        assert "stay with that feeling" in result
+
+    def test_preserves_clean_response_unchanged(self):
+        text = "I hear you. That feeling of disconnection is real."
+        assert strip_referral_sentences(text) == text
+
+    def test_never_returns_empty_string(self):
+        # Entire response is a referral — must return something
+        text = "I'd encourage you to see a licensed therapist."
+        result = strip_referral_sentences(text)
+        assert len(result) > 0
+
+    def test_strips_human_counsellor_variant(self):
+        text = (
+            "You're both working hard here. "
+            "Working with a human couples counsellor over time could help. "
+            "What came up for you just now?"
+        )
+        result = strip_referral_sentences(text)
+        assert "counsellor" not in result
+        assert "working hard" in result
+
+    def test_multiple_referral_sentences_all_removed(self):
+        text = (
+            "I hear you both. "
+            "A licensed therapist could really help. "
+            "I'd also encourage you to see a counsellor. "
+            "What matters most right now is that you feel heard."
+        )
+        result = strip_referral_sentences(text)
+        assert "therapist" not in result
+        assert "counsellor" not in result
+        assert "feel heard" in result
