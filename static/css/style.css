@@ -333,8 +333,18 @@ hr.border-green {
 }
 
 /* ---- Responsive tweaks ---- */
+@media (max-width: 991px) {
+    /* Tablet: shrink hero so content fits without scrolling */
+    .hero-icon { width: 70px; height: 70px; }
+    .hero-icon .bi { font-size: 2.5rem !important; }
+}
+
 @media (max-width: 576px) {
+    /* Mobile: tighten further */
+    .hero-icon { width: 56px; height: 56px; }
+    .hero-icon .bi { font-size: 2rem !important; }
     .bubble { max-width: 88%; }
     .chat-window { height: calc(100vh - 240px); min-height: 280px; }
-    .therapy-card .card-body { padding: 1.5rem 1rem; }
+    .therapy-card .card-body { padding: 1rem 0.75rem; }
+    h1.display-5 { font-size: 1.8rem; }
 }

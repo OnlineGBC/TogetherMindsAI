@@ -90,6 +90,14 @@ def test_home_page_returns_200(client):
     assert client.get("/").status_code == 200
 
 
+def test_tos_page_returns_200(client):
+    rv = client.get("/tos")
+    assert rv.status_code == 200
+    assert b"Terms of Service" in rv.data
+    assert b"togethermindsai@onlinegbc.com" in rv.data
+    assert b"findahelpline.com" in rv.data
+
+
 def test_auth_solo_page_returns_200(client):
     assert client.get("/auth/solo").status_code == 200
 
@@ -206,7 +214,7 @@ def test_golden_path_message_creates_exercise(client):
         exercises = Exercise.query.filter_by(user_id=user_id).all()
     assert len(exercises) == 1
     assert exercises[0].mode == "solo"
-    assert exercises[0].prompt == "I feel very sad"
+    assert exercises[0].type == "solo_chat"
 
 
 def test_progress_page_shows_data_after_messages(client):
@@ -259,6 +267,17 @@ def test_oversized_message_does_not_crash_server(client):
     assert rv.status_code in (302, 422)   # redirect or error page, not 500
     if rv.status_code == 422:
         assert b"too long" in rv.data.lower()
+
+
+def test_nickname_route_removed(client):
+    """The server-side nickname route must no longer exist (friendly names are local-only)."""
+    priv, user_id, session_id = _register(client, "solo")
+    rv = client.post(f"/session/{session_id}/nickname",
+                     json={"nickname": "My Monday session"},
+                     content_type="application/json")
+    assert rv.status_code == 404, (
+        f"Expected 404 — nickname route should be removed, got {rv.status_code}"
+    )
 
 
 def test_session_join_unknown_id_shows_error(client):
@@ -530,28 +549,27 @@ def test_group_page_shows_session_id_in_banner(client):
     assert session_id.encode() in rv.data
 
 
-def test_join_post_session_id_is_case_sensitive(client):
-    """Session IDs are case-sensitive: lowercase of a valid ID must not be found.
+def test_join_post_session_id_is_case_insensitive(client):
+    """Session IDs are case-insensitive: submitting a wrong-case version of a
+    valid ID must still find the session and redirect successfully.
 
-    Architecture: IDs are stored and compared exactly as generated.
-    A session stored as 'aB3k7M' cannot be found by 'ab3k7m'.
+    Architecture: both the stored ID and the submitted input are uppercased
+    before comparison, so 'aB3k7M' and 'AB3K7M' resolve to the same session.
     """
-    priv, user_id, session_id = _register(client, "group")
+    priv, user_id, session_id = _register(client, "solo")
 
-    # Flip the case of each character to guarantee a mismatch
-    flipped = session_id.swapcase()
-    # Only test if the flipped version is actually different (it always will be for mixed-case)
-    if flipped == session_id:
-        pytest.skip("generated ID has no case distinction — skipping")
+    # Submit the ID in all-lowercase to guarantee a case mismatch with stored form
+    lowered = session_id.lower()
 
-    rv = client.post("/session/join", data={"session_id": flipped},
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    rv = client.post("/session/join", data={"session_id": lowered},
                      follow_redirects=False)
-    # Should NOT redirect (not found), should render error
-    assert rv.status_code == 200, (
-        f"Expected error page for wrong-case ID '{flipped}', got redirect. "
-        f"Session IDs must be case-sensitive."
+    assert rv.status_code in (301, 302), (
+        f"Expected redirect for wrong-case ID '{lowered}' (stored as '{session_id}'), "
+        f"got {rv.status_code}. Session ID lookup must be case-insensitive."
     )
-    assert b"not found" in rv.data.lower()
 
 
 def test_solo_rejoin_by_session_id(client):
@@ -596,25 +614,6 @@ def test_group_rejoin_by_session_id(client):
     )
 
 
-def test_solo_rejoin_by_nickname(client):
-    """Solo sessions must be rejoinable by friendly name."""
-    priv, user_id, session_id = _register(client, "solo")
-
-    # Save a nickname server-side
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    client.post(f"/session/{session_id}/nickname",
-                json={"nickname": "My Monday session"},
-                content_type="application/json")
-
-    rv = client.post("/session/join", data={"session_id": "My Monday session"},
-                     follow_redirects=False)
-    assert rv.status_code in (301, 302), (
-        f"Solo rejoin by nickname failed — got {rv.status_code}. "
-        f"Response: {rv.data[:300]}"
-    )
-
-
 def test_join_error_page_still_shows_hint(client):
     """Even on error, the join page must render the format hint (not blank)."""
     from session_id import _example_session_id
@@ -623,6 +622,317 @@ def test_join_error_page_still_shows_hint(client):
     assert b"not found" in rv.data.lower()
     # Hint must still be present — it's passed through _join_template on all paths
     assert _example_session_id().encode() in rv.data
+
+
+# ---------------------------------------------------------------------------
+# Item 8 — Nicknames/labels cannot be used for server-side joining
+# ---------------------------------------------------------------------------
+
+def test_solo_nickname_cannot_be_used_to_join(client):
+    """Submitting a label/nickname to the join form must return 'not found'.
+
+    Friendly names are local-only (localStorage). The server never translates
+    a label to a session ID — only the 6-character session ID is accepted.
+    """
+    _register(client, "solo")  # creates a session, but we submit a label instead
+    rv = client.post("/session/join", data={"session_id": "My Monday session"},
+                     follow_redirects=False)
+    assert rv.status_code == 200, "Should render error page, not redirect"
+    assert b"not found" in rv.data.lower()
+
+
+def test_couple_nickname_cannot_be_used_to_join(client):
+    """Same label-rejection test for couple sessions."""
+    _register(client, "couple")
+    rv = client.post("/session/join", data={"session_id": "JohnAndJane"},
+                     follow_redirects=False)
+    assert rv.status_code == 200, "Should render error page, not redirect"
+    assert b"not found" in rv.data.lower()
+
+
+def test_group_nickname_cannot_be_used_to_join(client):
+    """Same label-rejection test for group sessions."""
+    _register(client, "group")
+    rv = client.post("/session/join", data={"session_id": "ThursdayGroup"},
+                     follow_redirects=False)
+    assert rv.status_code == 200, "Should render error page, not redirect"
+    assert b"not found" in rv.data.lower()
+
+
+# ---------------------------------------------------------------------------
+# Item 12 — Second user can join an existing couple or group session
+# ---------------------------------------------------------------------------
+
+def test_second_user_can_join_couple_session(client):
+    """A second user (no existing session cookie) who submits a couple session ID
+    must be redirected to /auth/couple so they can register and join the session.
+
+    This tests the core couple mechanic: User A creates the session, User B
+    joins using the shared session ID.
+    """
+    # User A creates a couple session
+    _priv, _user_id, session_id = _register(client, "couple")
+
+    # User B: clear any session cookie so this is a fresh (unauthenticated) user
+    with client.session_transaction() as sess:
+        sess.clear()
+
+    rv = client.post("/session/join", data={"session_id": session_id},
+                     follow_redirects=False)
+    # Server must redirect User B to auth/couple (not error, not solo)
+    assert rv.status_code in (301, 302), (
+        f"Expected redirect to auth page for second user joining couple session, "
+        f"got {rv.status_code}"
+    )
+    location = rv.headers.get("Location", "")
+    assert "/auth/couple" in location, (
+        f"Second user should be redirected to /auth/couple, got: {location}"
+    )
+
+
+def test_second_user_can_join_group_session(client):
+    """A second user (no existing session cookie) who submits a group session ID
+    must be redirected to /auth/group so they can register and join the session.
+    """
+    # User A creates a group session
+    _priv, _user_id, session_id = _register(client, "group")
+
+    # User B: clear any session cookie so this is a fresh (unauthenticated) user
+    with client.session_transaction() as sess:
+        sess.clear()
+
+    rv = client.post("/session/join", data={"session_id": session_id},
+                     follow_redirects=False)
+    assert rv.status_code in (301, 302), (
+        f"Expected redirect to auth page for second user joining group session, "
+        f"got {rv.status_code}"
+    )
+    location = rv.headers.get("Location", "")
+    assert "/auth/group" in location, (
+        f"Second user should be redirected to /auth/group, got: {location}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Display name — default names, API endpoint, uniqueness, transcripts
+# ---------------------------------------------------------------------------
+
+def test_default_display_name_solo():
+    from TogetherMindsAI import _default_display_name
+    assert _default_display_name("solo", 1) == "Solo1"
+
+def test_default_display_name_couple():
+    from TogetherMindsAI import _default_display_name
+    assert _default_display_name("couple", 1) == "Partner1"
+    assert _default_display_name("couple", 2) == "Partner2"
+
+def test_default_display_name_group():
+    from TogetherMindsAI import _default_display_name
+    assert _default_display_name("group", 3) == "GroupMember3"
+
+def test_api_display_name_set(client):
+    """POST /api/display-name stores name and returns 200."""
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.post("/api/display-name",
+                     json={"session_id": session_id, "display_name": "Alice"},
+                     content_type="application/json")
+    assert rv.status_code == 200
+    assert rv.get_json()["display_name"] == "Alice"
+
+def test_api_display_name_uniqueness_case_insensitive(client):
+    """Second user cannot take a name already claimed (case-insensitive)."""
+    from TogetherMindsAI import _claim_display_name
+    _priv, user_id, session_id = _register(client, "solo")
+    _priv2, user_id2, _ = _register(client, "solo")
+
+    # User 1 claims "Alice"
+    _claim_display_name(session_id, user_id, "Alice")
+
+    # User 2 tries "alice" (different case) — should get 409
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id2
+    rv = client.post("/api/display-name",
+                     json={"session_id": session_id, "display_name": "alice"},
+                     content_type="application/json")
+    assert rv.status_code == 409
+
+def test_api_display_name_user_can_reconfirm_own_name(client):
+    """A user can re-submit their own current name without a 409."""
+    from TogetherMindsAI import _claim_display_name
+    _priv, user_id, session_id = _register(client, "solo")
+    _claim_display_name(session_id, user_id, "Alice")
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.post("/api/display-name",
+                     json={"session_id": session_id, "display_name": "Alice"},
+                     content_type="application/json")
+    assert rv.status_code == 200
+
+def test_api_display_name_stored_in_chat_message(client):
+    """display_name is stored in ChatMessage after being set via the API."""
+    from TogetherMindsAI import session_display_names
+    from models import ChatMessage
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Set display name
+    client.post("/api/display-name",
+                json={"session_id": session_id, "display_name": "Bob"},
+                content_type="application/json")
+
+    # Send a message via the solo form
+    client.post(f"/therapy/solo/{session_id}", data={"message": "Hello world"})
+    with app.app_context():
+        msg = ChatMessage.query.filter_by(session_id=session_id, user_id=user_id).first()
+        assert msg is not None
+        assert msg.display_name == "Bob"
+
+def test_solo_therapy_page_passes_default_name(client):
+    """The solo therapy page must render with a default_name template variable."""
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/solo/{session_id}")
+    assert rv.status_code == 200
+    # Default name for solo position 1 should appear in the rendered HTML
+    assert b"Solo1" in rv.data
+
+def test_name_permanently_claimed_after_disconnect():
+    """Once a user leaves, their name stays in taken_names and cannot be reclaimed."""
+    from TogetherMindsAI import (
+        _claim_display_name, _is_name_taken,
+        session_display_names, session_taken_names,
+    )
+    sid = "TEST99"
+    uid1 = "user-aaa"
+    uid2 = "user-bbb"
+
+    # uid1 claims "Sarah"
+    _claim_display_name(sid, uid1, "Sarah")
+    # uid1 "disconnects" — remove from active names
+    session_display_names.get(sid, {}).pop(uid1, None)
+
+    # uid2 tries to claim "sarah" — must still be blocked
+    assert _is_name_taken(sid, uid2, "sarah") is True
+
+    # Cleanup
+    session_display_names.pop(sid, None)
+    session_taken_names.pop(sid, None)
+
+
+def test_history_includes_current_display_name_when_already_set(client):
+    """on_join history emit includes current_display_name when user already has one set,
+    so the client can skip the name-prompt modal on page reload."""
+    from TogetherMindsAI import _claim_display_name, session_display_names, session_taken_names
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Simulate name already claimed (e.g. from first page load)
+    _claim_display_name(session_id, user_id, "Riku")
+
+    # Hitting the solo page again (simulates page reload after message send)
+    rv = client.get(f"/therapy/solo/{session_id}")
+    assert rv.status_code == 200
+
+    # The server-side name is still set
+    assert session_display_names.get(session_id, {}).get(user_id) == "Riku"
+
+    # Cleanup
+    session_display_names.pop(session_id, None)
+    session_taken_names.pop(session_id, None)
+
+
+def test_ai_cooldown_skips_second_response_in_couple_mode(client):
+    """In couple/group mode a second message within the cooldown window must not
+    generate an AI reply, preventing consecutive AI messages in the transcript."""
+    from datetime import timezone
+    from unittest.mock import patch
+    import datetime as dt
+
+    _priv, user_id, session_id = _register(client, "couple")
+    _priv2, user_id2, _ = _register(client, "couple")
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Inject a very recent AI response timestamp to simulate cooldown active
+    from TogetherMindsAI import session_ai_last_response
+    session_ai_last_response[session_id] = dt.datetime.now(timezone.utc)
+
+    # Sending a message should broadcast the user message but skip AI generation
+    with patch("TogetherMindsAI.process_input") as mock_pi:
+        client.post(f"/therapy/couple/{session_id}",
+                    data={"message": "Hello"},
+                    content_type="application/x-www-form-urlencoded")
+        # process_input must not be called during the cooldown window
+        mock_pi.assert_not_called()
+
+    # Cleanup
+    session_ai_last_response.pop(session_id, None)
+
+
+def test_ai_cooldown_not_applied_to_solo_mode(client):
+    """The AI cooldown must never suppress responses in solo mode."""
+    from datetime import timezone
+    from unittest.mock import patch
+    import datetime as dt
+
+    _priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    from TogetherMindsAI import session_ai_last_response
+    session_ai_last_response[session_id] = dt.datetime.now(timezone.utc)
+
+    rv = client.post(f"/therapy/solo/{session_id}",
+                     data={"message": "I feel anxious today"})
+    # Solo uses HTTP form — AI response is always generated; page should reload fine
+    assert rv.status_code in (200, 302)
+
+    session_ai_last_response.pop(session_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Escalation hint gate — referral invitation sent at most once per session
+# ---------------------------------------------------------------------------
+
+def test_escalation_hint_sent_only_once_in_solo(client):
+    """process_input must receive referral_already_made=False on the first
+    escalation-triggering message and True on every subsequent one."""
+    from unittest.mock import patch
+
+    priv, user_id, session_id = _register(client, "solo")
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    # Reset the gate so this test is self-contained
+    from TogetherMindsAI import session_escalation_hint_sent
+    session_escalation_hint_sent.discard(session_id)
+
+    with patch("TogetherMindsAI.process_input", return_value="I hear you.") as mock_pi:
+        # First message with escalation keyword — hint not yet sent
+        client.post(f"/therapy/solo/{session_id}",
+                    data={"message": "I really need a therapist"})
+        first_kwargs = mock_pi.call_args_list[0].kwargs
+        assert first_kwargs.get("referral_already_made") is False, (
+            "First escalation message must pass referral_already_made=False"
+        )
+
+        # Second message — gate already set
+        client.post(f"/therapy/solo/{session_id}",
+                    data={"message": "I still need a therapist"})
+        second_kwargs = mock_pi.call_args_list[1].kwargs
+        assert second_kwargs.get("referral_already_made") is True, (
+            "Second message must pass referral_already_made=True once gate is set"
+        )
+
+    # Cleanup
+    session_escalation_hint_sent.discard(session_id)
 
 
 # ---------------------------------------------------------------------------

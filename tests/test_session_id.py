@@ -151,12 +151,11 @@ class TestIsValidSessionId:
     def test_false_for_excluded_digit_one(self):
         assert not is_valid_session_id("aB3k71")
 
-    def test_case_sensitive(self):
-        """IDs are case-sensitive — a valid uppercase ID is not the same as lowercase."""
-        upper = "ABCDEF"
-        lower = "abcdef"
-        # Both may or may not be valid (depends on charset), but they are different
-        assert upper != lower
+    def test_validates_stored_form_exactly(self):
+        """is_valid_session_id checks the stored form (charset membership).
+        Lookups are case-insensitive, but validation checks the raw stored value."""
+        # A generated ID must always pass
+        assert is_valid_session_id(generate_session_id())
 
     def test_true_for_example_id(self):
         assert is_valid_session_id(_example_session_id())
@@ -168,19 +167,19 @@ class TestIsValidSessionId:
 
 class TestNormaliseJoinInput:
     def test_strips_whitespace(self):
-        assert normalise_join_input("  aB3k7M  ") == "aB3k7M"
+        assert normalise_join_input("  aB3k7M  ") == "AB3K7M"
 
-    def test_preserves_case(self):
-        """Session IDs are case-sensitive — normalisation must not change case."""
-        assert normalise_join_input("aB3k7M") == "aB3k7M"
+    def test_uppercases_input(self):
+        """Session IDs are case-insensitive — normalisation uppercases the input."""
+        assert normalise_join_input("aB3k7M") == "AB3K7M"
+        assert normalise_join_input("ab3k7m") == "AB3K7M"
+
+    def test_already_uppercase_is_unchanged(self):
         assert normalise_join_input("AB3K7M") == "AB3K7M"
 
-    def test_preserves_nickname(self):
-        assert normalise_join_input("My Monday session") == "My Monday session"
-
-    def test_no_op_on_already_stripped(self):
+    def test_no_op_on_already_normalised(self):
         sid = generate_session_id()
-        assert normalise_join_input(sid) == sid
+        assert normalise_join_input(sid) == normalise_join_input(normalise_join_input(sid))
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +193,8 @@ class TestRejoinFormatHint:
     def test_mentions_session_id_length(self):
         assert str(SESSION_ID_LENGTH) in rejoin_format_hint()
 
-    def test_mentions_case_sensitive(self):
-        assert "case-sensitive" in rejoin_format_hint().lower()
+    def test_mentions_case_insensitive(self):
+        assert "not case-sensitive" in rejoin_format_hint().lower()
 
     def test_does_not_mention_old_4_digit(self):
         assert "4-digit" not in rejoin_format_hint()

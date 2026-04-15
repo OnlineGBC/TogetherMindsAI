@@ -36,9 +36,13 @@ ESCALATION_KEYWORDS = {
 }
 
 NEGATIVE_KEYWORDS = {
-    "sad", "depressed", "anxious", "worried", "stressed", "overwhelmed",
+    "sad", "depressed", "anxious", "worried", "stressed", "stress", "overwhelmed",
     "hopeless", "angry", "afraid", "hurt", "lonely", "terrible", "awful",
     "bad", "crying", "frustrated", "scared", "upset", "exhausted", "miserable",
+    "hard", "difficult", "struggle", "struggling", "cope", "coping", "pain",
+    "tired", "lost", "confused", "broken", "numb", "empty", "stuck", "failing",
+    "fail", "scared", "alone", "helpless", "worthless", "useless", "ashamed",
+    "guilt", "guilty", "dread", "anxious", "panic", "fear", "grief", "grieve",
 }
 
 POSITIVE_KEYWORDS = {
@@ -64,10 +68,10 @@ CRISIS_RESPONSE = (
 )
 
 HUMAN_REFERRAL_NOTE = (
-    "\n\nI want to be transparent: I am an AI, not a licensed therapist, "
+    "\n\nI want to be transparent: I am an AI, not a licensed professional, "
     "and I have real limitations. What you are describing may benefit from "
     "the support of a qualified human professional. "
-    "Psychology Today's therapist finder (psychologytoday.com/us/therapists) "
+    "Psychology Today's finder (psychologytoday.com/us/therapists) "
     "is a good place to start. You do not have to navigate this alone."
 )
 
@@ -203,7 +207,7 @@ _MODE_CONTEXT = {
         "clinical material, not just noise."
     ),
     "couple": (
-        "This is a couples therapy session. Two partners are in the room together. "
+        "This is a couple check-in session. Two partners are in the room together. "
         "Remain completely impartial. Encourage 'I feel...' statements. "
         "Foster mutual understanding. Address both partners — use 'you both' or 'each of you'.\n\n"
         "Off-topic deflection: Do not engage with off-topic questions at all — decline immediately "
@@ -213,7 +217,7 @@ _MODE_CONTEXT = {
         "Return the focus to the relationship."
     ),
     "group": (
-        "This is a group therapy session with multiple participants. "
+        "This is a group circle session with multiple participants. "
         "Foster a sense of shared space and mutual support. "
         "Invite participation without pressure. Address the group as 'everyone' or 'the group'.\n\n"
         "Off-topic deflection: Decline immediately and redirect the group without shaming the "
@@ -224,13 +228,13 @@ _MODE_CONTEXT = {
 }
 
 _SYSTEM_PROMPT_TEMPLATE = """\
-You are a thoughtful, experienced counsellor with deep training across several therapeutic \
+You are a thoughtful, experienced reflective guide with deep training across several supportive \
 traditions, working in an integrative style. You draw fluently on person-centred and humanistic \
-practice, cognitive-behavioural therapy (CBT), Acceptance and Commitment Therapy (ACT), and \
+practice, cognitive-behavioural approaches (CBT), Acceptance and Commitment Therapy (ACT), and \
 Internal Family Systems (IFS), choosing from among them according to what the person in front \
 of you seems to need. You are not a licensed clinician, and you will say so plainly if asked; \
 however, you bring the disposition, patience, and skill of someone who has spent many years in \
-the consulting room.
+reflective practice.
 
 ## Session context
 {mode_context}
@@ -281,8 +285,10 @@ anytime, and do not ask further questions.
 ## Your limits
 You are candid about what you are: an AI, without continuity of memory between conversations \
 unless explicitly provided, without legal or clinical authority, and without the ability to \
-intervene in the person's life. Encourage the person to work with a human clinician for \
-sustained care — say this without making them feel dismissed.
+intervene in the person's life. You may gently encourage the person to work with a human \
+clinician for sustained care — but do this AT MOST ONCE per conversation, only at a natural \
+moment of depth or when closing, and never repeat it. Saying it once is caring; saying it \
+repeatedly feels like a disclaimer and undermines the therapeutic relationship.
 
 ## Safety
 If the person expresses thoughts of suicide, self-harm, or harm to others, respond with warmth \
@@ -302,23 +308,83 @@ def _get_claude_client():
     return _claude_client
 
 
+_REFERRAL_THERAPY_NOUNS = {
+    "therapist", "counsellor", "counselor", "clinician",
+    "psychologist", "psychiatrist", "practitioner",
+}
+
+# Compound phrases that are professional referrals regardless of surrounding words
+_REFERRAL_EXACT_PHRASES = {
+    "couples therapist", "couples counsellor", "couples counselor",
+}
+
+_REFERRAL_RECOMMENDATION_WORDS = {
+    "licensed", "qualified", "trained", "certified",
+    "human", "working with", "seeing a", "see a",
+    "seek", "encourage", "recommend", "consider",
+    "find a", "look for", "looking for",
+}
+
+
+def contains_referral(text: str) -> bool:
+    """Return True if the text contains a professional referral recommendation.
+
+    Two-path detection:
+    1. Exact compound phrases that are always referrals (e.g. 'couples therapist').
+    2. Any therapy noun paired with a recommendation word
+       (e.g. 'licensed therapist', 'working with a counsellor').
+    """
+    lowered = text.lower()
+    if any(phrase in lowered for phrase in _REFERRAL_EXACT_PHRASES):
+        return True
+    has_therapy_noun = any(noun in lowered for noun in _REFERRAL_THERAPY_NOUNS)
+    has_recommendation = any(word in lowered for word in _REFERRAL_RECOMMENDATION_WORDS)
+    return has_therapy_noun and has_recommendation
+
+
+def strip_referral_sentences(text: str) -> str:
+    """Remove sentences containing professional referral language.
+
+    Used as a safety net when the escalation hint has already been sent for this
+    session — strips any referral sentence that slipped through Claude's suppression
+    instruction before it reaches the user or gets saved to conversation history.
+    Never returns an empty string.
+    """
+    import re
+    parts = re.split(r'(?<=[.!?])\s+', text.strip())
+    kept = [s for s in parts if s.strip() and not contains_referral(s)]
+    if not kept:
+        # Entire response was referral content — return first sentence unchanged
+        return parts[0] if parts else text
+    return " ".join(kept)
+
+
 def _generate_claude_response(
     text: str,
     emotion: str,
     mode: str,
     needs_escalation: bool,
     history: list = None,
+    referral_already_made: bool = False,
 ) -> str:
     """Call Claude Sonnet with a cached system prompt and full conversation history.
 
     Falls back to the static response bank if the API call fails.
     """
-    escalation_hint = (
-        "\n\n[Internal note: This user may benefit from professional human support. "
-        "At a natural point in your response, gently mention that a licensed therapist "
-        "can offer deeper support — without being alarmist or abrupt.]"
-        if needs_escalation else ""
-    )
+    if referral_already_made:
+        escalation_hint = (
+            "\n\n[Internal note: You have already made the professional referral "
+            "recommendation once in this session. Do NOT mention it again under any "
+            "circumstances — not even briefly. Focus entirely on the therapeutic work.]"
+        )
+    elif needs_escalation:
+        escalation_hint = (
+            "\n\n[Internal note: This person may benefit from professional human support. "
+            "If it feels natural, you may gently mention once that a licensed professional "
+            "can offer deeper support — without being alarmist or abrupt.]"
+        )
+    else:
+        escalation_hint = ""
 
     current_user_message = (
         f"[Internal context — detected emotional tone: {emotion}]\n\n"
@@ -356,14 +422,14 @@ def _generate_claude_response(
         return response.content[0].text
 
     except Exception as exc:
-        logger.error("Claude API error (%s); falling back to static response.", exc)
+        logger.error("Claude API error (%s); falling back to static response.", type(exc).__name__)
         sentiment = EMOTION_TO_SENTIMENT.get(emotion, "neutral")
         bank = _FALLBACK.get(mode, _FALLBACK["solo"])
         return random.choice(bank[sentiment])
 
 
 # ---------------------------------------------------------------------------
-# Output guard — defensive check against diagnostic/prescriptive language
+# Output guard — two-layer check against medical/diagnostic language
 # ---------------------------------------------------------------------------
 
 _FORBIDDEN_OUTPUT_PHRASES = [
@@ -373,13 +439,91 @@ _FORBIDDEN_OUTPUT_PHRASES = [
     "you need medication", "take this drug",
 ]
 
+MEDICAL_GUARD_SAFE_RESPONSE = (
+    "I'm not able to give medical advice. "
+    "Please speak with a healthcare professional about this."
+)
 
-def _sanitize_response(response: str) -> str:
-    """Strip any response that inadvertently contains diagnostic/prescriptive language."""
+OFFTOPIC_SAFE_RESPONSE = (
+    "I'm here to focus on your emotional wellbeing. "
+    "Is there something on your mind you'd like to explore?"
+)
+
+# Question words that signal a factual/informational query rather than personal sharing
+_QUESTION_WORDS = {"what", "where", "when", "who", "how", "why", "which"}
+
+# Emotional signal words — presence of any means the message is personal, not off-topic
+_EMOTIONAL_SIGNAL_WORDS = (
+    CRISIS_KEYWORDS | ESCALATION_KEYWORDS | NEGATIVE_KEYWORDS | POSITIVE_KEYWORDS
+)
+
+
+def _looks_like_factual_question(text: str) -> bool:
+    """Return True only when the text is clearly a short, impersonal factual question.
+
+    All three criteria must hold:
+      1. Ends with a question mark — the person is explicitly asking something.
+      2. Starts with a question word (what, where, when, who, how, why, which).
+      3. No emotional signal words anywhere in the text — any emotional word means
+         the person is sharing something personal, not asking a factual trivia question.
+      4. Short message (≤ 60 characters) — longer messages are almost always personal
+         sharing even when they contain a question word.
+
+    This conservative threshold ensures personal questions like
+    "How can I cope with this?" or "What does this mean for us?" are never
+    deflected — only clearly off-topic trivia like "What is the capital of France?"
+    """
+    stripped = text.strip()
+    if not stripped.endswith("?"):
+        return False
+    if len(stripped) > 60:
+        return False
+    first_word = stripped.lower().split()[0] if stripped.split() else ""
+    if first_word not in _QUESTION_WORDS:
+        return False
+    has_emotional_word = any(kw in stripped.lower() for kw in _EMOTIONAL_SIGNAL_WORDS)
+    return not has_emotional_word
+
+
+def _medical_guard(response: str) -> str:
+    """Two-layer output guard against medical diagnoses, drug names, or treatment instructions.
+
+    Layer 1 — keyword pre-filter: catches obvious forbidden phrases instantly.
+    Layer 2 — Claude Haiku check: catches hallucinated drug names, dosage
+              recommendations, or diagnostic language that keywords would miss.
+
+    Returns the original response if clean, or MEDICAL_GUARD_SAFE_RESPONSE if flagged.
+    Falls back gracefully if the Claude check fails.
+    """
+    # Layer 1: fast keyword pre-filter
     lowered = response.lower()
     if any(phrase in lowered for phrase in _FORBIDDEN_OUTPUT_PHRASES):
-        logger.warning("Sanitizer caught forbidden phrase in response; substituting fallback.")
-        return random.choice(_FALLBACK["solo"]["neutral"])
+        logger.warning("Medical guard (keyword) caught forbidden phrase in response.")
+        return MEDICAL_GUARD_SAFE_RESPONSE
+
+    # Layer 2: Claude Haiku safety check
+    try:
+        client = _get_claude_client()
+        result = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=5,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Does the following text contain specific medical diagnoses, "
+                    "drug names, dosage recommendations, or treatment instructions? "
+                    "Answer YES or NO only.\n\n"
+                    f"Text: {response[:1000]}"
+                ),
+            }],
+        )
+        answer = result.content[0].text.strip().upper()
+        if answer.startswith("YES"):
+            logger.warning("Medical guard (Claude) flagged response as containing medical advice.")
+            return MEDICAL_GUARD_SAFE_RESPONSE
+    except Exception as exc:
+        logger.warning("Medical guard Claude check failed (%s); skipping.", exc)
+
     return response
 
 
@@ -397,6 +541,47 @@ def detect_escalation(text: str) -> bool:
     """Return True if the text signals a need for professional human support."""
     lowered = text.lower()
     return any(kw in lowered for kw in ESCALATION_KEYWORDS)
+
+
+def _claude_crisis_check(text: str) -> bool:
+    """Secondary crisis check using Claude for contextual understanding.
+
+    Called only when keyword detection misses — catches phrases like
+    "I can't go on anymore" or "I don't want to be here" that keywords
+    would not catch.
+
+    Uses Claude Haiku for speed and minimal cost (max_tokens=5, YES/NO only).
+    Returns False on any API failure so the conversation always continues.
+    """
+    try:
+        client = _get_claude_client()
+        result = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=5,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Does the following message contain a DIRECT, EXPLICIT statement of "
+                    "suicidal ideation, intent to harm oneself, or a wish to be dead?\n\n"
+                    "Answer YES only for clear, unambiguous expressions such as "
+                    "'I want to kill myself', 'I'm going to hurt myself', or 'I want to die'.\n\n"
+                    "Answer NO for: metaphorical language ('I want to disappear', "
+                    "'I make myself smaller', 'I feel invisible'), relational withdrawal "
+                    "('I go quiet', 'I shut down'), frustration with others "
+                    "('I could kill him'), or general hopelessness without explicit intent.\n\n"
+                    "Answer YES or NO only.\n\n"
+                    f"Message: {text[:500]}"
+                ),
+            }],
+        )
+        answer = result.content[0].text.strip().upper()
+        if answer.startswith("YES"):
+            logger.warning("Claude crisis check flagged contextual crisis language.")
+            return True
+        return False
+    except Exception as exc:
+        logger.warning("Claude crisis check failed (%s); skipping secondary check.", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -434,23 +619,38 @@ def generate_opening_message(mode: str = "solo") -> str:
         return "Hello, and welcome. What's brought you here today?"
 
 
-def process_input(text: str, mode: str = "solo", session_message_count: int = 0, history: list = None) -> str:
+def process_input(
+    text: str,
+    mode: str = "solo",
+    session_message_count: int = 0,
+    history: list = None,
+    referral_already_made: bool = False,
+) -> str:
     """Return a context-aware therapeutic response for the given user input.
 
     Pipeline
     --------
-    1. Crisis keyword check  → return CRISIS_RESPONSE immediately (no Claude call).
-    2. Emotion classification → j-hartmann/emotion-english-distilroberta-base (CPU).
-    3. Claude Sonnet 4.6     → generates the response with the emotion as context.
-    4. Output guard          → strip any forbidden diagnostic/prescriptive language.
+    1a. Crisis keyword check  → return CRISIS_RESPONSE immediately (fast, no API call).
+    1b. Claude crisis check   → contextual check for phrases keywords miss.
+    2.  Emotion classification → j-hartmann/emotion-english-distilroberta-base (CPU).
+    3.  Claude Sonnet 4.6     → generates the response with the emotion as context.
+    4.  Medical output guard  → keyword + Claude check for medical/diagnostic language.
     """
-    # 1. Crisis check — always takes priority
+    # 1a. Crisis check Layer 1 — keywords (zero latency)
     if detect_crisis(text):
+        return CRISIS_RESPONSE
+
+    # 1b. Crisis check Layer 2 — Claude contextual check for phrases keywords miss
+    if _claude_crisis_check(text):
         return CRISIS_RESPONSE
 
     # 2. Emotion detection
     emotion = analyze_emotion(text)
     sentiment = EMOTION_TO_SENTIMENT.get(emotion, "neutral")
+
+    # 2b. Off-topic pre-filter — catch obvious factual questions before calling Claude
+    if emotion == "neutral" and _looks_like_factual_question(text):
+        return OFFTOPIC_SAFE_RESPONSE
 
     # 3. Escalation flag
     needs_escalation = (
@@ -459,7 +659,11 @@ def process_input(text: str, mode: str = "solo", session_message_count: int = 0,
     )
 
     # 4. Generate response via Claude
-    response = _generate_claude_response(text, emotion, mode, needs_escalation, history=history)
+    response = _generate_claude_response(
+        text, emotion, mode, needs_escalation,
+        history=history,
+        referral_already_made=referral_already_made,
+    )
 
-    # 5. Output guard
-    return _sanitize_response(response)
+    # 5. Medical output guard (keyword + Claude)
+    return _medical_guard(response)
