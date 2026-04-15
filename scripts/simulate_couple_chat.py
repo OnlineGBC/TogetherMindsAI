@@ -206,8 +206,32 @@ async def _wait_for_new_message(page, count_before: int, timeout_ms: int = 30_00
         pass  # continue even if no new message arrived
 
 
-async def _send_message(page, text: str):
-    """Type and send a message via the Socket.IO input."""
+async def _dismiss_modal_if_present(page, name: str):
+    """Dismiss the display name modal if it is currently blocking the UI.
+
+    This can happen on Socket.IO reconnects (each reconnect re-emits 'join'
+    which triggers the history handler and may re-show the prompt).
+    """
+    modal = page.locator("#displayNameModal")
+    try:
+        if await modal.is_visible(timeout=500):
+            inp = page.locator("#displayNameInput")
+            current = await inp.input_value()
+            if not current.strip():
+                await inp.fill(name)
+            await page.locator("#displayNameConfirmBtn").click()
+            await modal.wait_for(state="hidden", timeout=5_000)
+    except Exception:
+        pass  # modal not present or already hidden — continue
+
+
+async def _send_message(page, text: str, name: str = ""):
+    """Type and send a message via the Socket.IO input.
+
+    Defensively dismisses the display name modal first — it can reappear on
+    Socket.IO reconnects and would otherwise intercept the send button click.
+    """
+    await _dismiss_modal_if_present(page, name)
     inp = page.locator("#messageInput")
     await inp.fill(text)
     await page.locator("#sendBtn").click()
@@ -290,7 +314,10 @@ async def run_partner(
         # ── Display name ─────────────────────────────────────────────────────
         modal = page.locator("#displayNameModal")
         try:
-            await modal.wait_for(state="visible", timeout=8_000)
+            # Creator waits longer — the server generates an opening message via
+            # Claude before emitting 'history', which can take 5-8 s on slow API.
+            modal_timeout = 20_000 if is_creator else 8_000
+            await modal.wait_for(state="visible", timeout=modal_timeout)
             await page.locator("#displayNameInput").fill(name)
             await page.locator("#displayNameConfirmBtn").click()
             await modal.wait_for(state="hidden", timeout=5_000)
@@ -319,7 +346,7 @@ async def run_partner(
             for i, msg in enumerate(messages):
                 count_before = await _count_bubbles(page)
                 print(f"  {label} ({i+1}/{len(messages)}): {msg[:90]}{'…' if len(msg)>90 else ''}")
-                await _send_message(page, msg)
+                await _send_message(page, msg, name=name)
 
                 # random typing pause between burst messages
                 if i < len(messages) - 1:
