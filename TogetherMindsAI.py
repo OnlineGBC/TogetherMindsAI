@@ -273,6 +273,32 @@ if not config.IS_TESTING:
 # Routes — pages
 # ---------------------------------------------------------------------------
 
+@app.route("/.well-known/assetlinks.json")
+def assetlinks():
+    """Digital Asset Links — required by TWA to verify domain ownership.
+
+    The sha256_cert_fingerprints value below is a placeholder.
+    Replace it with the real SHA-256 fingerprint of your Android signing key
+    after running: keytool -list -v -keystore <your.keystore>
+    """
+    import json as _json
+    payload = [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.onlinegbc.togethermindai",
+                "sha256_cert_fingerprints": [
+                    "PLACEHOLDER_REPLACE_AFTER_SIGNING"
+                ]
+            }
+        }
+    ]
+    response = make_response(_json.dumps(payload, indent=2))
+    response.headers["Content-Type"] = "application/json"
+    return response
+
+
 @app.route("/")
 def home():
     return render_template("home.html")
