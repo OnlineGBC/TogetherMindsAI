@@ -228,9 +228,13 @@ async def _dismiss_modal_if_present(page, name: str):
 async def _send_message(page, text: str, name: str = ""):
     """Type and send a message via the Socket.IO input.
 
-    Defensively dismisses the display name modal first — it can reappear on
-    Socket.IO reconnects and would otherwise intercept the send button click.
+    Waits for the send button to be enabled (it starts disabled until the AI
+    opening message arrives), then dismisses any blocking modal, then sends.
     """
+    await page.wait_for_function(
+        "!document.getElementById('sendBtn').disabled",
+        timeout=30_000,
+    )
     await _dismiss_modal_if_present(page, name)
     inp = page.locator("#messageInput")
     await inp.fill(text)

@@ -86,6 +86,10 @@ function joinRoom(sessionId, userId, mode, soloMode) {
                 appendMessage(chatBox, msg.user_id, msg.text, msg.timestamp,
                               userId, msg.display_name, sessionId);
             });
+            // Opening message has arrived — allow participants to send messages.
+            // The send button starts disabled in the HTML so no one can speak
+            // before the AI guide has opened the session.
+            _hideSendSpinner();
         }
         scrollToBottom(chatBox);
 
