@@ -413,16 +413,21 @@ async def run_member(
         )
         await page.locator("#continueBtn").click()
 
-        # Wait for therapy page
+        # Wait for therapy page — check for SESSION_ID being defined rather
+        # than matching the URL.  Under load with 5+ simultaneous auth
+        # requests the server can take > 20s to respond; history.replaceState
+        # also masks the URL.  Waiting for the JS global is the reliable signal.
         try:
-            await page.wait_for_url("**/therapy/group/**", timeout=20_000)
+            await page.wait_for_function(
+                "typeof SESSION_ID !== 'undefined' && SESSION_ID !== null && SESSION_ID !== ''",
+                timeout=90_000,
+            )
         except PWTimeout:
-            pass  # history.replaceState may have already masked the URL
+            print(f"{label} ERROR: Timed out waiting for therapy page (SESSION_ID not set)")
+            return
 
-        session_id = await page.evaluate(
-            "typeof SESSION_ID !== 'undefined' ? SESSION_ID : null"
-        )
-        user_id = await page.evaluate(
+        session_id = await page.evaluate("SESSION_ID")
+        user_id    = await page.evaluate(
             "typeof USER_ID !== 'undefined' ? USER_ID : null"
         )
 
