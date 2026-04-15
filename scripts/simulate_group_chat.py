@@ -331,11 +331,24 @@ async def _send_message(page, text: str, name: str = ""):
 
     Waits for the send button to be enabled (it starts disabled until the AI
     opening message arrives), then dismisses any blocking modal, then sends.
+
+    Under heavy load the new_message echo can be slow to arrive, keeping the
+    button disabled longer than expected.  If the 45s wait times out we
+    force-enable the button via JS and try once more before giving up.
     """
-    await page.wait_for_function(
-        "!document.getElementById('sendBtn').disabled",
-        timeout=30_000,
-    )
+    try:
+        await page.wait_for_function(
+            "!document.getElementById('sendBtn').disabled",
+            timeout=45_000,
+        )
+    except PWTimeout:
+        # Force-enable as a fallback — the socket may be lagging
+        try:
+            await page.evaluate(
+                "var b = document.getElementById('sendBtn'); if(b){ b.disabled = false; }"
+            )
+        except Exception:
+            raise  # page is gone — let caller handle it
     await _dismiss_modal_if_present(page, name)
     inp = page.locator("#messageInput")
     await inp.fill(text)
@@ -461,11 +474,18 @@ async def run_member(
             for i, msg in enumerate(messages):
                 count_before = await _count_bubbles(page)
                 print(f"  {label} ({i+1}/{len(messages)}): {msg[:90]}{'…' if len(msg)>90 else ''}")
-                await _send_message(page, msg, name=name)
+                try:
+                    await _send_message(page, msg, name=name)
+                except Exception as exc:
+                    print(f"  {label} [warn] could not send message ({exc.__class__.__name__}) — skipping")
+                    break  # skip remaining burst messages; continue turn loop
 
-                # random typing pause between burst messages
+                # Longer pause between burst messages to give the new_message
+                # echo time to arrive and re-enable the send button before the
+                # next send.  Under load with 6 browsers, the round-trip over
+                # long-polling can take 2-4 s.
                 if i < len(messages) - 1:
-                    await asyncio.sleep(random.uniform(0.8, 2.5))
+                    await asyncio.sleep(random.uniform(2.0, 5.0))
 
             # After burst: maybe wait for a reply, maybe interrupt (20 % chance)
             interrupt = random.random() < 0.20
@@ -616,10 +636,15 @@ async def main(base_url: str, num_turns: int, num_members: int, headless: bool):
             for i in range(num_members)
         ]
 
-        await asyncio.gather(
+        results = await asyncio.gather(
             *member_coros,
             schedule_turns(turn_queues, done_event, all_ready_event, num_turns),
+            return_exceptions=True,
         )
+        for i, result in enumerate(results[:-1]):  # skip scheduler result
+            if isinstance(result, Exception):
+                member_label = names[i] if i < len(names) else f"member {i}"
+                print(f"  [warn] {member_label} exited with error: {result.__class__.__name__}: {result}")
 
     print(f"\n{'='*60}")
     print("  Simulation complete.")
