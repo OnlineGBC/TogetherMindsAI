@@ -111,8 +111,12 @@ function joinRoom(sessionId, userId, mode, soloMode) {
                       _currentUserId, data.display_name, sessionId);
         scrollToBottom(chatBox);
 
-        // Restore send button once the AI reply arrives
-        if (data.user_id === "AI") {
+        // Restore send button:
+        // - Solo: wait for the AI reply (page reload handles the rest anyway).
+        // - Couple/group: re-enable as soon as any message arrives. The AI may
+        //   not respond at all (20s cooldown), so we cannot wait for an AI message
+        //   or the button stays disabled permanently.
+        if (data.user_id === "AI" || !soloMode) {
             _hideSendSpinner();
         }
     });
