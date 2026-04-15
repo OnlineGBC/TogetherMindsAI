@@ -999,6 +999,10 @@ def on_join(data):
         )
         if not messages and not config.IS_TESTING and session_id not in session_opening_sent:
             session_opening_sent.add(session_id)
+            # Pre-claim the AI cooldown slot so any partner message arriving
+            # while the opening message is generating correctly sees an active
+            # cooldown and does not fire a second consecutive AI response.
+            session_ai_last_response[session_id] = datetime.now(timezone.utc)
             opening = generate_opening_message(mode)
             ai_msg = ChatMessage(
                 session_id=session_id, user_id="AI", text=opening,
