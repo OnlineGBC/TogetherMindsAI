@@ -287,7 +287,7 @@ def assetlinks():
             "relation": ["delegate_permission/common.handle_all_urls"],
             "target": {
                 "namespace": "android_app",
-                "package_name": "com.onlinegbc.togethermindai",
+                "package_name": "com.onlinegbc.togethermindsai",
                 "sha256_cert_fingerprints": [
                     "42:CD:CA:85:A9:22:D5:73:2D:CB:1D:57:25:F1:D6:48:C8:09:4C:E2:44:4D:E7:6B:EF:94:B8:BA:0A:3B:F1:A9"
                 ]
