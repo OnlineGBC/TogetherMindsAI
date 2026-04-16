@@ -270,6 +270,15 @@ if not config.IS_TESTING:
 
 
 # ---------------------------------------------------------------------------
+# Error handlers
+# ---------------------------------------------------------------------------
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Return JSON for rate-limit errors so the client can show a clear message."""
+    return jsonify({"error": "Too many attempts. Please wait a few minutes and try again."}), 429
+
+
 # Routes — pages
 # ---------------------------------------------------------------------------
 
