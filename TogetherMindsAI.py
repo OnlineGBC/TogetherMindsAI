@@ -304,6 +304,11 @@ def home():
     return render_template("home.html")
 
 
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+
 @app.route("/tos")
 def tos():
     return render_template("tos.html")

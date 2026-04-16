@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Privacy Policy — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <h1 class="fw-bold mb-1">Privacy Policy</h1>
+        <p class="text-muted small mb-4"><em>Last updated: April 16, 2026</em></p>
+
+        <h5 class="fw-bold mt-4">1. About This App</h5>
+        <p>TogetherMindsAI is an AI-assisted reflective support tool operated by Global Business Consulting, Inc. (GBCai4org).
+        It is not a licensed mental health service and does not provide medical advice, diagnosis, or treatment.</p>
+
+        <h5 class="fw-bold mt-4">2. What We Collect</h5>
+        <ul>
+            <li><strong>Session messages</strong> — the text you send during a session</li>
+            <li><strong>Session ID</strong> — a randomly generated code used to identify your session</li>
+            <li><strong>Display name</strong> — the name you choose within a session (need not be your real name)</li>
+            <li><strong>Usage metadata</strong> — timestamps, session mode (solo/couple/group), and rate-limiting data</li>
+        </ul>
+        <p>We do not collect your name, email address, phone number, or any account credentials.
+        No account is required to use the app.</p>
+
+        <h5 class="fw-bold mt-4">3. How We Store It</h5>
+        <p>All session messages are encrypted at rest using AES-256 encryption. Data is stored in a
+        Google Cloud SQL database hosted in the United States.</p>
+
+        <h5 class="fw-bold mt-4">4. How Long We Keep It</h5>
+        <p>Session data is automatically deleted after <strong>30 days</strong>. Audit logs are retained
+        for <strong>6 years</strong> as required by applicable regulations.</p>
+
+        <h5 class="fw-bold mt-4">5. Who We Share It With</h5>
+        <p>We do not sell, rent, or share your data with third parties. The following third-party services
+        process data on our behalf:</p>
+        <ul>
+            <li><strong>Google Cloud Platform</strong> — hosting and database
+                (<a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">google.com/privacy</a>)
+            </li>
+            <li><strong>Anthropic</strong> — AI response generation; messages are sent to Anthropic's API to generate responses
+                (<a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener noreferrer">anthropic.com/privacy</a>)
+            </li>
+        </ul>
+
+        <h5 class="fw-bold mt-4">6. Children's Privacy</h5>
+        <p>This app is not intended for users under the age of 13. We do not knowingly collect data from children.</p>
+
+        <h5 class="fw-bold mt-4">7. Your Rights</h5>
+        <p>You may request deletion of your session data at any time by contacting us. Because sessions are
+        anonymous, you will need to provide your Session ID.</p>
+
+        <h5 class="fw-bold mt-4">8. Crisis Resources</h5>
+        <p>If you are in crisis, please contact a real person immediately:</p>
+        <ul>
+            <li><strong>US:</strong> call or text <strong>988</strong>, or text HOME to <strong>741741</strong></li>
+            <li><strong>Worldwide:</strong>
+                <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a> or
+                <a href="https://befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a>
+            </li>
+        </ul>
+
+        <h5 class="fw-bold mt-4">9. Contact</h5>
+        <p>For privacy questions or data deletion requests:<br>
+        Global Business Consulting, Inc. (GBCai4org)<br>
+        <strong>Email:</strong> <a href="mailto:privacy@onlinegbc.com">privacy@onlinegbc.com</a></p>
+
+        <h5 class="fw-bold mt-4">10. Changes to This Policy</h5>
+        <p>We may update this policy from time to time. The "Last updated" date at the top will reflect any changes.</p>
+    </div>
+</div>
+{% endblock %}
