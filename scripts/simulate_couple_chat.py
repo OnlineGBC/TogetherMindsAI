@@ -295,15 +295,18 @@ async def run_partner(
         )
         await page.locator("#continueBtn").click()
 
-        # Wait for therapy page
+        # Wait for SESSION_ID to be defined — more reliable than wait_for_url because
+        # couple.html calls history.replaceState before setting SESSION_ID.
         try:
-            await page.wait_for_url("**/therapy/couple/**", timeout=20_000)
+            await page.wait_for_function(
+                "typeof SESSION_ID !== 'undefined' && SESSION_ID !== null && SESSION_ID !== ''",
+                timeout=30_000,
+            )
         except PWTimeout:
-            pass  # history.replaceState may have already masked the URL
+            print(f"{label} ERROR: Timed out waiting for therapy page (SESSION_ID not set)")
+            return
 
-        session_id = await page.evaluate(
-            "typeof SESSION_ID !== 'undefined' ? SESSION_ID : null"
-        )
+        session_id = await page.evaluate("SESSION_ID")
         user_id = await page.evaluate(
             "typeof USER_ID !== 'undefined' ? USER_ID : null"
         )

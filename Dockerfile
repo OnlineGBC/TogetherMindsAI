@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu
 
 # ── Step 2: install everything else (torch is already satisfied above) ───────
+# REBUILD_DEPS: increment in cloudbuild.yaml whenever requirements.txt changes
+# to force Docker to bypass the --cache-from registry cache for this layer.
+ARG REBUILD_DEPS=1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

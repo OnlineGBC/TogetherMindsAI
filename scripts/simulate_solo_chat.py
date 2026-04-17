@@ -152,16 +152,20 @@ def run(base_url: str, headless: bool):
 
         # ── Step 2: Wait for redirect to therapy page ────────────────────────
         print("[ 2/5 ] Waiting for session to start…")
+        # Wait for SESSION_ID to be defined — more reliable than wait_for_url because
+        # solo.html calls history.replaceState(null,'','/') before setting SESSION_ID,
+        # so the URL may already be '/' by the time Playwright checks it.
         try:
-            page.wait_for_url("**/therapy/solo/**", timeout=20_000)
+            page.wait_for_function(
+                "typeof SESSION_ID !== 'undefined' && SESSION_ID !== null && SESSION_ID !== ''",
+                timeout=30_000,
+            )
         except PWTimeout:
-            # history.replaceState may have already masked the URL to /
-            # Check JS globals instead
-            pass
+            sys.exit("Could not read SESSION_ID from page. Is the server running?")
 
         # Read session/user IDs from the page's JS globals
-        session_id = page.evaluate("typeof SESSION_ID !== 'undefined' ? SESSION_ID : null")
-        user_id    = page.evaluate("typeof USER_ID    !== 'undefined' ? USER_ID    : null")
+        session_id = page.evaluate("SESSION_ID")
+        user_id    = page.evaluate("typeof USER_ID !== 'undefined' ? USER_ID : null")
 
         if not session_id:
             sys.exit("Could not read SESSION_ID from page. Is the server running?")
