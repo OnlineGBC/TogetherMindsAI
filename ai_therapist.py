@@ -590,10 +590,9 @@ def _claude_crisis_check(text: str) -> bool:
 
 _NAME_HINT = (
     "\n\n"
-    "One quick note: you're shown by your session ID for now. "
-    "If you'd like to use a name others in this session can see, "
-    "click the pencil icon next to your name at the top right — "
-    "any name not already taken works fine, or simply leave it as is."
+    "One quick note: you're shown by a generic, anonymous name for now. "
+    "If you'd like to personalize it, click the pencil icon next to your name at the top right — "
+    "any name not already used in the past for this session works fine."
 )
 
 
