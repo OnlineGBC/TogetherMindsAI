@@ -368,6 +368,7 @@ async def run_member(
     all_names: list[str],
     archetype: str,
     is_creator: bool,
+    member_index: int,      # 0 = creator; used to stagger join timing
     session_queue: asyncio.Queue,
     all_ready_event: asyncio.Event,
     ready_count: list,      # mutable counter shared across coroutines
@@ -381,6 +382,12 @@ async def run_member(
     num_members: int,
 ):
     label = f"[{name}]"
+
+    # Stagger non-creator joins so browsers don't stampede the server at the
+    # same instant — avoids the race where the "all ready" Socket.IO event
+    # fires before late-joining clients have established their connection.
+    if not is_creator:
+        await asyncio.sleep(member_index * 3.0)
 
     browser = await chromium.launch(headless=headless, slow_mo=150)
     context = await browser.new_context(
@@ -634,6 +641,7 @@ async def main(base_url: str, num_turns: int, num_members: int, headless: bool):
                 all_names=names,
                 archetype=archetypes[i],
                 is_creator=(i == 0),
+                member_index=i,
                 session_queue=session_queue,
                 all_ready_event=all_ready_event,
                 ready_count=ready_count,
