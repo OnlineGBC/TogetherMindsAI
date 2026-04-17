@@ -102,7 +102,7 @@ steps:
       - --min-instances
       - "0"
       - --max-instances
-      - "3"
+      - "1"
       - --memory
       - 2Gi
       - --cpu
