@@ -9,6 +9,20 @@ import re
 APP = pathlib.Path(__file__).parent.parent / "TogetherMindsAI.py"
 
 
+class TestWarmupAlwaysRuns:
+
+    def test_no_reloader_parent_guard_on_warm_up(self):
+        """Regression: the warm-up must NOT be gated on WERKZEUG_RUN_MAIN.
+        When use_reloader=False (local dev) and FLASK_DEBUG=true, WERKZEUG_RUN_MAIN
+        is never set, so the old '_is_reloader_parent' check always evaluated True
+        and silently skipped the model warm-up, causing a delay on the first request."""
+        source = APP.read_text()
+        assert "_is_reloader_parent" not in source, (
+            "'_is_reloader_parent' guard found — warm-up would be skipped when "
+            "FLASK_DEBUG=true and use_reloader=False (local dev)"
+        )
+
+
 class TestThreadingImport:
 
     def test_import_threading_present_before_thread_usage(self):
