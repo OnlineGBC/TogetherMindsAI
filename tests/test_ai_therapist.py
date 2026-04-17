@@ -426,3 +426,61 @@ class TestStripReferralSentences:
         assert "therapist" not in result
         assert "counsellor" not in result
         assert "feel heard" in result
+
+
+# ---------------------------------------------------------------------------
+# Opening message — name hint must always be appended
+# ---------------------------------------------------------------------------
+
+class TestOpeningMessage:
+
+    def test_solo_opening_contains_name_hint(self):
+        client = _make_claude_client("Welcome, I'm here to listen.")
+        with patch("ai_therapist._get_claude_client", return_value=client):
+            result = ai_therapist.generate_opening_message("solo")
+        assert "pencil icon" in result
+
+    def test_couple_opening_contains_name_hint(self):
+        client = _make_claude_client("Welcome, both of you.")
+        with patch("ai_therapist._get_claude_client", return_value=client):
+            result = ai_therapist.generate_opening_message("couple")
+        assert "pencil icon" in result
+
+    def test_group_opening_contains_name_hint(self):
+        client = _make_claude_client("Welcome to the group.")
+        with patch("ai_therapist._get_claude_client", return_value=client):
+            result = ai_therapist.generate_opening_message("group")
+        assert "pencil icon" in result
+
+    def test_fallback_opening_also_contains_name_hint(self):
+        """When Claude API is unavailable the hardcoded fallback must still include the hint."""
+        client = MagicMock()
+        client.messages.create.side_effect = Exception("API down")
+        with patch("ai_therapist._get_claude_client", return_value=client):
+            result = ai_therapist.generate_opening_message("solo")
+        assert "pencil icon" in result
+
+
+# ---------------------------------------------------------------------------
+# Emotion pipeline singleton — must not double-load
+# ---------------------------------------------------------------------------
+
+class TestEmotionPipelineSingleton:
+
+    def test_pipeline_function_contains_cache_guard(self):
+        """_get_emotion_pipeline must guard with 'if _emotion_pipeline is None' so it never
+        reloads the model when already cached.  Without this guard each request could trigger
+        a full model load — the race condition the synchronous startup fix was meant to prevent."""
+        import pathlib, re
+        source = (pathlib.Path(__file__).parent.parent / "ai_therapist.py").read_text()
+        # Extract the _get_emotion_pipeline function body
+        match = re.search(
+            r"def _get_emotion_pipeline\(\):(.*?)(?=^def |\Z)",
+            source,
+            re.DOTALL | re.MULTILINE,
+        )
+        assert match, "_get_emotion_pipeline function not found in ai_therapist.py"
+        fn_body = match.group(1)
+        assert "if _emotion_pipeline is None" in fn_body, (
+            "_get_emotion_pipeline is missing the 'if _emotion_pipeline is None' cache guard"
+        )
