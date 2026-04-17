@@ -209,6 +209,7 @@ if not config.IS_TESTING:
     #
     # Skip in the reloader parent process (WERKZEUG_RUN_MAIN is only set in
     # the child that actually serves requests) to avoid a double load in dev.
+    import threading
     _debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
     _is_reloader_parent = _debug_mode and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
     if not config.IS_TESTING and not _is_reloader_parent:
