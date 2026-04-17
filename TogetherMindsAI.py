@@ -200,30 +200,28 @@ if not config.IS_TESTING:
         except Exception:
             pass  # column already removed or never existed
 
-    # Warm up the emotion classifier in a background thread so the first
-    # user message doesn't trigger a large model load mid-request, which
-    # can crash the process on memory-constrained machines.
+    # Load the emotion classifier synchronously at startup so no request ever
+    # triggers a mid-request model load.  A background-thread approach has a
+    # race condition under eventlet: the greenlet yields during disk I/O, a
+    # request arrives, finds the pipeline still None, and loads it again —
+    # causing the visible delay.  Loading synchronously here blocks startup
+    # briefly but guarantees the model is ready before the first request.
     #
-    # In debug mode Flask's reloader runs two processes: a parent watcher and
-    # a child that actually serves requests. WERKZEUG_RUN_MAIN is set to 'true'
-    # only in the child, so we skip the warmup in the parent to avoid loading
-    # the model twice.
-    import threading
+    # Skip in the reloader parent process (WERKZEUG_RUN_MAIN is only set in
+    # the child that actually serves requests) to avoid a double load in dev.
     _debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    if not _debug_mode:
-        def _warmup_emotion_model():
-            try:
-                # Suppress noisy HuggingFace/transformers library output
-                os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-                os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-                import transformers
-                transformers.logging.set_verbosity_error()
-                from ai_therapist import _get_emotion_pipeline
-                _get_emotion_pipeline()
-                app.logger.info("Emotion model loaded and ready.")
-            except Exception as exc:
-                app.logger.warning("Emotion model warm-up failed (%s); will retry on first use.", exc)
-        threading.Thread(target=_warmup_emotion_model, daemon=True).start()
+    _is_reloader_parent = _debug_mode and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+    if not config.IS_TESTING and not _is_reloader_parent:
+        try:
+            os.environ["TRANSFORMERS_VERBOSITY"] = "error"
+            os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+            import transformers
+            transformers.logging.set_verbosity_error()
+            from ai_therapist import _get_emotion_pipeline
+            _get_emotion_pipeline()
+            app.logger.info("Emotion model loaded and ready.")
+        except Exception as exc:
+            app.logger.warning("Emotion model warm-up failed (%s); will load on first use.", exc)
 
     # Add retention_expires_at column if it doesn't exist yet (one-time migration)
     with app.app_context():
