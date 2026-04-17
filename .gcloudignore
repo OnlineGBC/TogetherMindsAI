@@ -22,9 +22,6 @@ tests/
 # Claude / editor metadata
 .claude/
 
-# Local fonts (served from static/ which is already included)
-static/fonts/
-
 # Git metadata
 .git/
 .gitignore
