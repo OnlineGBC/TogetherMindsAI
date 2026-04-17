@@ -81,12 +81,10 @@
         <div class="alert alert-info rounded-4 mb-3 py-2 px-3 d-flex align-items-start gap-2" id="privacyBanner">
             <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1"></i>
             <div class="flex-grow-1 small">
-                <strong>This session is fully confidential</strong> — visible only to participants in this session.<br>
-                Your anonymous Session ID is <strong class="font-monospace"><span id="privacyBannerCode">{{ session_id }}</span></strong> —
-                or click <i class="bi bi-pencil" style="color:#fd7e14"></i> to select a friendly name
-                <em>(your partner will see this name)</em>.<br>
-                At the end of the session you can <strong>download</strong> a copy (Word or PDF) or
-                <strong>delete everything permanently</strong> for complete privacy.
+                <strong>This session is fully confidential</strong> — visible only to participants in this session.
+                Your anonymous Session ID is <strong class="font-monospace"><span id="privacyBannerCode">{{ session_id }}</span></strong>.
+                You can also click <i class="bi bi-pencil" style="color:#fd7e14"></i> to select a friendly name.<br>
+                At the end of the session you can <strong>download</strong> a copy (Word or PDF) or <strong>delete everything permanently</strong> for complete privacy.
             </div>
             <button type="button" class="btn-close flex-shrink-0 ms-1" style="font-size:0.75rem"
                     onclick="dismissPrivacyBanner()" aria-label="Close"></button>
