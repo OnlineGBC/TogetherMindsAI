@@ -49,17 +49,12 @@ var _currentDisplayName = null;
 function joinRoom(sessionId, userId, mode, soloMode) {
     _currentUserId = userId;
 
-    // On localhost werkzeug crashes if a WebSocket upgrade is attempted, so
-    // force polling in dev. On production (Cloud Run / gunicorn+eventlet) use
-    // WebSocket-only — polling breaks when Cloud Run scales to >1 instance
-    // because Socket.IO sessions are in-memory and not shared across instances.
-    var _isLocalDev = (
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1" ||
-        window.location.hostname.startsWith("192.168.")
-    );
+    // Use polling only. Cloud Run is capped at max-instances=1 so all
+    // Socket.IO sessions share the same instance — no cross-instance room
+    // problem. WebSocket upgrade is skipped: werkzeug (dev) crashes on it
+    // and Cloud Run's load balancer does not reliably pass WS upgrades through.
     socket = io({
-        transports: _isLocalDev ? ["polling"] : ["websocket"],
+        transports: ["polling"],
         upgrade: false,
     });
 
