@@ -517,7 +517,7 @@ async def run_member(
             print(f"\n{label} Downloading transcripts…")
             for fmt in ("docx", "pdf"):
                 url = f"{base_url}/transcript/{session_id}/{fmt}"
-                async with page.expect_download(timeout=30_000) as dl_info:
+                async with page.expect_download(timeout=60_000) as dl_info:
                     await page.evaluate(f"window.location.href = '{url}'")
                 download = await dl_info.value
                 dest = DOWNLOAD_DIR / download.suggested_filename

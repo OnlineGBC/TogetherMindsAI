@@ -588,6 +588,15 @@ def _claude_crisis_check(text: str) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
+_NAME_HINT = (
+    "\n\n"
+    "One quick note: you're shown by your session ID for now. "
+    "If you'd like to use a name others in this session can see, "
+    "click the pencil icon next to your name at the top right — "
+    "any name not already taken works fine, or simply leave it as is."
+)
+
+
 def generate_opening_message(mode: str = "solo") -> str:
     """Generate the AI counsellor's opening message for a brand-new session.
 
@@ -613,10 +622,10 @@ def generate_opening_message(mode: str = "solo") -> str:
                 "content": "[New session — please open the conversation as the counsellor.]",
             }],
         )
-        return response.content[0].text
+        return response.content[0].text + _NAME_HINT
     except Exception as exc:
         logger.warning("Opening message generation failed (%s); using fallback.", exc)
-        return "Hello, and welcome. What's brought you here today?"
+        return "Hello, and welcome. What's brought you here today?" + _NAME_HINT
 
 
 def process_input(

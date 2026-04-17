@@ -70,11 +70,10 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         if (soloMode) {
             // Solo messages are already server-rendered
             if (currentDisplayName) {
-                // Name already set — skip modal, just restore state
                 _currentDisplayName = currentDisplayName;
                 _updateDisplayNameBanner(sessionId, currentDisplayName);
             } else {
-                _showDisplayNamePrompt(sessionId, userId, defaultName, true);
+                _acceptDefaultName(sessionId, userId, defaultName, true);
             }
             return;
         }
@@ -94,11 +93,10 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         scrollToBottom(chatBox);
 
         if (currentDisplayName) {
-            // Name already set — skip modal, just restore state
             _currentDisplayName = currentDisplayName;
             _updateDisplayNameBanner(sessionId, currentDisplayName);
         } else {
-            _showDisplayNamePrompt(sessionId, userId, defaultName, false);
+            _acceptDefaultName(sessionId, userId, defaultName, false);
         }
     });
 
@@ -462,6 +460,38 @@ function initEndSessionGuard(sessionId, redirectUrl) {
 // ---------------------------------------------------------------------------
 // Display name — prompt, banner update, rename
 // ---------------------------------------------------------------------------
+
+/**
+ * Silently accept the server-assigned default name without showing a modal.
+ * For solo: AJAX POST to /api/display-name with the default name.
+ * For couple/group: emits set_display_name via socket.
+ */
+function _acceptDefaultName(sessionId, userId, defaultName, isSolo) {
+    if (!defaultName) { return; }
+    if (isSolo) {
+        fetch("/api/display-name", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId, display_name: defaultName }),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.display_name) {
+                _currentDisplayName = data.display_name;
+                _updateDisplayNameBanner(sessionId, data.display_name);
+            }
+        })
+        .catch(function () { /* non-critical — banner stays as default */ });
+    } else {
+        if (socket && socket.connected) {
+            socket.emit("set_display_name", {
+                session_id: sessionId,
+                user_id: userId,
+                display_name: defaultName,
+            });
+        }
+    }
+}
 
 /**
  * Show the display name prompt modal.

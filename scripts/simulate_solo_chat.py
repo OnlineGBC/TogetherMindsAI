@@ -222,7 +222,7 @@ def run(base_url: str, headless: bool):
         print("[ 5/5 ] Downloading transcripts…")
         for fmt in ("docx", "pdf"):
             url = f"{base_url}/transcript/{session_id}/{fmt}"
-            with page.expect_download(timeout=30_000) as dl_info:
+            with page.expect_download(timeout=60_000) as dl_info:
                 # Use evaluate to navigate — page.goto raises an error when a
                 # download starts instead of a normal page load
                 page.evaluate(f"window.location.href = '{url}'")
