@@ -49,12 +49,17 @@ var _currentDisplayName = null;
 function joinRoom(sessionId, userId, mode, soloMode) {
     _currentUserId = userId;
 
+    // On localhost werkzeug crashes if a WebSocket upgrade is attempted, so
+    // force polling in dev. On production (Cloud Run / gunicorn+eventlet) use
+    // WebSocket-only — polling breaks when Cloud Run scales to >1 instance
+    // because Socket.IO sessions are in-memory and not shared across instances.
+    var _isLocalDev = (
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname.startsWith("192.168.")
+    );
     socket = io({
-        // Use polling only. werkzeug (dev server) crashes with
-        // "write() before start_response" when a WebSocket upgrade is
-        // attempted. Long-polling is functionally identical for therapy
-        // chat and works correctly under both werkzeug and eventlet.
-        transports: ["polling"],
+        transports: _isLocalDev ? ["polling"] : ["websocket"],
         upgrade: false,
     });
 
