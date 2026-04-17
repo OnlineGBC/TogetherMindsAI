@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy_utils import EncryptedType
+from sqlalchemy_utils import StringEncryptedType
 from sqlalchemy_utils.types.encrypted.encrypted_type import FernetEngine
 
 db = SQLAlchemy()
@@ -41,7 +41,7 @@ class ChatMessage(db.Model):
     session_id = db.Column(db.String(36), index=True, nullable=False)
     user_id = db.Column(db.String(36), nullable=False)
     display_name = db.Column(db.String(60), nullable=True)   # e.g. "Michael"; null for AI and legacy rows
-    text = db.Column(EncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
+    text = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
     timestamp = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
