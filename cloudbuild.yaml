@@ -2,7 +2,7 @@
 # ----------------
 # CI/CD pipeline for TogetherMindsAI on Google Cloud Build.
 #
-# Triggered automatically on every push to the main branch.
+# Trigger (deploy-on-push-main) is disabled — run manually via Cloud Build UI or gcloud builds submit.
 #
 # Steps:
 #   1. Build the Docker image
