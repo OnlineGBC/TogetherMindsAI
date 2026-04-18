@@ -221,3 +221,6 @@ __pycache__/
 # Accidental pip shell-redirect artifacts (e.g. =0.40.0)
 =*
 
+# Android keystore — signing credential, never commit
+android.keystore
+

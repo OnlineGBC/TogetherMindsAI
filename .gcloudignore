@@ -25,3 +25,19 @@ tests/
 # Git metadata
 .git/
 .gitignore
+
+# Android — not needed for Cloud Build
+app/
+.gradle/
+gradle/
+gradlew
+gradlew.bat
+build.gradle
+settings.gradle
+gradle.properties
+*.apk
+*.aab
+*.idsig
+android.keystore
+manifest-checksum.txt
+store_icon.png
