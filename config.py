@@ -85,6 +85,10 @@ RATE_WINDOW_SECONDS: int = int(os.environ.get("RATE_WINDOW_SECONDS", "60"))
 RATE_MAX_MESSAGES: int = int(os.environ.get("RATE_MAX_MESSAGES", "20"))
 MAX_MESSAGE_LENGTH: int = int(os.environ.get("MAX_MESSAGE_LENGTH", "8000"))
 
+# Seconds the AI waits before responding again in couple/group mode.
+# Prevents the AI from interrupting mid-exchange when partners send rapidly.
+AI_COOLDOWN_SECONDS: int = int(os.environ.get("AI_COOLDOWN_SECONDS", "20"))
+
 # ---------------------------------------------------------------------------
 # Field-level encryption
 # ---------------------------------------------------------------------------

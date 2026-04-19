@@ -1105,7 +1105,7 @@ def on_send_message(data):
         # The slot is pre-claimed immediately (before the Claude call) so that any
         # concurrent handler arriving while Claude is processing correctly sees an
         # active cooldown and skips — no race condition.
-        _AI_COOLDOWN_SECONDS = 20
+        _AI_COOLDOWN_SECONDS = config.AI_COOLDOWN_SECONDS
         skip_ai_response = False
         if mode in ("couple", "group"):
             last_ai = session_ai_last_response.get(session_id)

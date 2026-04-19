@@ -99,6 +99,8 @@ steps:
       - CLOUD_SQL_CONNECTION_NAME=CLOUD_SQL_CONNECTION_NAME:latest
       - --set-secrets
       - FIELD_ENCRYPTION_KEY=FIELD_ENCRYPTION_KEY:latest
+      - --set-secrets
+      - AI_COOLDOWN_SECONDS=AI_COOLDOWN_SECONDS:latest
       - --min-instances
       - "0"
       - --max-instances

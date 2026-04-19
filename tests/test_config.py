@@ -124,6 +124,14 @@ class TestRateLimitDefaults:
         assert cfg.RATE_MAX_MESSAGES == 5
         assert cfg.MAX_MESSAGE_LENGTH == 500
 
+    def test_ai_cooldown_default(self):
+        cfg = _reload_config({})
+        assert cfg.AI_COOLDOWN_SECONDS == 20
+
+    def test_ai_cooldown_override(self):
+        cfg = _reload_config({"AI_COOLDOWN_SECONDS": "10"})
+        assert cfg.AI_COOLDOWN_SECONDS == 10
+
 
 # ---------------------------------------------------------------------------
 # validate_config
