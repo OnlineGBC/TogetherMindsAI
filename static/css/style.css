@@ -328,6 +328,34 @@ hr.border-green {
     to { transform: rotate(360deg); }
 }
 
+/* ---- Therapy page: full-viewport flex layout (no page scroll) ---- */
+body.therapy-page {
+    height: 100vh;
+    overflow: hidden;
+}
+body.therapy-page main.container {
+    display: flex;
+    flex-direction: column;
+    padding-top: 1rem;
+    padding-bottom: 0.5rem;
+    min-height: 0;
+    overflow: hidden;
+}
+body.therapy-page main.container > .row {
+    flex: 1;
+    min-height: 0;
+}
+body.therapy-page .therapy-col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+body.therapy-page .chat-window {
+    flex: 1;
+    height: auto !important;
+    min-height: 150px;
+}
+
 /* ---- Responsive tweaks ---- */
 @media (max-width: 991px) {
     /* Tablet: shrink hero so content fits without scrolling */
@@ -340,7 +368,6 @@ hr.border-green {
     .hero-icon { width: 56px; height: 56px; }
     .hero-icon .bi { font-size: 2rem !important; }
     .bubble { max-width: 88%; }
-    .chat-window { height: calc(100vh - 240px); min-height: 280px; }
     .therapy-card .card-body { padding: 1rem 0.75rem; }
     h1.display-5 { font-size: 1.8rem; }
 }

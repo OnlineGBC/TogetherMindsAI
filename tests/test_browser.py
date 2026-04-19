@@ -457,6 +457,21 @@ def test_couple_three_chats_each(page, live_server_url):
 
 
 # ---------------------------------------------------------------------------
+# 15a. Therapy pages fit within the viewport (no vertical scrollbar)
+# ---------------------------------------------------------------------------
+
+def test_therapy_page_no_vertical_overflow(page, live_server_url):
+    """The therapy page must fit within the viewport on load — no scroll needed."""
+    for mode in ("solo", "couple", "group"):
+        _complete_auth(page, live_server_url, mode=mode)
+        scroll_height = page.evaluate("document.documentElement.scrollHeight")
+        viewport_height = page.evaluate("window.innerHeight")
+        assert scroll_height <= viewport_height, (
+            f"{mode} page overflows viewport: scrollHeight={scroll_height} > innerHeight={viewport_height}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 15. Group — 3 messages each for 4 users
 # ---------------------------------------------------------------------------
 
