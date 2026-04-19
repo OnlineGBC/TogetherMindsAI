@@ -344,11 +344,14 @@ body.therapy-page main.container {
 body.therapy-page main.container > .row {
     flex: 1;
     min-height: 0;
+    align-items: stretch;
 }
 body.therapy-page .therapy-col {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    height: 100%;
+    overflow: hidden;
 }
 body.therapy-page .chat-window {
     flex: 1;
