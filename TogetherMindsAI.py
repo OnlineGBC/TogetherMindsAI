@@ -274,6 +274,17 @@ def ratelimit_handler(e):
 # Routes — pages
 # ---------------------------------------------------------------------------
 
+@app.route("/sw.js")
+def service_worker():
+    """Serve the PWA service worker from root scope (required by browser security)."""
+    response = make_response(
+        app.send_static_file("js/sw.js")
+    )
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.route("/.well-known/assetlinks.json")
 def assetlinks():
     """Digital Asset Links — required by TWA to verify domain ownership.
