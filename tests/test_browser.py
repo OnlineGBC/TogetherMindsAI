@@ -491,6 +491,59 @@ def test_privacy_banner_dismiss_survives_message_reload(page, live_server_url):
         )
 
 
+def test_silence_countdown_appears_after_couple_message(page, live_server_url):
+    """After sending a message in couple mode, the silence countdown chip
+    must become visible and display a numeric m:ss timer that ticks down.
+
+    The server emits silence_nudge_scheduled with a deadline; the client
+    renders a local countdown.
+    """
+    _complete_auth(page, live_server_url, mode="couple")
+
+    # The send button starts disabled (waits for AI opening). In IS_TESTING
+    # mode the opening is suppressed, so force-enable for the test.
+    page.evaluate("document.getElementById('sendBtn').disabled = false")
+    _ensure_socketio_connected(page)
+
+    # Send a message — the server's on_send_message handler schedules a
+    # silence check and emits silence_nudge_scheduled to the room.
+    _send_and_wait_received(page, "hello")
+
+    # The countdown chip must reveal itself with a sensible m:ss value
+    chip = page.locator("#silenceCountdown")
+    chip.wait_for(state="visible", timeout=5_000)
+
+    val_text = page.locator("#silenceCountdownValue").inner_text().strip()
+    import re
+    assert re.match(r"\d+:\d{2}", val_text), (
+        f"Expected countdown value like '0:45', got: {val_text!r}"
+    )
+
+
+def test_silence_countdown_hides_after_new_message(page, live_server_url):
+    """When a new message arrives, the countdown chip must hide — a fresh
+    deadline will arrive with the next silence_nudge_scheduled event."""
+    _complete_auth(page, live_server_url, mode="couple")
+    page.evaluate("document.getElementById('sendBtn').disabled = false")
+    _ensure_socketio_connected(page)
+
+    _send_and_wait_received(page, "first")
+    page.locator("#silenceCountdown").wait_for(state="visible", timeout=5_000)
+
+    # Inject a fake new_message event from the client's socket as if another
+    # participant just spoke. The new_message handler should hide the chip.
+    page.evaluate("""() => {
+        window.socket._callbacks['$new_message'][0]({
+            user_id: 'someone-else',
+            text: 'second',
+            display_name: 'Other',
+            timestamp: new Date().toISOString(),
+        });
+    }""")
+
+    page.locator("#silenceCountdown").wait_for(state="hidden", timeout=5_000)
+
+
 def test_privacy_banner_reappears_on_new_session(page, live_server_url, context):
     """The banner must reappear when the user starts a new session in a new tab.
 

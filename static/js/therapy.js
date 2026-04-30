@@ -113,6 +113,10 @@ function joinRoom(sessionId, userId, mode, soloMode) {
                       _currentUserId, data.display_name, sessionId);
         scrollToBottom(chatBox);
 
+        // A new message means any pending silence countdown is no longer relevant —
+        // the server will emit a fresh silence_nudge_scheduled with a new deadline.
+        _hideSilenceCountdown();
+
         // Restore send button:
         // - Solo: wait for the AI reply (page reload handles the rest anyway).
         // - Couple/group: re-enable as soon as any message arrives. The AI may
@@ -121,6 +125,14 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         if (data.user_id === "AI" || !soloMode) {
             _hideSendSpinner();
         }
+    });
+
+    socket.on("silence_nudge_scheduled", function (data) {
+        // Server scheduled a check-in for `data.deadline_at` (ISO timestamp).
+        // Render a local countdown so users know what's coming and aren't
+        // surprised when the AI speaks again.
+        if (!data || !data.deadline_at) { return; }
+        _showSilenceCountdown(new Date(data.deadline_at));
     });
 
     socket.on("name_set", function (data) {
@@ -765,5 +777,55 @@ function _updateParticipantCount(delta) {
     if (badge) {
         var current = parseInt(badge.textContent, 10) || 0;
         badge.textContent = Math.max(0, current + delta);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Silence-nudge countdown — shows users when the AI will check in
+// ---------------------------------------------------------------------------
+
+var _silenceCountdownTimerId = null;
+
+/**
+ * Start (or restart) a visible countdown to the given absolute deadline.
+ * Updates every second; auto-hides when the deadline passes (the AI's
+ * nudge message arriving will also hide it).
+ * @param {Date} deadline - When the silence nudge will fire.
+ */
+function _showSilenceCountdown(deadline) {
+    var el = document.getElementById("silenceCountdown");
+    var valEl = document.getElementById("silenceCountdownValue");
+    if (!el || !valEl) { return; }
+
+    if (_silenceCountdownTimerId !== null) {
+        clearInterval(_silenceCountdownTimerId);
+        _silenceCountdownTimerId = null;
+    }
+
+    function tick() {
+        var remaining = Math.round((deadline.getTime() - Date.now()) / 1000);
+        if (remaining <= 0) {
+            valEl.textContent = "now";
+            // Hide shortly after — the AI's actual nudge message will
+            // also clear it via the new_message handler.
+            return;
+        }
+        var mins = Math.floor(remaining / 60);
+        var secs = remaining % 60;
+        valEl.textContent = mins + ":" + (secs < 10 ? "0" : "") + secs;
+    }
+
+    el.classList.remove("d-none");
+    tick();
+    _silenceCountdownTimerId = setInterval(tick, 1000);
+}
+
+/** Hide the silence countdown chip and stop the timer. */
+function _hideSilenceCountdown() {
+    var el = document.getElementById("silenceCountdown");
+    if (el) { el.classList.add("d-none"); }
+    if (_silenceCountdownTimerId !== null) {
+        clearInterval(_silenceCountdownTimerId);
+        _silenceCountdownTimerId = null;
     }
 }

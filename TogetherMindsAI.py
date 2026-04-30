@@ -514,7 +514,11 @@ def therapy_couple(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="couple"))
-    return render_template("couple.html", user_id=user_id, session_id=session_id)
+    return render_template(
+        "couple.html",
+        user_id=user_id, session_id=session_id,
+        silence_seconds=config.SILENCE_NUDGE_SECONDS,
+    )
 
 
 @app.route("/therapy/group/<session_id>")
@@ -522,7 +526,11 @@ def therapy_group(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="group"))
-    return render_template("group.html", user_id=user_id, session_id=session_id)
+    return render_template(
+        "group.html",
+        user_id=user_id, session_id=session_id,
+        silence_seconds=config.SILENCE_NUDGE_SECONDS,
+    )
 
 
 @app.route("/api/display-name", methods=["POST"])

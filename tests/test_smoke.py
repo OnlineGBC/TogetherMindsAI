@@ -1263,6 +1263,75 @@ def test_silence_nudge_disabled_when_seconds_zero(client):
     )
 
 
+def test_couple_page_renders_silence_countdown_ui(client):
+    """The couple page must include the silence countdown chip when
+    SILENCE_NUDGE_SECONDS > 0. The chip carries its own self-explanatory
+    text ("AI will check in in M:SS unless someone speaks first") so users
+    know what the AI will do without needing a separate static notice
+    that would push the constrained therapy-col layout out of shape.
+    """
+    from datetime import datetime, timezone
+    import uuid as _uuid
+    from models import TherapySession
+    with app.app_context():
+        user_id = str(_uuid.uuid4())
+        session_id = generate_session_id()
+        db.session.add(User(id=user_id, therapy_mode="couple"))
+        db.session.add(TherapySession(
+            id=session_id, mode="couple", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/couple/{session_id}")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    assert 'id="silenceCountdown"' in body, (
+        "Couple page must include the silence countdown chip element"
+    )
+    assert 'id="silenceCountdownValue"' in body, (
+        "Couple page must include the countdown value element so JS can update it"
+    )
+    assert "unless someone speaks first" in body, (
+        "Countdown chip must carry the explanatory text so users understand it"
+    )
+
+
+def test_group_page_renders_silence_countdown_ui(client):
+    from datetime import datetime, timezone
+    import uuid as _uuid
+    from models import TherapySession
+    with app.app_context():
+        user_id = str(_uuid.uuid4())
+        session_id = generate_session_id()
+        db.session.add(User(id=user_id, therapy_mode="group"))
+        db.session.add(TherapySession(
+            id=session_id, mode="group", created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/group/{session_id}")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    assert 'id="silenceCountdown"' in body
+    assert 'id="silenceCountdownValue"' in body
+    assert "unless someone speaks first" in body
+
+
+def test_solo_page_does_not_render_silence_countdown_ui(client):
+    """Solo mode does not get the silence-nudge feature, so the countdown
+    elements must not appear."""
+    _priv, user_id, session_id = _register(client, "solo")
+    rv = client.get(f"/therapy/solo/{session_id}")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    assert 'id="silenceCountdown"' not in body
+    assert "unless someone speaks first" not in body
+
+
 # ---------------------------------------------------------------------------
 # Escalation hint gate — referral invitation sent at most once per session
 # ---------------------------------------------------------------------------
