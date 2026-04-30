@@ -457,6 +457,67 @@ def test_couple_three_chats_each(page, live_server_url):
 
 
 # ---------------------------------------------------------------------------
+# Privacy banner — dismissal survives silent reload, reappears on manual F5
+# ---------------------------------------------------------------------------
+
+def test_privacy_banner_dismiss_survives_message_reload(page, live_server_url):
+    """Click X on the privacy banner, send a message (which triggers a full
+    form POST → 302 → GET reload in solo mode), and verify the banner is
+    still hidden after the reload.
+
+    Regression: previously the banner reappeared after every sent message
+    because dismissal was not persisted at all.
+    """
+    _complete_auth(page, live_server_url, mode="solo")
+
+    banner = page.locator("#privacyBanner")
+    banner.wait_for(state="visible", timeout=5_000)
+
+    # Click the X — Bootstrap fades the alert out, then removes/hides it
+    banner.locator("button.btn-close").click()
+    banner.wait_for(state="hidden", timeout=5_000)
+
+    # Send a message — solo mode does a full page reload via form POST
+    page.locator("#messageInput").fill("hello")
+    page.locator("button[type='submit']").click()
+    page.wait_for_load_state("domcontentloaded", timeout=10_000)
+
+    # Banner must still be hidden after the reload
+    banner_after = page.locator("#privacyBanner")
+    if banner_after.count() > 0:
+        assert banner_after.is_hidden(), (
+            "Privacy banner should remain dismissed across the silent reload "
+            "triggered by sending a message"
+        )
+
+
+def test_privacy_banner_reappears_on_new_session(page, live_server_url, context):
+    """The banner must reappear when the user starts a new session in a new tab.
+
+    sessionStorage is per-tab, so a fresh tab has no dismissed flag and the
+    banner shows. Different session_ids also have different storage keys, so
+    even within the same tab a new session would show the banner.
+    """
+    _complete_auth(page, live_server_url, mode="solo")
+    banner = page.locator("#privacyBanner")
+    banner.wait_for(state="visible", timeout=5_000)
+    banner.locator("button.btn-close").click()
+    banner.wait_for(state="hidden", timeout=5_000)
+
+    # Open a fresh tab — fresh sessionStorage, banner must show on the new session
+    new_page = context.new_page()
+    _patch_socketio_polling(new_page)
+    new_page.goto(f"{live_server_url}/auth/solo")
+    for cb in new_page.locator(".consent-check").all():
+        cb.check()
+    new_page.locator("#continueBtn").click()
+    new_page.wait_for_url(lambda url: "/auth/" not in url, timeout=10_000)
+    _dismiss_name_modal(new_page)
+
+    new_page.locator("#privacyBanner").wait_for(state="visible", timeout=5_000)
+
+
+# ---------------------------------------------------------------------------
 # 15a. Therapy pages fit within the viewport (no vertical scrollbar)
 # ---------------------------------------------------------------------------
 

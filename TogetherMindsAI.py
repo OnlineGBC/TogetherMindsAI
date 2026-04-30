@@ -296,12 +296,17 @@ def assetlinks():
     import json as _json
     payload = [
         {
-            "relation": ["delegate_permission/common.handle_all_urls"],
+            "relation": [
+                "delegate_permission/common.handle_all_urls",
+                "delegate_permission/common.get_login_creds"
+            ],
             "target": {
                 "namespace": "android_app",
                 "package_name": "com.onlinegbc.togethermindsai",
                 "sha256_cert_fingerprints": [
-                    "42:CD:CA:85:A9:22:D5:73:2D:CB:1D:57:25:F1:D6:48:C8:09:4C:E2:44:4D:E7:6B:EF:94:B8:BA:0A:3B:F1:A9"
+                    "42:CD:CA:85:A9:22:D5:73:2D:CB:1D:57:25:F1:D6:48:C8:09:4C:E2:44:4D:E7:6B:EF:94:B8:BA:0A:3B",
+                    "DD:6B:CA:AB:00:41:A0:1A:D4:A2:5F:F5:B5:63:28:AF:B5:06:1F:50:23:54:18:A5:87:E7:1B:D1:84:9F",
+                    "DD:6B:CA:AB:00:41:A0:1A:D4:A2:5F:F5:B5:63:28:AF:B5:06:1F:50:23:54:18:A5:87:E7:1B:D1:84:9F:4B:05"
                 ]
             }
         }
@@ -1045,15 +1050,21 @@ def on_join(data):
             # Pre-claim the AI cooldown slot so any partner message arriving
             # while the opening message is generating correctly sees an active
             # cooldown and does not fire a second consecutive AI response.
+            # Released in `finally` once the opening is committed so the user's
+            # first reply gets a normal AI response (without the release, the
+            # 20s cooldown silently swallowed the user's first message).
             session_ai_last_response[session_id] = datetime.now(timezone.utc)
-            opening = generate_opening_message(mode)
-            ai_msg = ChatMessage(
-                session_id=session_id, user_id="AI", text=opening,
-                timestamp=datetime.now(timezone.utc),
-            )
-            db.session.add(ai_msg)
-            db.session.commit()
-            messages = [ai_msg]
+            try:
+                opening = generate_opening_message(mode)
+                ai_msg = ChatMessage(
+                    session_id=session_id, user_id="AI", text=opening,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                db.session.add(ai_msg)
+                db.session.commit()
+                messages = [ai_msg]
+            finally:
+                session_ai_last_response.pop(session_id, None)
         current_display_name = session_display_names.get(session_id, {}).get(user_id)
         emit("history", {
             "messages": [m.to_dict() for m in messages],

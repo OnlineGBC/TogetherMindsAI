@@ -51,8 +51,8 @@
             </div>
         </div>
 
-        <!-- Privacy / welcome banner (dismissible, remembered via localStorage) -->
-        <div class="alert alert-info rounded-4 mb-3 py-2 px-3 d-flex align-items-start gap-2" id="privacyBanner">
+        <!-- Privacy / welcome banner (dismissible — Bootstrap alert; not persisted across reloads by design) -->
+        <div class="alert alert-info alert-dismissible rounded-4 mb-3 py-2 px-3 d-flex align-items-start gap-2" id="privacyBanner">
             <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1"></i>
             <div class="flex-grow-1 small">
                 <strong>This session is fully confidential</strong> — visible only to you.
@@ -61,7 +61,7 @@
                 At the end of the session you can <strong>download</strong> a copy (Word or PDF) or <strong>delete everything permanently</strong> for complete privacy.
             </div>
             <button type="button" class="btn-close flex-shrink-0 ms-1" style="font-size:0.75rem"
-                    onclick="dismissPrivacyBanner()" aria-label="Close"></button>
+                    data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
 
         <!-- Chat window -->
@@ -165,20 +165,30 @@
         if (el && !el.textContent.trim()) { el.textContent = _DISPLAY_ID; }
     })();
 
-    function dismissPrivacyBanner() {
-        var el = document.getElementById("privacyBanner");
-        if (el) el.style.display = "none";
-        try { localStorage.setItem("privacyBannerDismissed_" + _DISPLAY_ID, "1"); } catch(e) {}
-    }
-
-    // Hide banner if already dismissed
+    // Privacy banner dismissal: persist across silent reloads triggered by
+    // sending a message in solo mode (form POST → 302 → GET). sessionStorage
+    // is per-tab and cleared when the tab closes or a different session_id is
+    // used, so the banner naturally reappears on a new session / new tab.
+    // Note: F5 from the therapy page actually lands on / (because of the
+    // history.replaceState call above), so explicit reload detection is moot.
     (function () {
+        var KEY = "privacyBannerDismissed_" + _DISPLAY_ID;
+        var banner = document.getElementById("privacyBanner");
+        if (!banner) { return; }
         try {
-            if (localStorage.getItem("privacyBannerDismissed_" + _DISPLAY_ID)) {
-                var el = document.getElementById("privacyBanner");
-                if (el) el.style.display = "none";
+            if (sessionStorage.getItem(KEY)) {
+                // Bootstrap's d-flex utility uses !important, so style.display
+                // alone cannot hide the banner. Removing the node is reliable.
+                banner.remove();
+                return;
             }
-        } catch(e) {}
+        } catch (e) { /* sessionStorage unavailable — banner stays */ }
+        var closeBtn = banner.querySelector("button.btn-close");
+        if (closeBtn) {
+            closeBtn.addEventListener("click", function () {
+                try { sessionStorage.setItem(KEY, "1"); } catch (e) {}
+            });
+        }
     })();
 
     // Auto-scroll to bottom of chat

@@ -339,6 +339,108 @@ def test_group_page_has_end_session_button(client):
 
 
 # ---------------------------------------------------------------------------
+# Privacy banner — close button must be wired up so clicking X actually dismisses
+# ---------------------------------------------------------------------------
+
+def _assert_privacy_banner_dismissable(html: bytes):
+    """The privacy banner must use Bootstrap's standard alert-dismissible pattern,
+    and must persist its dismissed state across silent reloads (form POST → 302 → GET
+    when sending a message in solo mode) via sessionStorage, while reappearing on
+    a manual F5 (detected via PerformanceNavigationTiming).
+
+    Regression 1: a previous inline onclick="dismissPrivacyBanner()" handler did
+    nothing when clicked, so the X never closed the banner.
+    Regression 2: with no persistence at all, the banner reappeared after every
+    sent message in solo mode (because the page reloads on form POST).
+    """
+    body = html.decode()
+    banner_idx = body.find('id="privacyBanner"')
+    assert banner_idx != -1, "privacy banner element not found in rendered page"
+
+    # Find the opening tag of the alert div
+    div_start = body.rfind("<div", 0, banner_idx)
+    div_end = body.find(">", banner_idx)
+    alert_tag = body[div_start:div_end + 1]
+    assert "alert-dismissible" in alert_tag, (
+        f"privacyBanner div must include 'alert-dismissible' so Bootstrap recognises "
+        f"the close button. Got: {alert_tag!r}"
+    )
+
+    # The close button must use Bootstrap's data-bs-dismiss attribute,
+    # not an inline onclick that depends on a custom JS function.
+    banner_section = body[banner_idx:banner_idx + 1500]
+    close_btn_idx = banner_section.find('class="btn-close')
+    assert close_btn_idx != -1, "privacy banner must contain a btn-close element"
+    close_btn_end = banner_section.find(">", close_btn_idx)
+    close_btn_tag = banner_section[close_btn_idx:close_btn_end + 1]
+    assert 'data-bs-dismiss="alert"' in close_btn_tag, (
+        f"privacy banner close button must have data-bs-dismiss=\"alert\" so Bootstrap "
+        f"dismisses the banner on click. Got: {close_btn_tag!r}"
+    )
+    assert "dismissPrivacyBanner" not in close_btn_tag, (
+        "the dead inline onclick=\"dismissPrivacyBanner()\" handler must be removed"
+    )
+
+    # The page must wire the dismissal to sessionStorage so it survives the
+    # silent reload triggered by sending a message, and must clear that flag
+    # on a manual reload so the banner reappears on F5.
+    assert "sessionStorage" in body, (
+        "privacy banner dismissal must use sessionStorage to persist across silent reloads"
+    )
+    assert 'localStorage.setItem("privacyBannerDismissed_' not in body, (
+        "privacy banner must not store dismissal in localStorage (long-lived) — sessionStorage only"
+    )
+    assert 'localStorage.getItem("privacyBannerDismissed_' not in body, (
+        "privacy banner must not read dismissal from localStorage (long-lived) — sessionStorage only"
+    )
+
+
+def test_solo_privacy_banner_dismiss_button_wired(client):
+    priv, user_id, session_id = _register(client, "solo")
+    rv = client.get(f"/therapy/solo/{session_id}")
+    assert rv.status_code == 200
+    _assert_privacy_banner_dismissable(rv.data)
+
+
+def test_couple_privacy_banner_dismiss_button_wired(client):
+    from datetime import datetime, timezone
+    with app.app_context():
+        from models import TherapySession
+        user_id = str(uuid.uuid4())
+        session_id = generate_session_id()
+        db.session.add(User(id=user_id, therapy_mode="couple"))
+        db.session.add(TherapySession(
+            id=session_id, mode="couple", created_by=user_id,
+            created_at=datetime.now(timezone.utc)
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/couple/{session_id}")
+    assert rv.status_code == 200
+    _assert_privacy_banner_dismissable(rv.data)
+
+
+def test_group_privacy_banner_dismiss_button_wired(client):
+    from datetime import datetime, timezone
+    with app.app_context():
+        from models import TherapySession
+        user_id = str(uuid.uuid4())
+        session_id = generate_session_id()
+        db.session.add(User(id=user_id, therapy_mode="group"))
+        db.session.add(TherapySession(
+            id=session_id, mode="group", created_by=user_id,
+            created_at=datetime.now(timezone.utc)
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/group/{session_id}")
+    assert rv.status_code == 200
+    _assert_privacy_banner_dismissable(rv.data)
+
+
+# ---------------------------------------------------------------------------
 # Transcript download
 # ---------------------------------------------------------------------------
 
@@ -874,6 +976,68 @@ def test_ai_cooldown_skips_second_response_in_couple_mode(client):
 
     # Cleanup
     session_ai_last_response.pop(session_id, None)
+
+
+def test_opening_message_does_not_block_users_first_reply(client):
+    """Regression: when the AI opening message is generated for a fresh
+    couple/group session, the cooldown slot is pre-claimed to prevent a
+    partner's racing message from causing a duplicate AI reply. That slot
+    must be RELEASED once the opening is committed — otherwise the user's
+    first reply lands within the 20s cooldown window and gets silently
+    skipped, forcing the user to type twice before the AI responds.
+    """
+    from datetime import timezone
+    from unittest.mock import patch
+    import datetime as dt
+    from TogetherMindsAI import (
+        session_ai_last_response,
+        session_opening_sent,
+        room_mode,
+        room_participants,
+        sid_to_user,
+        sid_to_session,
+        on_join,
+        socketio,
+    )
+
+    _priv, user_id, session_id = _register(client, "couple")
+
+    # Clean any state left over from prior tests
+    session_ai_last_response.pop(session_id, None)
+    session_opening_sent.discard(session_id)
+
+    # Force the on_join opening branch by disabling IS_TESTING for this call,
+    # and stub out generate_opening_message so we don't need a real Claude call.
+    fake_opening = "Welcome to your couple session — I'm here to help."
+    with patch("TogetherMindsAI.config.IS_TESTING", False), \
+         patch("TogetherMindsAI.generate_opening_message", return_value=fake_opening):
+
+        # Fabricate a SocketIO test client connection so on_join has a request context
+        sio_client = socketio.test_client(app, flask_test_client=client)
+        sio_client.emit("join", {
+            "session_id": session_id,
+            "user_id":    user_id,
+            "mode":       "couple",
+        })
+        sio_client.disconnect()
+
+    # The opening must have been generated (proving we hit the branch under test)
+    assert session_id in session_opening_sent, (
+        "Test setup failure: on_join did not enter the opening branch — "
+        "IS_TESTING patch may not have taken effect"
+    )
+
+    # And the cooldown slot must be released afterwards so the user's
+    # first message gets a normal AI response.
+    assert session_id not in session_ai_last_response, (
+        "AI cooldown slot was not released after opening message was sent. "
+        "User's first reply will be silently swallowed by the 20s cooldown."
+    )
+
+    # Cleanup
+    session_opening_sent.discard(session_id)
+    room_mode.pop(session_id, None)
+    room_participants.pop(session_id, None)
 
 
 def test_ai_cooldown_not_applied_to_solo_mode(client):
