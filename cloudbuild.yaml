@@ -101,6 +101,8 @@ steps:
       - FIELD_ENCRYPTION_KEY=FIELD_ENCRYPTION_KEY:latest
       - --set-secrets
       - AI_COOLDOWN_SECONDS=AI_COOLDOWN_SECONDS:latest
+      - --set-secrets
+      - SILENCE_NUDGE_SECONDS=SILENCE_NUDGE_SECONDS:latest
       - --min-instances
       - "0"
       - --max-instances

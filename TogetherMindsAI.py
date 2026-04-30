@@ -25,7 +25,7 @@ from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, init_encryption
 from ai_therapist import (
-    process_input, generate_opening_message,
+    process_input, generate_opening_message, generate_silence_nudge,
     contains_referral, strip_referral_sentences, detect_escalation,
     CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE,
 )
@@ -93,6 +93,8 @@ session_joined_users: dict  = {}  # session_id → ordered list of user_ids (joi
 session_opening_sent: set        = set()  # session_ids that have already had their opening message generated
 session_ai_last_response: dict   = {}    # session_id → datetime of last AI response (cooldown guard)
 session_escalation_hint_sent: set = set() # session_ids where Claude has been invited to make the referral once
+session_last_message_at: dict    = {}    # session_id → datetime of last message (user OR AI), used for silence nudge
+session_silence_check_pending: set = set() # session_ids with a silence check task scheduled (debounces)
 
 
 def _default_display_name(mode: str, position: int) -> str:
@@ -1063,6 +1065,9 @@ def on_join(data):
                 db.session.add(ai_msg)
                 db.session.commit()
                 messages = [ai_msg]
+                # AI opening counts as the first message — start the silence-nudge clock
+                # so the room gets a check-in if no one engages.
+                _schedule_silence_check(session_id, mode)
             finally:
                 session_ai_last_response.pop(session_id, None)
         current_display_name = session_display_names.get(session_id, {}).get(user_id)
@@ -1098,6 +1103,106 @@ def on_disconnect():
         emit("participant_list",
              {"participants": list(room_participants[session_id])},
              to=session_id)
+
+
+# ---------------------------------------------------------------------------
+# Silence nudge — couple/group only. After SILENCE_NUDGE_SECONDS of total
+# silence (no user OR AI messages), the AI sends a brief re-engagement line.
+# ---------------------------------------------------------------------------
+
+def _emit_silence_nudge_scheduled(session_id: str, deadline: datetime) -> None:
+    """Tell connected clients when the silence nudge will fire so they can show
+    a countdown chip. The client renders the timer locally — the server doesn't
+    spam per-second updates."""
+    socketio.emit("silence_nudge_scheduled", {
+        "deadline_at": deadline.isoformat(),
+        "seconds":     config.SILENCE_NUDGE_SECONDS,
+    }, to=session_id)
+
+
+def _schedule_silence_check(session_id: str, mode: str) -> None:
+    """Mark the session active and schedule one silence check task if none is
+    already pending. Couple/group only; solo and disabled (=0) modes are no-ops."""
+    if mode not in ("couple", "group"):
+        return
+    if config.SILENCE_NUDGE_SECONDS <= 0:
+        return
+    now = datetime.now(timezone.utc)
+    session_last_message_at[session_id] = now
+    if session_id in session_silence_check_pending:
+        # A check is already armed; the existing task will see the updated
+        # last_message_at and reset its own deadline. No need to schedule again.
+        # Still emit the new deadline so all clients reset their countdown UI.
+        deadline = now + timedelta(seconds=config.SILENCE_NUDGE_SECONDS)
+        _emit_silence_nudge_scheduled(session_id, deadline)
+        return
+    session_silence_check_pending.add(session_id)
+    deadline = now + timedelta(seconds=config.SILENCE_NUDGE_SECONDS)
+    _emit_silence_nudge_scheduled(session_id, deadline)
+    socketio.start_background_task(_silence_check_task, session_id, mode, app.app_context)
+
+
+def _silence_check_task(session_id: str, mode: str, app_context_factory) -> None:
+    """Wait for a quiet period; if still quiet when we wake, send a nudge.
+
+    Loops while the silence window keeps getting reset by new messages, then
+    exits cleanly the moment it finds either (a) a long-enough silence, or
+    (b) an empty room. After firing a nudge, the task does NOT re-arm — the
+    flag is only cleared so the next user message can schedule a fresh check.
+    """
+    try:
+        while True:
+            socketio.sleep(config.SILENCE_NUDGE_SECONDS)
+            last = session_last_message_at.get(session_id)
+            if last is None:
+                # Session state was cleared (e.g. server restart cleanup). Stop.
+                return
+            elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+            if elapsed < config.SILENCE_NUDGE_SECONDS:
+                # Someone spoke during the wait — keep watching from the new mark.
+                continue
+            if not room_participants.get(session_id):
+                # Empty room — don't nudge into the void.
+                return
+            with app_context_factory():
+                _send_silence_nudge(session_id, mode)
+                return
+    finally:
+        session_silence_check_pending.discard(session_id)
+
+
+def _send_silence_nudge(session_id: str, mode: str) -> None:
+    """Generate, persist, and broadcast a silence nudge from the AI.
+
+    Important: this does NOT update session_ai_last_response. The cooldown
+    is for protecting human-to-human exchanges; a nudge into a silent room
+    isn't part of that, and updating the cooldown would block the user's
+    follow-up reply for another 20s.
+    """
+    prior_msgs = (
+        ChatMessage.query
+        .filter_by(session_id=session_id)
+        .order_by(ChatMessage.timestamp.asc())
+        .all()
+    )
+    history = [
+        {"role": "assistant" if m.user_id == "AI" else "user", "content": m.text}
+        for m in prior_msgs
+    ]
+    nudge_text = generate_silence_nudge(mode, history=history)
+    now = datetime.now(timezone.utc)
+    nudge_msg = ChatMessage(
+        session_id=session_id, user_id="AI", text=nudge_text, timestamp=now,
+    )
+    db.session.add(nudge_msg)
+    db.session.commit()
+    session_last_message_at[session_id] = now
+    socketio.emit("new_message", {
+        "user_id":      "AI",
+        "text":         nudge_text,
+        "display_name": None,
+        "timestamp":    now.strftime("%Y-%m-%d %H:%M:%S"),
+    }, to=session_id)
 
 
 @socketio.on("send_message")
@@ -1172,6 +1277,10 @@ def on_send_message(data):
             db.session.commit()
             log_event("message_sent", session_id=session_id, user_id=user_id,
                       mode=mode, message_length=len(text))
+            # User activity still resets the silence-nudge clock even when
+            # the AI itself doesn't reply, so partners aren't nudged
+            # mid-conversation just because the cooldown ate the AI reply.
+            _schedule_silence_check(session_id, mode)
             return
 
         session_message_count = len(prior_msgs) + 1
@@ -1209,6 +1318,8 @@ def on_send_message(data):
              {"user_id": "AI", "text": ai_text, "display_name": None,
               "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")},
              to=session_id)
+        # AI just spoke — start the silence-nudge clock.
+        _schedule_silence_check(session_id, mode)
     except Exception as e:
         app.logger.error("on_send_message error: %s", type(e).__name__)
         db.session.rollback()

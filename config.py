@@ -89,6 +89,10 @@ MAX_MESSAGE_LENGTH: int = int(os.environ.get("MAX_MESSAGE_LENGTH", "8000"))
 # Prevents the AI from interrupting mid-exchange when partners send rapidly.
 AI_COOLDOWN_SECONDS: int = int(os.environ.get("AI_COOLDOWN_SECONDS", "20"))
 
+# Seconds of total silence (no user or AI messages) after which the AI sends
+# a brief re-engagement nudge in couple/group sessions. Set to 0 to disable.
+SILENCE_NUDGE_SECONDS: int = int(os.environ.get("SILENCE_NUDGE_SECONDS", "45"))
+
 # ---------------------------------------------------------------------------
 # Field-level encryption
 # ---------------------------------------------------------------------------

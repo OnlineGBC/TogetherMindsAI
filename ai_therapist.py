@@ -627,6 +627,49 @@ def generate_opening_message(mode: str = "solo") -> str:
         return "Hello, and welcome. What's brought you here today?" + _NAME_HINT
 
 
+def generate_silence_nudge(mode: str, history: list = None) -> str:
+    """Generate a brief re-engagement nudge after a period of total silence.
+
+    Used in couple/group sessions when no one has spoken for a while. Should be
+    short (1-2 sentences), gentle, open-ended, and reference the conversation
+    so it feels grounded rather than generic. Falls back to a simple line if
+    the API is unavailable.
+    """
+    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
+        mode=mode,
+        mode_context=_MODE_CONTEXT.get(mode, _MODE_CONTEXT["solo"]),
+    )
+    nudge_instruction = (
+        "[Silence check-in] The participants have been quiet for a while. "
+        "Send a brief, gentle re-engagement message — 1 to 2 sentences, no questions stacked, "
+        "open-ended. Reference what was just discussed if it helps it feel grounded. "
+        "Do NOT recap the whole conversation. Do NOT introduce a new topic. "
+        "Tone: warm, unhurried, not pushy. Examples of the right register: "
+        "\"Take your time — I'm here when you're ready.\" or "
+        "\"No rush. Whenever something comes up, I'm listening.\""
+    )
+    try:
+        client = _get_claude_client()
+        messages = []
+        if history:
+            messages.extend(history[-10:])  # last 10 turns for context, capped
+        messages.append({"role": "user", "content": nudge_instruction})
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=150,
+            system=[{
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=messages,
+        )
+        return response.content[0].text
+    except Exception as exc:
+        logger.warning("Silence nudge generation failed (%s); using fallback.", exc)
+        return "Take your time — I'm here whenever you're ready to continue."
+
+
 def process_input(
     text: str,
     mode: str = "solo",

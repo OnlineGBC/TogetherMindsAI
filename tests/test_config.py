@@ -132,6 +132,18 @@ class TestRateLimitDefaults:
         cfg = _reload_config({"AI_COOLDOWN_SECONDS": "10"})
         assert cfg.AI_COOLDOWN_SECONDS == 10
 
+    def test_silence_nudge_default(self):
+        cfg = _reload_config({})
+        assert cfg.SILENCE_NUDGE_SECONDS == 45
+
+    def test_silence_nudge_override(self):
+        cfg = _reload_config({"SILENCE_NUDGE_SECONDS": "30"})
+        assert cfg.SILENCE_NUDGE_SECONDS == 30
+
+    def test_silence_nudge_disable_via_zero(self):
+        cfg = _reload_config({"SILENCE_NUDGE_SECONDS": "0"})
+        assert cfg.SILENCE_NUDGE_SECONDS == 0
+
 
 # ---------------------------------------------------------------------------
 # validate_config

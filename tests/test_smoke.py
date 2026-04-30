@@ -1062,6 +1062,208 @@ def test_ai_cooldown_not_applied_to_solo_mode(client):
 
 
 # ---------------------------------------------------------------------------
+# Silence nudge — AI re-engages after a quiet period in couple/group sessions
+# ---------------------------------------------------------------------------
+
+def _reset_silence_state(session_id):
+    """Clear silence tracking for one session — kept tidy between tests."""
+    from TogetherMindsAI import session_last_message_at, session_silence_check_pending
+    session_last_message_at.pop(session_id, None)
+    session_silence_check_pending.discard(session_id)
+
+
+def test_silence_nudge_fires_after_quiet_period(client):
+    """When SILENCE_NUDGE_SECONDS elapses without any new message in a
+    couple session, the silence-check task must persist a nudge ChatMessage
+    authored by 'AI' and broadcast it on the socket.
+    """
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    from TogetherMindsAI import (
+        _silence_check_task, session_last_message_at,
+        session_silence_check_pending, room_participants,
+    )
+    from models import ChatMessage
+
+    _priv, user_id, session_id = _register(client, "couple")
+    _reset_silence_state(session_id)
+    room_participants[session_id] = {user_id}
+
+    # Pretend the last message was long enough ago that the elapsed check trips
+    session_last_message_at[session_id] = datetime.now(timezone.utc) - timedelta(seconds=999)
+    session_silence_check_pending.add(session_id)
+
+    nudge_text = "Take your time — I'm here whenever you're ready."
+    # Stub socketio.sleep to no-op and stub the Claude call
+    with patch("TogetherMindsAI.socketio.sleep", lambda s: None), \
+         patch("TogetherMindsAI.generate_silence_nudge", return_value=nudge_text):
+        _silence_check_task(session_id, "couple", app.app_context)
+
+    with app.app_context():
+        nudges = [m for m in ChatMessage.query.filter_by(session_id=session_id, user_id="AI").all()]
+        assert any(m.text == nudge_text for m in nudges), (
+            f"Expected a nudge ChatMessage with text {nudge_text!r}; got {[m.text for m in nudges]}"
+        )
+
+    assert session_id not in session_silence_check_pending, (
+        "Silence check pending flag must be cleared after the nudge fires"
+    )
+
+    # Cleanup
+    _reset_silence_state(session_id)
+    room_participants.pop(session_id, None)
+
+
+def test_silence_nudge_skipped_when_message_arrives_before_timeout(client):
+    """If a message arrives during the wait window, the silence-check task
+    must keep watching from the new mark and NOT fire a nudge for that
+    earlier window. We simulate this by setting last_message_at to 'now'
+    before the task runs — its first wakeup sees fresh activity and the
+    loop continues; a second wakeup also sees fresh activity, etc.
+    """
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+    from TogetherMindsAI import (
+        _silence_check_task, session_last_message_at,
+        session_silence_check_pending, room_participants,
+    )
+    from models import ChatMessage
+
+    _priv, user_id, session_id = _register(client, "couple")
+    _reset_silence_state(session_id)
+    room_participants[session_id] = {user_id}
+
+    # First two wakeups: a fresh message just arrived, silence is broken,
+    # task should continue watching. On the third wakeup we deliberately
+    # age the timestamp AND empty the room so the task takes the empty-room
+    # exit and returns cleanly — without ever sending a nudge.
+    from datetime import timedelta
+    wakeup_count = {"n": 0}
+    def fake_sleep(_):
+        wakeup_count["n"] += 1
+        if wakeup_count["n"] < 3:
+            session_last_message_at[session_id] = datetime.now(timezone.utc)
+        else:
+            session_last_message_at[session_id] = datetime.now(timezone.utc) - timedelta(seconds=999)
+            room_participants[session_id] = set()
+
+    session_last_message_at[session_id] = datetime.now(timezone.utc)
+    session_silence_check_pending.add(session_id)
+
+    with patch("TogetherMindsAI.socketio.sleep", fake_sleep), \
+         patch("TogetherMindsAI.generate_silence_nudge", return_value="should not be called"):
+        _silence_check_task(session_id, "couple", app.app_context)
+
+    with app.app_context():
+        ai_msgs = ChatMessage.query.filter_by(session_id=session_id, user_id="AI").all()
+        assert len(ai_msgs) == 0, (
+            f"No nudge should fire while messages keep arriving; got {[m.text for m in ai_msgs]}"
+        )
+
+    _reset_silence_state(session_id)
+    room_participants.pop(session_id, None)
+
+
+def test_silence_nudge_does_not_advance_ai_cooldown(client):
+    """A silence nudge is a one-way prompt into a quiet room, not part of a
+    human-to-human exchange. It must NOT update session_ai_last_response,
+    or the user's reply to the nudge would be silently swallowed by the
+    20s cooldown.
+    """
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    from TogetherMindsAI import (
+        _silence_check_task, session_last_message_at,
+        session_silence_check_pending, session_ai_last_response,
+        room_participants,
+    )
+
+    _priv, user_id, session_id = _register(client, "couple")
+    _reset_silence_state(session_id)
+    session_ai_last_response.pop(session_id, None)
+    room_participants[session_id] = {user_id}
+
+    session_last_message_at[session_id] = datetime.now(timezone.utc) - timedelta(seconds=999)
+    session_silence_check_pending.add(session_id)
+
+    with patch("TogetherMindsAI.socketio.sleep", lambda s: None), \
+         patch("TogetherMindsAI.generate_silence_nudge", return_value="quiet check-in"):
+        _silence_check_task(session_id, "couple", app.app_context)
+
+    assert session_id not in session_ai_last_response, (
+        "Silence nudge must NOT set session_ai_last_response — otherwise the "
+        "user's reply would land within the 20s cooldown and be skipped."
+    )
+
+    _reset_silence_state(session_id)
+    room_participants.pop(session_id, None)
+
+
+def test_silence_nudge_skipped_for_empty_room(client):
+    """If everyone has disconnected, no nudge should be sent."""
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    from TogetherMindsAI import (
+        _silence_check_task, session_last_message_at,
+        session_silence_check_pending, room_participants,
+    )
+    from models import ChatMessage
+
+    _priv, user_id, session_id = _register(client, "couple")
+    _reset_silence_state(session_id)
+    room_participants[session_id] = set()  # empty
+
+    session_last_message_at[session_id] = datetime.now(timezone.utc) - timedelta(seconds=999)
+    session_silence_check_pending.add(session_id)
+
+    with patch("TogetherMindsAI.socketio.sleep", lambda s: None), \
+         patch("TogetherMindsAI.generate_silence_nudge", return_value="should not be called"):
+        _silence_check_task(session_id, "couple", app.app_context)
+
+    with app.app_context():
+        ai_msgs = ChatMessage.query.filter_by(session_id=session_id, user_id="AI").all()
+        assert len(ai_msgs) == 0, "No nudge should fire into an empty room"
+
+    _reset_silence_state(session_id)
+    room_participants.pop(session_id, None)
+
+
+def test_silence_nudge_solo_mode_does_not_schedule(client):
+    """Solo mode must not schedule silence checks (the cooldown only applies
+    to couple/group, and so does this re-engagement feature)."""
+    from TogetherMindsAI import (
+        _schedule_silence_check, session_silence_check_pending,
+    )
+
+    _priv, user_id, session_id = _register(client, "solo")
+    session_silence_check_pending.discard(session_id)
+
+    _schedule_silence_check(session_id, "solo")
+
+    assert session_id not in session_silence_check_pending, (
+        "Solo mode must not arm the silence check"
+    )
+
+
+def test_silence_nudge_disabled_when_seconds_zero(client):
+    """SILENCE_NUDGE_SECONDS=0 must short-circuit the scheduler entirely."""
+    from unittest.mock import patch
+    from TogetherMindsAI import (
+        _schedule_silence_check, session_silence_check_pending,
+    )
+
+    _priv, user_id, session_id = _register(client, "couple")
+    session_silence_check_pending.discard(session_id)
+
+    with patch("TogetherMindsAI.config.SILENCE_NUDGE_SECONDS", 0):
+        _schedule_silence_check(session_id, "couple")
+
+    assert session_id not in session_silence_check_pending, (
+        "SILENCE_NUDGE_SECONDS=0 must disable the feature"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Escalation hint gate — referral invitation sent at most once per session
 # ---------------------------------------------------------------------------
 
