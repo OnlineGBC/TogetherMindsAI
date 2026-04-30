@@ -224,3 +224,9 @@ __pycache__/
 # Android keystore — signing credential, never commit
 android.keystore
 
+# Android build artifacts — regenerated on every build, not source
+.gradle/
+*.apk
+*.apk.idsig
+manifest-checksum.txt
+
