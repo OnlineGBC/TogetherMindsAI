@@ -124,6 +124,23 @@
         if (el && !el.textContent.trim()) { el.textContent = DISPLAY_ID; }
     })();
 
+    // One-time cleanup: earlier versions of the banner stored dismissal in
+    // localStorage (long-lived). We migrated to sessionStorage (per-tab).
+    // Purge any leftover localStorage flags so old keys don't keep the banner
+    // hidden on devices that ran the old code.
+    (function () {
+        try {
+            var keysToRemove = [];
+            for (var i = 0; i < localStorage.length; i++) {
+                var k = localStorage.key(i);
+                if (k && k.indexOf("privacyBannerDismissed_") === 0) {
+                    keysToRemove.push(k);
+                }
+            }
+            keysToRemove.forEach(function (k) { localStorage.removeItem(k); });
+        } catch (e) { /* localStorage unavailable — not critical */ }
+    })();
+
     // Privacy banner dismissal: persist across in-tab navigations.
     // sessionStorage is per-tab and cleared when the tab closes or a different
     // session_id is used, so the banner naturally reappears on a new session.
