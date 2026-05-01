@@ -283,12 +283,25 @@ def ratelimit_handler(e):
 # Routes — pages
 # ---------------------------------------------------------------------------
 
+_SW_PATH = os.path.join(os.path.dirname(__file__), "static", "js", "sw.js")
+
+
 @app.route("/sw.js")
 def service_worker():
-    """Serve the PWA service worker from root scope (required by browser security)."""
-    response = make_response(
-        app.send_static_file("js/sw.js")
-    )
+    """Serve the PWA service worker with the Cloud Run revision baked in.
+
+    Substitutes the __BUILD_VERSION__ placeholder in static/js/sw.js with the
+    current K_REVISION (set automatically by Cloud Run on every deploy; falls
+    back to 'dev' locally). The cache name therefore changes on every deploy,
+    causing the new SW's activate handler to delete the prior deploy's cache
+    and re-precache fresh assets — no manual cache-version bumps required.
+    """
+    with open(_SW_PATH, "r", encoding="utf-8") as f:
+        body = f.read()
+    build_version = os.environ.get("K_REVISION", "dev")
+    body = body.replace("__BUILD_VERSION__", build_version)
+    response = make_response(body)
+    response.headers["Content-Type"] = "application/javascript"
     response.headers["Service-Worker-Allowed"] = "/"
     response.headers["Cache-Control"] = "no-cache"
     return response
