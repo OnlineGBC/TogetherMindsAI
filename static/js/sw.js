@@ -1,8 +1,9 @@
-const CACHE = "tmai-v2";
+const CACHE = "tmai-v3";
 const PRECACHE = [
   "/",
   "/static/css/style.css",
   "/static/js/therapy.js",
+  "/static/js/voice.js",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
 ];
