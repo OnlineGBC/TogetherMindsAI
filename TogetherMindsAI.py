@@ -86,6 +86,13 @@ room_participants: dict = defaultdict(set)   # session_id → set of user_ids
 sid_to_user: dict = {}                        # SocketIO SID → user_id
 sid_to_session: dict = {}                     # SocketIO SID → session_id
 
+# Voice usage tracking — (user_id, utc_date_iso) → seconds of audio uploaded.
+# Reset implicitly: a new UTC date produces a new key. Old keys are pruned
+# lazily on each voice request. Acceptable to be in-memory: worst case under
+# Cloud Run autoscaling is per-instance accounting (a user could exceed the
+# cap by a factor equal to the instance count), still bounded.
+voice_usage_seconds_today: dict = {}
+
 # Display name tracking — all ephemeral, reset on server restart
 session_display_names: dict = {}  # session_id → {user_id: display_name}
 session_taken_names: dict   = {}  # session_id → set of lowercased names (permanent for session lifetime)
@@ -559,6 +566,82 @@ def api_set_display_name():
 
     _claim_display_name(session_id, user_id, name)
     return jsonify({"display_name": name}), 200
+
+
+# Whisper accepts up to 25 MB per request. Browsers occasionally produce
+# slightly larger blobs for long recordings; reject early to avoid wasting
+# upload time and an OpenAI API call.
+_VOICE_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+def _prune_voice_usage(today_iso: str) -> None:
+    """Drop usage entries whose date is not today (keeps dict bounded)."""
+    stale = [k for k in voice_usage_seconds_today if k[1] != today_iso]
+    for k in stale:
+        voice_usage_seconds_today.pop(k, None)
+
+
+@app.route("/api/voice/translate", methods=["POST"])
+@limiter.limit("60 per hour")
+def api_voice_translate():
+    """Audio upload -> English transcript via Whisper translate task.
+
+    Auth: Flask session user_id (same as the rest of the app).
+    Cap: VOICE_DAILY_CAP_MINUTES per user per UTC day (server-enforced).
+    Returns: {"text": "<english>", "duration": <seconds>} on success.
+    Crisis detection runs on the English text via the existing pipeline when
+    the user submits — this endpoint only produces the transcript.
+    """
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Not authenticated"}), 401
+
+    audio = request.files.get("audio")
+    if audio is None:
+        return jsonify({"error": "Missing 'audio' file part"}), 400
+
+    # Size check — read content_length when present, else fall back to seek.
+    size_bytes = request.content_length or 0
+    if size_bytes == 0:
+        audio.stream.seek(0, 2)
+        size_bytes = audio.stream.tell()
+        audio.stream.seek(0)
+    if size_bytes == 0:
+        return jsonify({"error": "Empty audio upload"}), 400
+    if size_bytes > _VOICE_MAX_UPLOAD_BYTES:
+        return jsonify({"error": "Audio too large (max 25 MB)"}), 413
+
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    _prune_voice_usage(today_iso)
+    key = (user_id, today_iso)
+    used_seconds = voice_usage_seconds_today.get(key, 0)
+    cap_seconds = config.VOICE_DAILY_CAP_MINUTES * 60
+    if used_seconds >= cap_seconds:
+        return jsonify({
+            "error": "voice_daily_cap_reached",
+            "message": (
+                f"Voice limit reached for today "
+                f"({config.VOICE_DAILY_CAP_MINUTES} min/user/day). "
+                f"Resets at UTC midnight. You can keep typing."
+            ),
+        }), 429
+
+    try:
+        from voice import transcribe_translate
+        result = transcribe_translate(audio.read(), audio.mimetype or "audio/webm")
+    except Exception as exc:
+        app.logger.error("Whisper translate failed for user %s: %s", user_id, exc)
+        return jsonify({"error": "Transcription temporarily unavailable"}), 503
+
+    text = result.get("text", "")
+    duration_s = int(result.get("duration", 0.0) or 0.0)
+    voice_usage_seconds_today[key] = used_seconds + max(duration_s, 1)
+
+    log_event("voice_translate", user_id=user_id,
+              duration_seconds=duration_s,
+              transcript_length=len(text))
+
+    return jsonify({"text": text, "duration": duration_s}), 200
 
 
 @app.route("/progress/<user_id>/<therapy_mode>")

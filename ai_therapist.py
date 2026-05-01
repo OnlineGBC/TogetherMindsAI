@@ -19,11 +19,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 CRISIS_KEYWORDS = {
+    # Direct phrases (English-original)
     "suicide", "suicidal", "kill myself", "end my life", "want to die",
     "don't want to live", "no reason to live", "self-harm", "self harm",
     "cutting myself", "hurt myself", "hurting myself", "harm myself",
     "overdose", "take my own life", "end it all", "better off dead",
     "not worth living", "rather be dead", "wish i was dead",
+    # Translated-idiom phrases — added when multilingual voice (Whisper translate)
+    # was enabled. Whisper renders non-English crisis idioms literally into
+    # English, which strips clinical weight from phrases that are unmistakable
+    # in their source language. Examples: ES "no veo salida" → "I don't see a way
+    # out"; JA "消えたい" → "I want to disappear"; FR "j'en ai marre de la vie" →
+    # "I'm fed up with life". These additions also strengthen English-original
+    # crisis detection.
+    "no way out", "no escape", "can't take it anymore", "cannot take it anymore",
+    "can't go on", "cannot go on", "no point in living", "no point anymore",
+    "tired of living", "fed up with life", "want to disappear", "want to vanish",
+    "no future", "no hope", "lost all hope", "end the pain", "stop the pain",
+    "don't want to exist", "do not want to exist", "give up on life",
+    "had enough of life",
 }
 
 ESCALATION_KEYWORDS = {

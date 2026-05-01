@@ -472,7 +472,7 @@ class TestEmotionPipelineSingleton:
         reloads the model when already cached.  Without this guard each request could trigger
         a full model load — the race condition the synchronous startup fix was meant to prevent."""
         import pathlib, re
-        source = (pathlib.Path(__file__).parent.parent / "ai_therapist.py").read_text()
+        source = (pathlib.Path(__file__).parent.parent / "ai_therapist.py").read_text(encoding="utf-8")
         # Extract the _get_emotion_pipeline function body
         match = re.search(
             r"def _get_emotion_pipeline\(\):(.*?)(?=^def |\Z)",

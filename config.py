@@ -107,6 +107,12 @@ FIELD_ENCRYPTION_KEY: str = os.environ.get("FIELD_ENCRYPTION_KEY", "")
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
+
+# Voice / STT — daily per-user audio minutes cap for the Whisper translate
+# endpoint. Server-enforced; resets at UTC midnight. 240 min × $0.006/min ≈
+# $1.44/user/day worst-case Whisper spend.
+VOICE_DAILY_CAP_MINUTES: int = int(os.environ.get("VOICE_DAILY_CAP_MINUTES", "240"))
 
 
 def secure_env_file() -> None:
@@ -156,6 +162,8 @@ def validate_config() -> None:
         missing.append("SECRET_KEY")
     if not ANTHROPIC_API_KEY:
         missing.append("ANTHROPIC_API_KEY")
+    if not OPENAI_API_KEY:
+        missing.append("OPENAI_API_KEY")
     if not FIELD_ENCRYPTION_KEY:
         missing.append("FIELD_ENCRYPTION_KEY")
 

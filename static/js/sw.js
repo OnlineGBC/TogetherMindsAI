@@ -1,4 +1,4 @@
-const CACHE = "tmai-v3";
+const CACHE = "tmai-v4";
 const PRECACHE = [
   "/",
   "/static/css/style.css",
