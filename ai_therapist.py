@@ -616,6 +616,14 @@ def _claude_crisis_check(text: str) -> bool:
 # Public API
 # ---------------------------------------------------------------------------
 
+_LANGUAGE_NOTE = (
+    "\n\n"
+    "One note before we begin: my language is English. I will try to understand "
+    "and transcribe other languages if you'd like to speak them, but I will only "
+    "respond in English — because English is the only crisis response I am trained on, "
+    "and everyone's safety is my primary concern."
+)
+
 _NAME_HINT = (
     "\n\n"
     "One quick note: you're shown by a generic, anonymous name for now. "
@@ -649,10 +657,10 @@ def generate_opening_message(mode: str = "solo") -> str:
                 "content": "[New session — please open the conversation as the counsellor.]",
             }],
         )
-        return response.content[0].text + _NAME_HINT
+        return response.content[0].text + _LANGUAGE_NOTE + _NAME_HINT
     except Exception as exc:
         logger.warning("Opening message generation failed (%s); using fallback.", exc)
-        return "Hello, and welcome. What's brought you here today?" + _NAME_HINT
+        return "Hello, and welcome. What's brought you here today?" + _LANGUAGE_NOTE + _NAME_HINT
 
 
 def generate_silence_nudge(mode: str, history: list = None) -> str:
