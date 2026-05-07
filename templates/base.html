@@ -84,40 +84,6 @@
     </small>
 </footer>
 
-<!-- Floating feedback button + popup modal (every page except /feedback itself) -->
-{% if request.path != '/feedback' %}
-<button type="button"
-        class="feedback-fab"
-        id="feedbackFab"
-        aria-label="Send feedback"
-        title="Send feedback"
-        data-bs-toggle="tooltip"
-        data-bs-placement="left">
-    <i class="bi bi-chat-heart-fill"></i>
-</button>
-
-{% include "_feedback_modal.html" %}
-
-<script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
-<script>
-    (function () {
-        if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
-            var el = document.getElementById("feedbackFab");
-            if (el) new bootstrap.Tooltip(el);
-        }
-        // Initialise FAB + end-of-session modal hookup. Page-specific scripts
-        // (which may set window.SESSION_MODE / END_SESSION_REDIRECT_URL) render
-        // earlier in the page, so those globals are available here.
-        if (typeof initFeedbackOnAllPages === "function") {
-            initFeedbackOnAllPages({
-                mode: window.SESSION_MODE || null,
-                endSessionRedirectUrl: window.END_SESSION_REDIRECT_URL || null,
-            });
-        }
-    })();
-</script>
-{% endif %}
-
 <!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Socket.IO -->
@@ -267,5 +233,39 @@
 </div>
 
 {% block scripts %}{% endblock %}
+
+<!-- Floating feedback button + popup modal (every page except /feedback itself).
+     Placed AFTER Bootstrap JS so `new bootstrap.Modal(...)` works, and AFTER
+     {% block scripts %} so page-specific globals (SESSION_MODE, etc.) are set. -->
+{% if request.path != '/feedback' %}
+<button type="button"
+        class="feedback-fab"
+        id="feedbackFab"
+        aria-label="Send feedback"
+        title="Send feedback"
+        data-bs-toggle="tooltip"
+        data-bs-placement="left">
+    <i class="bi bi-chat-heart-fill"></i>
+</button>
+
+{% include "_feedback_modal.html" %}
+
+<script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
+<script>
+    (function () {
+        if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
+            var el = document.getElementById("feedbackFab");
+            if (el) new bootstrap.Tooltip(el);
+        }
+        if (typeof initFeedbackOnAllPages === "function") {
+            initFeedbackOnAllPages({
+                mode: window.SESSION_MODE || null,
+                endSessionRedirectUrl: window.END_SESSION_REDIRECT_URL || null,
+            });
+        }
+    })();
+</script>
+{% endif %}
+
 </body>
 </html>
