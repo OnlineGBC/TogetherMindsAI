@@ -29,7 +29,10 @@
                                     data-rating="{{ n }}" aria-label="Rate {{ n }}">{{ n }}</button>
                             {% endfor %}
                             <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill rating-na-btn ms-1"
-                                    aria-label="Did not use a session">N/A</button>
+                                    aria-label="No Session Started"
+                                    title="No Session Started"
+                                    data-bs-toggle="tooltip"
+                                    data-bs-placement="top">N/A</button>
                         </div>
                     </div>
 

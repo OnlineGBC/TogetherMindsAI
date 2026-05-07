@@ -274,6 +274,12 @@
         bindRatingButtons(document.getElementById("ratingButtonsModal"), state);
         bindPayButtons(document.getElementById("payButtonsModal"), state);
 
+        // Tooltip on the N/A rating button
+        if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
+            var naTipEl = modalEl.querySelector(".rating-na-btn");
+            if (naTipEl) new bootstrap.Tooltip(naTipEl);
+        }
+
         var modal = new bootstrap.Modal(modalEl);
 
         function resetForm() {
