@@ -241,12 +241,14 @@
 
     // -------- Unified popup modal (FAB + end-of-session) -------------------
     //
-    // Two trigger paths share the SAME modal element:
-    //   (a) FAB click on any page  →  no redirect on submit/close
-    //   (b) End Session confirm    →  redirect to /progress/... on submit/close
+    // Three trigger paths share the SAME modal element:
+    //   (a) FAB click on any page         →  no redirect on submit/close
+    //   (b) End Session confirm           →  redirect to /progress/... on close
+    //   (c) "Delete session and exit"     →  call delete API, then redirect to /
     //
-    // The "redirectUrl" in shared state is set per open and read by the
-    // Submit/Skip handlers to decide whether to navigate away.
+    // state.redirectUrl tells the close path where (or whether) to navigate.
+    // state.preRedirectAction is an optional async function run BEFORE the
+    // redirect — used by the delete flow to call /session/<id>/delete.
 
     window.initFeedbackOnAllPages = function (opts) {
         var modalEl = document.getElementById("feedbackModal");
@@ -263,6 +265,7 @@
             wouldPay: null,
             naCheckbox: { checked: false },   // fake checkbox-like for the modal's N/A button
             redirectUrl: null,                 // null = stay on page; string = redirect on close/submit
+            preRedirectAction: null,           // optional Promise-returning fn run before redirect
         };
         var fields = {
             whatWorked: document.getElementById("whatWorkedModal"),
@@ -311,11 +314,24 @@
         }
 
         function closeOrRedirect() {
-            if (state.redirectUrl) {
-                window._sessionEnded = true;
-                window.location.href = state.redirectUrl;
-            } else {
+            if (!state.redirectUrl) {
                 modal.hide();
+                return;
+            }
+            window._sessionEnded = true;
+            var action = state.preRedirectAction;
+            var url = state.redirectUrl;
+            state.preRedirectAction = null;
+            if (action) {
+                // Run the pre-redirect work (e.g., POST /session/<id>/delete)
+                // and navigate regardless of whether it succeeds — matches the
+                // existing delete-button handler's lenient failure mode.
+                Promise.resolve()
+                    .then(action)
+                    .catch(function () {})
+                    .then(function () { window.location.href = url; });
+            } else {
+                window.location.href = url;
             }
         }
 
@@ -349,6 +365,38 @@
                 if (endModal) endModal.hide();
 
                 state.redirectUrl = opts.endSessionRedirectUrl;
+                state.preRedirectAction = null;
+                skipBtn.textContent = "Skip";
+                resetForm();
+                modal.show();
+            }, true);
+        }
+
+        // ---- Trigger 3: Delete session and exit (with delete API + redirect to /) ----
+        // Capture phase, same pattern as the End Session interceptor. The
+        // browser confirm() prompt that the original handler shows is moved
+        // here so we can branch on it before any modal work.
+        var deleteEndBtn = document.getElementById("endSessionDeleteBtn");
+        if (deleteEndBtn && window.SESSION_ID) {
+            deleteEndBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+
+                if (!confirm("This will permanently delete all messages in this session. Are you sure?")) {
+                    return;
+                }
+
+                var endModal = bootstrap.Modal.getInstance(document.getElementById("endSessionModal"));
+                if (endModal) endModal.hide();
+
+                var sid = window.SESSION_ID;
+                state.redirectUrl = "/";
+                state.preRedirectAction = function () {
+                    return fetch("/session/" + sid + "/delete", { method: "POST" })
+                        .then(function () {
+                            try { localStorage.removeItem("session_nickname_" + sid); } catch (err) {}
+                        });
+                };
                 skipBtn.textContent = "Skip";
                 resetForm();
                 modal.show();
