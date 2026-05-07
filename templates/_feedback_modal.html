@@ -1,0 +1,77 @@
+<!--
+  Feedback modal — included by solo.html / couple.html / group.html.
+  Shown after the user confirms End Session, before redirect to /progress/...
+-->
+<div class="modal fade" id="feedbackModal" tabindex="-1" aria-labelledby="feedbackModalLabel"
+     data-bs-backdrop="static" data-bs-keyboard="false" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="feedbackModalLabel">
+                    <i class="bi bi-chat-heart-fill text-primary-green me-2"></i>Quick feedback?
+                </h5>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-shield-lock-fill me-1"></i>
+                    We don't collect your IP, name, or session content.
+                </p>
+
+                <div id="feedbackModalStatus" class="alert d-none rounded-3 small mb-3" role="status"></div>
+
+                <form id="feedbackModalForm" novalidate>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">How did you feel about your session?</label>
+                        <div class="d-flex gap-2 align-items-center mb-2" id="ratingButtonsModal">
+                            {% for n in [1, 2, 3, 4, 5] %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle rating-btn"
+                                    data-rating="{{ n }}" aria-label="Rate {{ n }}">{{ n }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="whatWorkedModal" class="form-label fw-semibold small">What worked well?</label>
+                        <textarea class="form-control form-control-sm rounded-3" id="whatWorkedModal"
+                                  rows="2" maxlength="1000"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="whatToImproveModal" class="form-label fw-semibold small">What could be improved?</label>
+                        <textarea class="form-control form-control-sm rounded-3" id="whatToImproveModal"
+                                  rows="2" maxlength="1000"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="desiredFeaturesModal" class="form-label fw-semibold small">Additional features?</label>
+                        <textarea class="form-control form-control-sm rounded-3" id="desiredFeaturesModal"
+                                  rows="2" maxlength="1000"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Would you pay for longer access or more features?</label>
+                        <div class="d-flex gap-2 flex-wrap" id="payButtonsModal">
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill pay-btn" data-pay="yes">Yes</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill pay-btn" data-pay="maybe">Maybe</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill pay-btn" data-pay="no">No</button>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="otherFeedbackModal" class="form-label fw-semibold small">Anything else?</label>
+                        <textarea class="form-control form-control-sm rounded-3" id="otherFeedbackModal"
+                                  rows="2" maxlength="1000"></textarea>
+                    </div>
+
+                </form>
+            </div>
+            <div class="modal-footer border-0 pt-0 gap-2">
+                <button type="button" class="btn btn-outline-secondary rounded-pill" id="feedbackSkipBtn">Skip</button>
+                <button type="button" class="btn btn-primary-green rounded-pill" id="feedbackModalSubmitBtn">
+                    <i class="bi bi-send-fill me-1"></i>Send feedback
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

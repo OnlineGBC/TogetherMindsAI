@@ -105,6 +105,10 @@ steps:
       - AI_COOLDOWN_SECONDS=AI_COOLDOWN_SECONDS:latest
       - --set-secrets
       - SILENCE_NUDGE_SECONDS=SILENCE_NUDGE_SECONDS:latest
+      - --set-secrets
+      - FEEDBACK_SMTP_USER=FEEDBACK_SMTP_USER:latest
+      - --set-secrets
+      - FEEDBACK_SMTP_PASSWORD=FEEDBACK_SMTP_PASSWORD:latest
       - --min-instances
       - "0"
       - --max-instances

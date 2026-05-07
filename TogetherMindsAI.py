@@ -14,6 +14,8 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
 import io
+import smtplib
+from email.message import EmailMessage
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -655,6 +657,187 @@ def api_voice_translate():
               transcript_length=len(text))
 
     return jsonify({"text": text, "duration": duration_s}), 200
+
+
+# ---------------------------------------------------------------------------
+# Feedback form — email-only delivery, no DB storage, no audit log entry,
+# no IP / user_id / PII captured. Per FEEDBACK_FORM_PLAN.md.
+# ---------------------------------------------------------------------------
+
+_FEEDBACK_TEXT_MAX = 1000
+_FEEDBACK_PLATFORMS = {"web", "android_twa", "ios_pwa", "mobile_browser"}
+_FEEDBACK_MODES = {"solo", "couple", "group", None}
+_FEEDBACK_PAY = {"yes", "maybe", "no", None}
+_FEEDBACK_RATINGS = {1, 2, 3, 4, 5, None}
+
+# In-memory cooldown keyed by Flask session cookie (NOT IP).
+# Resets on process restart — acceptable for an anti-spam guard.
+_feedback_last_submit: dict = {}   # session_key -> last unix epoch
+_feedback_daily_count: dict = {}   # (session_key, utc_date_iso) -> count
+
+_FEEDBACK_COOLDOWN_SECONDS = 60
+_FEEDBACK_DAILY_MAX = 10
+
+
+def _feedback_session_key() -> str:
+    """Stable per-session key used for rate limiting. Creates a server-side
+    token in the Flask session if one is missing — no IP, no user_id."""
+    key = session.get("_fb_key")
+    if not key:
+        key = secrets.token_urlsafe(16)
+        session["_fb_key"] = key
+    return key
+
+
+def _format_feedback_email(payload: dict) -> tuple:
+    """Build (subject, body) for the feedback email. No HTML — plain text only."""
+    rating = payload.get("rating")
+    rating_str = f"{rating} / 5" if rating else "N/A"
+    pay = payload.get("would_pay")
+    pay_str = {"yes": "Yes", "maybe": "Maybe", "no": "No"}.get(pay, "—")
+    platform = payload.get("platform") or "—"
+    mode = payload.get("mode") or "—"
+    submitted_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    subject = f"TogetherMindsAI feedback — {mode}/{platform} — {rating_str}"
+
+    def section(title: str, text: str) -> str:
+        text = (text or "").strip()
+        if not text:
+            return f"{title}:\n  (none)\n"
+        return f"{title}:\n{text}\n"
+
+    body = (
+        f"Rating:           {rating_str}\n"
+        f"Would pay:        {pay_str}\n"
+        f"Platform:         {platform}\n"
+        f"Session mode:     {mode}\n"
+        f"Submitted at:     {submitted_at}\n"
+        f"\n"
+        + section("What worked", payload.get("what_worked", ""))
+        + "\n"
+        + section("What could be improved", payload.get("what_to_improve", ""))
+        + "\n"
+        + section("Desired features", payload.get("desired_features", ""))
+        + "\n"
+        + section("Other", payload.get("other", ""))
+    )
+    return subject, body
+
+
+def _send_feedback_email(subject: str, body: str) -> None:
+    """Send feedback via Gmail SMTP. Raises on failure — caller maps to 503."""
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER
+    msg["To"] = config.FEEDBACK_TO_EMAIL
+    msg.set_content(body)
+
+    with smtplib.SMTP(config.FEEDBACK_SMTP_HOST, config.FEEDBACK_SMTP_PORT, timeout=5) as smtp:
+        smtp.starttls()
+        smtp.login(config.FEEDBACK_SMTP_USER, config.FEEDBACK_SMTP_PASSWORD)
+        smtp.send_message(msg)
+
+
+@app.route("/feedback")
+def feedback_page():
+    """Standalone feedback form. Public — no login required."""
+    return render_template("feedback.html")
+
+
+@app.route("/api/feedback", methods=["POST"])
+def api_feedback():
+    """Receive feedback, send via email. Stateless — no DB, no audit, no IP."""
+    payload = request.get_json(silent=True) or {}
+
+    # --- Validation ---------------------------------------------------------
+    rating = payload.get("rating")
+    if rating is not None:
+        # bool is a subclass of int — reject explicitly. Reject floats and
+        # strings outright so the contract is "rating is int|null".
+        if isinstance(rating, bool) or not isinstance(rating, int):
+            return jsonify({"error": "Invalid rating"}), 400
+    if rating not in _FEEDBACK_RATINGS:
+        return jsonify({"error": "Invalid rating"}), 400
+
+    would_pay = payload.get("would_pay")
+    if would_pay == "":
+        would_pay = None
+    if would_pay is not None and not isinstance(would_pay, str):
+        return jsonify({"error": "Invalid would_pay"}), 400
+    if would_pay not in _FEEDBACK_PAY:
+        return jsonify({"error": "Invalid would_pay"}), 400
+
+    platform = payload.get("platform")
+    if not isinstance(platform, str) or platform not in _FEEDBACK_PLATFORMS:
+        return jsonify({"error": "Invalid platform"}), 400
+
+    mode = payload.get("mode")
+    if mode == "":
+        mode = None
+    if mode is not None and not isinstance(mode, str):
+        return jsonify({"error": "Invalid mode"}), 400
+    if mode not in _FEEDBACK_MODES:
+        return jsonify({"error": "Invalid mode"}), 400
+
+    text_fields = ("what_worked", "what_to_improve", "desired_features", "other")
+    cleaned = {}
+    for f in text_fields:
+        val = payload.get(f, "") or ""
+        if not isinstance(val, str):
+            return jsonify({"error": f"Invalid {f}"}), 400
+        if len(val) > _FEEDBACK_TEXT_MAX:
+            return jsonify({"error": f"{f} too long (max {_FEEDBACK_TEXT_MAX} chars)"}), 400
+        cleaned[f] = val.strip()
+
+    has_content = (
+        rating is not None
+        or would_pay is not None
+        or any(cleaned[f] for f in text_fields)
+    )
+    if not has_content:
+        return jsonify({"error": "Empty submission"}), 400
+
+    # --- Rate limiting (cookie-based, no IP) --------------------------------
+    key = _feedback_session_key()
+    now = time.time()
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+
+    last = _feedback_last_submit.get(key, 0)
+    if now - last < _FEEDBACK_COOLDOWN_SECONDS:
+        return jsonify({"error": "Please wait a moment before submitting again."}), 429
+
+    daily_key = (key, today_iso)
+    # Drop stale daily entries (different date)
+    stale_keys = [k for k in _feedback_daily_count if k[0] == key and k[1] != today_iso]
+    for k in stale_keys:
+        _feedback_daily_count.pop(k, None)
+    if _feedback_daily_count.get(daily_key, 0) >= _FEEDBACK_DAILY_MAX:
+        return jsonify({"error": "Daily feedback limit reached."}), 429
+
+    # --- Build & send -------------------------------------------------------
+    subject, body = _format_feedback_email({
+        "rating": rating,
+        "would_pay": would_pay,
+        "platform": platform,
+        "mode": mode,
+        **cleaned,
+    })
+
+    if not (config.FEEDBACK_SMTP_USER and config.FEEDBACK_SMTP_PASSWORD):
+        return jsonify({"error": "Feedback service not configured"}), 503
+
+    try:
+        _send_feedback_email(subject, body)
+    except Exception:
+        # Intentionally do not log the exception body — it could echo SMTP
+        # auth or the email content. A generic warning suffices.
+        app.logger.warning("Feedback SMTP send failed")
+        return jsonify({"error": "Could not send feedback right now. Please try again later."}), 503
+
+    _feedback_last_submit[key] = now
+    _feedback_daily_count[daily_key] = _feedback_daily_count.get(daily_key, 0) + 1
+    return jsonify({"ok": True}), 200
 
 
 @app.route("/progress/<user_id>/<therapy_mode>")

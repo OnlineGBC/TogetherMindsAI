@@ -114,6 +114,17 @@ OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
 # $1.44/user/day worst-case Whisper spend.
 VOICE_DAILY_CAP_MINUTES: int = int(os.environ.get("VOICE_DAILY_CAP_MINUTES", "240"))
 
+# ---------------------------------------------------------------------------
+# Feedback form — Gmail SMTP send (no DB storage, no audit log)
+# ---------------------------------------------------------------------------
+
+FEEDBACK_SMTP_HOST: str = os.environ.get("FEEDBACK_SMTP_HOST", "smtp.gmail.com")
+FEEDBACK_SMTP_PORT: int = int(os.environ.get("FEEDBACK_SMTP_PORT", "587"))
+FEEDBACK_SMTP_USER: str = os.environ.get("FEEDBACK_SMTP_USER", "")
+FEEDBACK_SMTP_PASSWORD: str = os.environ.get("FEEDBACK_SMTP_PASSWORD", "")
+FEEDBACK_TO_EMAIL: str = os.environ.get("FEEDBACK_TO_EMAIL", "raja@onlinegbc.com")
+FEEDBACK_FROM_EMAIL: str = os.environ.get("FEEDBACK_FROM_EMAIL", FEEDBACK_SMTP_USER)
+
 
 def secure_env_file() -> None:
     """Restrict .env file permissions to the current OS user on every startup.

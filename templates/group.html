@@ -122,8 +122,11 @@
 </div>
 {% endblock %}
 
+{% include "_feedback_modal.html" %}
+
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
+<script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
 <script>
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
@@ -209,6 +212,7 @@
         joinRoom(SESSION_ID, USER_ID, MODE, false /* not solo */);
         startWellnessCheck();
         initDisplayNameRename(SESSION_ID, USER_ID, false /* not solo */);
+        initFeedbackModal({ mode: "group", redirectUrl: "/progress/" + USER_ID + "/group" });
         initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/group");
         initVoiceInput({ inputId: "messageInput" });
     });
