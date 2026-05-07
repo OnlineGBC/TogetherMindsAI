@@ -83,13 +83,13 @@
 
         <!-- Input row -->
         <div class="input-group shadow-sm rounded-4 overflow-hidden">
-            <input
-                type="text"
+            <textarea
                 id="messageInput"
-                class="form-control form-control-lg border-0 ps-3"
+                rows="1"
+                class="form-control form-control-lg border-0 ps-3 chat-input"
                 placeholder="Share with the group…"
                 autocomplete="off"
-            />
+            ></textarea>
             <!-- Silence-nudge countdown chip — fixed-position overlay so it
                  doesn't perturb the constrained therapy-col flex layout
                  (any in-flow element here clips the input-group). -->
@@ -192,13 +192,16 @@
         }
     }
 
-    // Wire up send button and Enter key
+    // Auto-grow input up to ~3 lines (CSS-capped); scrolls inside thereafter.
+    initChatTextareaAutoGrow("messageInput");
+
+    // Wire up send button and Enter key (Shift+Enter inserts a newline)
     document.getElementById("sendBtn").addEventListener("click", function () {
         var input = document.getElementById("messageInput");
         var text = input.value.trim();
         if (text) {
             sendMessage(SESSION_ID, USER_ID, text, MODE);
-            input.value = "";
+            if (input._resetAutoGrow) input._resetAutoGrow(); else input.value = "";
         }
     });
 

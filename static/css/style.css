@@ -236,6 +236,23 @@ hr.border-green {
     border-color: var(--green-primary);
 }
 
+/* ---- Chat input textarea: auto-grow up to N lines, then scroll inside ---- */
+.chat-input {
+    resize: none;                /* user can't drag-resize */
+    overflow-y: auto;
+    line-height: 1.4;
+    min-height: 48px;            /* matches form-control-lg single line */
+    max-height: 84px;            /* ~3 lines on desktop / laptop */
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+    word-break: break-word;
+}
+.chat-input::-webkit-scrollbar { width: 5px; }
+.chat-input::-webkit-scrollbar-thumb { background: var(--green-light); border-radius: 10px; }
+@media (max-width: 575.98px) {
+    .chat-input { max-height: 60px; }   /* ~2 lines on phones */
+}
+
 /* ---- Share alert ---- */
 .alert-share {
     background: var(--green-pale);

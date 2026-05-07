@@ -120,17 +120,16 @@
         <!-- Input form -->
         <form method="POST" action="/therapy/solo/{{ session_id }}" id="chatForm">
             <div class="input-group shadow-sm rounded-4 overflow-hidden">
-                <input
-                    type="text"
+                <textarea
                     name="message"
                     id="messageInput"
-                    class="form-control form-control-lg border-0 ps-3"
+                    rows="1"
+                    class="form-control form-control-lg border-0 ps-3 chat-input"
                     placeholder="Share how you're feeling…"
                     autocomplete="off"
                     autofocus
                     required
-                    value="{{ draft | e if draft else '' }}"
-                />
+                >{{ draft | e if draft else '' }}</textarea>
                 <button
                     type="button"
                     id="voiceBtn"
@@ -249,6 +248,19 @@
     document.getElementById("chatForm").addEventListener("submit", function () {
         _sessionEnded = true;
         _showSendSpinner();
+    });
+
+    // Auto-grow input up to ~3 lines (CSS-capped); scrolls inside thereafter.
+    initChatTextareaAutoGrow("messageInput");
+
+    // Enter submits the form; Shift+Enter inserts a newline (chat-app convention).
+    document.getElementById("messageInput").addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (document.getElementById("messageInput").value.trim()) {
+                document.getElementById("chatForm").requestSubmit();
+            }
+        }
     });
 
     // Voice input (Web Speech API). Self-disables on unsupported browsers.

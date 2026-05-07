@@ -7,6 +7,35 @@ var socket = null;
 var _currentUserId = null;
 
 // ---------------------------------------------------------------------------
+// Chat input auto-grow — wraps text to next line up to a CSS max-height,
+// then scrolls inside. Call once per page on any chat-input textarea.
+// Voice input dispatches an "input" event after pasting transcripts, which
+// triggers re-measurement automatically.
+// ---------------------------------------------------------------------------
+function initChatTextareaAutoGrow(elementId) {
+    var el = document.getElementById(elementId);
+    if (!el || el.tagName !== "TEXTAREA") return;
+
+    function recalc() {
+        // Reset to auto so scrollHeight reflects content, not previous height,
+        // then grow to fit. CSS max-height caps it; overflow-y: auto handles
+        // anything beyond that.
+        el.style.height = "auto";
+        el.style.height = el.scrollHeight + "px";
+    }
+    el.addEventListener("input", recalc);
+    // Initial measurement (covers server-rendered draft text in solo mode).
+    setTimeout(recalc, 0);
+
+    // Expose a reset hook so send-handlers can collapse back to one line
+    // after clearing the value.
+    el._resetAutoGrow = function () {
+        el.value = "";
+        el.style.height = "auto";
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Wellness check — fires after 20 minutes of inactivity
 // ---------------------------------------------------------------------------
 var _inactivityTimer = null;
