@@ -71,6 +71,15 @@ def client():
 # Happy path
 # ---------------------------------------------------------------------------
 
+def _plain_body(sent_msg):
+    return sent_msg.get_body(preferencelist=("plain",)).get_content()
+
+
+def _html_body(sent_msg):
+    part = sent_msg.get_body(preferencelist=("html",))
+    return part.get_content() if part else ""
+
+
 def test_valid_full_submission_sends_email(client):
     with patch("TogetherMindsAI.smtplib") as mock_smtplib:
         mock_smtp = MagicMock()
@@ -87,16 +96,19 @@ def test_valid_full_submission_sends_email(client):
         assert sent_msg["To"] == "raja@onlinegbc.com"
         assert sent_msg["From"] == "test-sender@example.com"
         subject = sent_msg["Subject"]
-        assert "solo" in subject
-        assert "web" in subject
+        assert "Solo" in subject
         assert "4 / 5" in subject
 
-        body = sent_msg.get_content()
-        assert "The reflective prompts felt natural." in body
-        assert "Faster response times." in body
-        assert "Mood timeline." in body
-        assert "Thanks!" in body
-        assert "Maybe" in body
+        plain = _plain_body(sent_msg)
+        assert "The reflective prompts felt natural." in plain
+        assert "Faster response times." in plain
+        assert "Mood timeline." in plain
+        assert "Thanks!" in plain
+        assert "Maybe" in plain
+
+        html = _html_body(sent_msg)
+        assert "The reflective prompts felt natural." in html
+        assert "Solo Reflection" in html
 
 
 def test_rating_null_accepted_for_na(client):
@@ -232,9 +244,12 @@ def test_no_pii_leaks_into_email_or_logs(client, caplog):
 
         # Email body and headers contain no IP / UA / cookie
         sent_msg = mock_smtp.send_message.call_args[0][0]
-        body = sent_msg.get_content()
-        assert fake_ip not in body
-        assert fake_ua not in body
+        plain = _plain_body(sent_msg)
+        html = _html_body(sent_msg)
+        assert fake_ip not in plain
+        assert fake_ua not in plain
+        assert fake_ip not in html
+        assert fake_ua not in html
         assert fake_ip not in str(sent_msg)
         assert fake_ua not in str(sent_msg)
 

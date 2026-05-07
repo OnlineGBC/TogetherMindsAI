@@ -28,6 +28,18 @@
         return "web";
     }
 
+    function detectOS() {
+        var ua = navigator.userAgent || "";
+        if (/Android/i.test(ua)) return "android";
+        if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+        // Modern iPads report as "Macintosh" — disambiguate via touch points.
+        if (/Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1) return "ios";
+        if (/Mac OS X|Macintosh/i.test(ua)) return "macos";
+        if (/Windows/i.test(ua)) return "windows";
+        if (/Linux|X11|CrOS/i.test(ua)) return "linux";
+        return "unknown";
+    }
+
     function bindRatingButtons(container, state) {
         if (!container) return;
         var btns = container.querySelectorAll(".rating-btn");
@@ -102,6 +114,7 @@
             would_pay: state.wouldPay || null,
             other: (opts.fields.other.value || "").slice(0, 1000),
             platform: detectPlatform(),
+            os: detectOS(),
             mode: opts.mode || null,
         };
     }

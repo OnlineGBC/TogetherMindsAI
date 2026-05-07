@@ -669,6 +669,7 @@ _FEEDBACK_PLATFORMS = {"web", "android_twa", "ios_pwa", "mobile_browser"}
 _FEEDBACK_MODES = {"solo", "couple", "group", None}
 _FEEDBACK_PAY = {"yes", "maybe", "no", None}
 _FEEDBACK_RATINGS = {1, 2, 3, 4, 5, None}
+_FEEDBACK_OS = {"windows", "macos", "linux", "android", "ios", "unknown", None}
 
 # In-memory cooldown keyed by Flask session cookie (NOT IP).
 # Resets on process restart — acceptable for an anti-spam guard.
@@ -689,49 +690,169 @@ def _feedback_session_key() -> str:
     return key
 
 
+def _device_label(platform: str, os_name) -> str:
+    """Friendly human-readable device descriptor combining shell + OS."""
+    if platform == "android_twa":
+        return "Android (installed app)"
+    if platform == "ios_pwa":
+        return "iPhone/iPad (installed app)"
+    if platform == "mobile_browser":
+        if os_name == "android":
+            return "Android (mobile browser)"
+        if os_name == "ios":
+            return "iPhone/iPad (mobile browser)"
+        return "Mobile browser"
+    # platform == "web"
+    if os_name == "windows":
+        return "Windows laptop / desktop"
+    if os_name == "macos":
+        return "Mac laptop / desktop"
+    if os_name == "linux":
+        return "Linux laptop / desktop"
+    return "Laptop / desktop"
+
+
+def _mode_label(mode) -> str:
+    return {
+        "solo": "Solo Reflection",
+        "couple": "Couple Check-in",
+        "group": "Group Circle",
+    }.get(mode, "Not in a session")
+
+
+def _pay_label(pay) -> str:
+    return {"yes": "Yes", "maybe": "Maybe", "no": "No"}.get(pay, "Not answered")
+
+
+def _stars(rating) -> str:
+    if not rating:
+        return "Not rated"
+    filled = "★" * int(rating)
+    empty = "☆" * (5 - int(rating))
+    return f"{filled}{empty}"
+
+
 def _format_feedback_email(payload: dict) -> tuple:
-    """Build (subject, body) for the feedback email. No HTML — plain text only."""
+    """Build (subject, plain_body, html_body) for the feedback email."""
     rating = payload.get("rating")
     rating_str = f"{rating} / 5" if rating else "N/A"
     pay = payload.get("would_pay")
-    pay_str = {"yes": "Yes", "maybe": "Maybe", "no": "No"}.get(pay, "—")
-    platform = payload.get("platform") or "—"
-    mode = payload.get("mode") or "—"
+    platform = payload.get("platform") or ""
+    os_name = payload.get("os")
+    mode = payload.get("mode")
+    device = _device_label(platform, os_name)
+    mode_label = _mode_label(mode)
+    pay_label = _pay_label(pay)
+    stars = _stars(rating)
     submitted_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    subject = f"TogetherMindsAI feedback — {mode}/{platform} — {rating_str}"
+    subject = f"TogetherMindsAI feedback — {mode_label} on {device} — {rating_str}"
 
-    def section(title: str, text: str) -> str:
+    # ----- Plain-text body (fallback) ---------------------------------------
+    def text_section(title: str, text: str) -> str:
         text = (text or "").strip()
         if not text:
             return f"{title}:\n  (none)\n"
         return f"{title}:\n{text}\n"
 
-    body = (
+    plain = (
         f"Rating:           {rating_str}\n"
-        f"Would pay:        {pay_str}\n"
-        f"Platform:         {platform}\n"
-        f"Session mode:     {mode}\n"
+        f"Would pay:        {pay_label}\n"
+        f"Device:           {device}\n"
+        f"Session mode:     {mode_label}\n"
         f"Submitted at:     {submitted_at}\n"
         f"\n"
-        + section("What worked", payload.get("what_worked", ""))
+        + text_section("What worked well", payload.get("what_worked", ""))
         + "\n"
-        + section("What could be improved", payload.get("what_to_improve", ""))
+        + text_section("What could be improved", payload.get("what_to_improve", ""))
         + "\n"
-        + section("Desired features", payload.get("desired_features", ""))
+        + text_section("Desired features", payload.get("desired_features", ""))
         + "\n"
-        + section("Other", payload.get("other", ""))
+        + text_section("Anything else", payload.get("other", ""))
     )
-    return subject, body
+
+    # ----- HTML body --------------------------------------------------------
+    from html import escape as h
+
+    def html_card(title: str, text: str) -> str:
+        text = (text or "").strip()
+        if not text:
+            return (
+                f'<h3 style="color:#388E3C;font-size:15px;margin:24px 0 8px;font-weight:600;">{h(title)}</h3>'
+                f'<div style="padding:14px 16px;background:#f7faf7;border-left:3px solid #d0d0d0;border-radius:4px;color:#999;font-style:italic;">(none)</div>'
+            )
+        return (
+            f'<h3 style="color:#388E3C;font-size:15px;margin:24px 0 8px;font-weight:600;">{h(title)}</h3>'
+            f'<div style="padding:14px 16px;background:#f7faf7;border-left:3px solid #4CAF50;border-radius:4px;white-space:pre-wrap;line-height:1.5;">{h(text)}</div>'
+        )
+
+    rating_html = (
+        f'<span style="color:#FFC107;font-size:18px;letter-spacing:2px;">{stars}</span> '
+        f'<span style="color:#999;margin-left:6px;">({h(rating_str)})</span>'
+    ) if rating else f'<span style="color:#999;font-style:italic;">{h(stars)}</span>'
+
+    meta_row = (
+        '<tr>'
+        '<td style="padding:14px 16px;border-bottom:1px solid #e6efe6;width:160px;font-weight:600;color:#555;">{label}</td>'
+        '<td style="padding:14px 16px;border-bottom:1px solid #e6efe6;color:#212121;">{value}</td>'
+        '</tr>'
+    )
+    meta_row_last = (
+        '<tr>'
+        '<td style="padding:14px 16px;width:160px;font-weight:600;color:#555;">{label}</td>'
+        '<td style="padding:14px 16px;color:#212121;">{value}</td>'
+        '</tr>'
+    )
+
+    html_body = f"""<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f5f7f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#212121;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f7f5;padding:24px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+  <tr><td style="background:#4CAF50;padding:22px 28px;color:#ffffff;">
+    <div style="font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.9;">TogetherMindsAI</div>
+    <div style="font-size:22px;font-weight:600;margin-top:4px;">New feedback received</div>
+  </td></tr>
+
+  <tr><td style="padding:24px 28px 8px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#f7faf7;border-radius:8px;border:1px solid #e6efe6;border-collapse:separate;border-spacing:0;">
+      {meta_row.format(label='Rating', value=rating_html)}
+      {meta_row.format(label='Would pay', value=h(pay_label))}
+      {meta_row.format(label='Device', value=h(device))}
+      {meta_row.format(label='Session mode', value=h(mode_label))}
+      {meta_row_last.format(label='Submitted', value=h(submitted_at))}
+    </table>
+  </td></tr>
+
+  <tr><td style="padding:0 28px 24px;">
+    {html_card('What worked well', payload.get('what_worked', ''))}
+    {html_card('What could be improved', payload.get('what_to_improve', ''))}
+    {html_card('Desired features', payload.get('desired_features', ''))}
+    {html_card('Anything else', payload.get('other', ''))}
+  </td></tr>
+
+  <tr><td style="padding:14px 24px;background:#fafafa;color:#999;font-size:11px;text-align:center;border-top:1px solid #eee;">
+    No IP, no name, no session content captured.
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+    return subject, plain, html_body
 
 
-def _send_feedback_email(subject: str, body: str) -> None:
-    """Send feedback via Gmail SMTP. Raises on failure — caller maps to 503."""
+def _send_feedback_email(subject: str, plain_body: str, html_body: str) -> None:
+    """Send feedback via Gmail SMTP as multipart/alternative (text + HTML).
+    Raises on failure — caller maps to 503."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER
     msg["To"] = config.FEEDBACK_TO_EMAIL
-    msg.set_content(body)
+    msg.set_content(plain_body)
+    msg.add_alternative(html_body, subtype="html")
 
     with smtplib.SMTP(config.FEEDBACK_SMTP_HOST, config.FEEDBACK_SMTP_PORT, timeout=5) as smtp:
         smtp.starttls()
@@ -771,6 +892,14 @@ def api_feedback():
     platform = payload.get("platform")
     if not isinstance(platform, str) or platform not in _FEEDBACK_PLATFORMS:
         return jsonify({"error": "Invalid platform"}), 400
+
+    os_name = payload.get("os")
+    if os_name == "":
+        os_name = None
+    if os_name is not None and not isinstance(os_name, str):
+        return jsonify({"error": "Invalid os"}), 400
+    if os_name not in _FEEDBACK_OS:
+        return jsonify({"error": "Invalid os"}), 400
 
     mode = payload.get("mode")
     if mode == "":
@@ -816,10 +945,11 @@ def api_feedback():
         return jsonify({"error": "Daily feedback limit reached."}), 429
 
     # --- Build & send -------------------------------------------------------
-    subject, body = _format_feedback_email({
+    subject, plain_body, html_body = _format_feedback_email({
         "rating": rating,
         "would_pay": would_pay,
         "platform": platform,
+        "os": os_name,
         "mode": mode,
         **cleaned,
     })
@@ -828,7 +958,7 @@ def api_feedback():
         return jsonify({"error": "Feedback service not configured"}), 503
 
     try:
-        _send_feedback_email(subject, body)
+        _send_feedback_email(subject, plain_body, html_body)
     except Exception:
         # Intentionally do not log the exception body — it could echo SMTP
         # auth or the email content. A generic warning suffices.
