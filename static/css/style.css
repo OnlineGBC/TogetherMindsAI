@@ -464,38 +464,6 @@ body.therapy-page .chat-window {
     .disclaimer-bar { font-size: 0.72rem; line-height: 1.35; padding: 0.25rem 0.5rem !important; }
 }
 
-/* Long-content / form-heavy pages — lock body to viewport and let the inner
-   column scroll. The PAGE never scrolls; only the content within the column.
-   Applied to: privacy, tos, auth, feedback (via body class). */
-body.long-content {
-    height: 100vh;
-    height: 100dvh;
-    overflow: hidden;
-}
-body.long-content main.container {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-body.long-content main.container > .row {
-    flex: 1;
-    min-height: 0;
-}
-body.long-content main.container > .row > [class*="col"] {
-    height: 100%;
-    overflow-y: auto;
-    padding-right: 0.5rem;   /* breathing room for the scrollbar */
-}
-/* Subtle scrollbar styling so the inner scroll doesn't look like a default OS bar */
-body.long-content main.container > .row > [class*="col"]::-webkit-scrollbar {
-    width: 6px;
-}
-body.long-content main.container > .row > [class*="col"]::-webkit-scrollbar-thumb {
-    background: var(--green-light);
-    border-radius: 10px;
-}
 
 /* ---- Silence-nudge countdown line (couple/group) ----
    Single line of plain italic text in a fixed-position overlay. Anchored at

@@ -1,110 +1,111 @@
 {% extends "base.html" %}
-{% block body_class %}long-content{% endblock %}
 {% block title %}Getting Started — TogetherMindsAI{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8 col-lg-7">
+    <div class="col-md-10 col-lg-10 col-xl-9">
 
-        <div class="text-center mb-4">
+        <!-- Compact title row: inline icon + heading + subtitle -->
+        <div class="d-flex align-items-center justify-content-center flex-wrap gap-2 mb-3">
             {% if therapy_mode == "solo" %}
-                <i class="bi bi-person-fill display-3 text-primary-green"></i>
+                <i class="bi bi-person-fill fs-2 text-primary-green"></i>
             {% elif therapy_mode == "couple" %}
-                <i class="bi bi-people-fill display-3 text-primary-green"></i>
+                <i class="bi bi-people-fill fs-2 text-primary-green"></i>
             {% else %}
-                <i class="bi bi-person-lines-fill display-3 text-primary-green"></i>
+                <i class="bi bi-person-lines-fill fs-2 text-primary-green"></i>
             {% endif %}
-            <h2 class="fw-bold mt-3">
+            <h3 class="fw-bold mb-0">
                 {% if therapy_mode == "solo" %}Getting Started with Solo Reflection
                 {% elif therapy_mode == "couple" %}Getting Started with Couple Check-in
                 {% else %}Getting Started with Group Circle{% endif %}
-            </h2>
-            <p class="text-muted">You're moments away from your session.</p>
+            </h3>
+            <span class="text-muted small d-none d-md-inline">— moments from your session.</span>
         </div>
 
         <div class="card shadow-sm border-0 rounded-4">
-            <div class="card-body p-4">
+            <div class="card-body p-3 p-md-4">
 
-                {% if therapy_mode == "couple" %}
-                <div class="alert alert-info-teal rounded-3 mb-4">
-                    <i class="bi bi-info-circle-fill me-2"></i>
-                    After you start, share your session URL with your partner so they can join the same room.
+                <!-- Slim merged status row: browser-only identity + anonymity + (mode-specific share hint) -->
+                <div class="d-flex align-items-center justify-content-center flex-wrap gap-2 small mb-3">
+                    <span class="badge text-warning-emphasis bg-warning-subtle border border-warning-subtle rounded-pill px-3 py-2 fw-normal">
+                        <i class="bi bi-key-fill me-1"></i>
+                        Identity stored in this browser only — clearing data removes access
+                    </span>
+                    <span class="badge text-success-emphasis bg-success-subtle border border-success-subtle rounded-pill px-3 py-2 fw-normal">
+                        <i class="bi bi-shield-check-fill me-1"></i>
+                        No personal identifiers collected
+                    </span>
+                    {% if therapy_mode == "couple" %}
+                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-2 fw-normal">
+                        <i class="bi bi-link-45deg me-1"></i>
+                        Share your session URL with your partner after starting
+                    </span>
+                    {% elif therapy_mode == "group" %}
+                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-2 fw-normal">
+                        <i class="bi bi-link-45deg me-1"></i>
+                        Share the generated Session ID with your group after starting
+                    </span>
+                    {% endif %}
                 </div>
-                {% elif therapy_mode == "group" %}
-                <div class="alert alert-info-teal rounded-3 mb-4">
-                    <i class="bi bi-info-circle-fill me-2"></i>
-                    A unique Session ID will be generated. Share it with your group members to join.
-                </div>
-                {% endif %}
 
-                <!-- Key storage notice -->
-                <div class="alert alert-warning rounded-3 mb-4">
-                    <i class="bi bi-key-fill me-2"></i>
-                    <strong>Your identity is stored in this browser only.</strong>
-                    Clearing browser data will permanently remove your session access — there is no recovery.
-                </div>
+                <p class="fw-semibold mb-2 small">Please read and agree to each:</p>
 
-                <!-- Required consent checkboxes -->
-                <p class="fw-semibold mb-2">Please read and agree to each item:</p>
-                <div class="mb-4 d-flex flex-column gap-2">
-                    <label class="consent-item d-flex align-items-start gap-3 p-3 rounded-3 border border-2 cursor-pointer" for="ageCheck">
-                        <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="ageCheck" required>
-                        <span>
-                            I am <strong>18 years of age or older</strong>.
-                            <span class="text-muted d-block mt-1 small">
-                                If you are under 18 and need support, please speak with a trusted adult
-                                or call/text <strong>988</strong> (free, confidential, 24/7).
+                <!-- 3-up consent grid on ≥lg, stacked on smaller -->
+                <div class="row g-2 mb-3">
+                    <div class="col-lg-4">
+                        <label class="consent-item h-100 d-flex align-items-start gap-2 p-3 rounded-3 border border-2 cursor-pointer" for="ageCheck">
+                            <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="ageCheck" required>
+                            <span class="small">
+                                I am <strong>18 years of age or older</strong>.
+                                <span class="text-muted d-block mt-1" style="font-size:0.78rem">
+                                    Under 18: please speak with a trusted adult or call/text <strong>988</strong>.
+                                </span>
                             </span>
-                        </span>
-                    </label>
-                    <label class="consent-item d-flex align-items-start gap-3 p-3 rounded-3 border border-2 cursor-pointer" for="aiCheck">
-                        <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="aiCheck" required>
-                        <span>
-                            I understand TogetherMindsAI is an <strong>AI tool, not a licensed professional</strong>,
-                            and is <strong>not a substitute</strong> for professional mental health care.
-                            It cannot diagnose conditions or prescribe treatment.
-                        </span>
-                    </label>
-                    <label class="consent-item d-flex align-items-start gap-3 p-3 rounded-3 border border-2 cursor-pointer" for="dataCheck">
-                        <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="dataCheck" required>
-                        <span>
-                            I understand my conversations are <strong>stored on this server</strong>.
-                            At the end of each session, you will be given the opportunity to retain them.
-                            By default, the conversations will be deleted to protect your confidentiality.
-                        </span>
-                    </label>
+                        </label>
+                    </div>
+                    <div class="col-lg-4">
+                        <label class="consent-item h-100 d-flex align-items-start gap-2 p-3 rounded-3 border border-2 cursor-pointer" for="aiCheck">
+                            <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="aiCheck" required>
+                            <span class="small">
+                                TogetherMindsAI is an <strong>AI tool, not a licensed professional</strong>,
+                                and is not a substitute for professional mental health care.
+                            </span>
+                        </label>
+                    </div>
+                    <div class="col-lg-4">
+                        <label class="consent-item h-100 d-flex align-items-start gap-2 p-3 rounded-3 border border-2 cursor-pointer" for="dataCheck">
+                            <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="dataCheck" required>
+                            <span class="small">
+                                My conversations are <strong>stored on this server</strong> and
+                                deleted by default at session end unless I retain them.
+                            </span>
+                        </label>
+                    </div>
                 </div>
 
-                <!-- Anonymity disclosure -->
-                <div class="alert alert-info-teal rounded-3 mb-3">
-                    <i class="bi bi-shield-check-fill me-2"></i>
-                    <strong>Your anonymity is protected.</strong>
-                    This app uses your messages solely to generate AI responses.
-                    Neither this app nor the AI collect names or personal identifiers.
+                <!-- TOS line + Continue button on a single row (stacks on mobile) -->
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <p class="text-muted small mb-0">
+                        By continuing, you agree to our
+                        <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-underline" data-bs-toggle="modal" data-bs-target="#tosModal">Terms of Service</button>.
+                    </p>
+                    <button type="button" id="continueBtn" class="btn btn-primary-green btn-lg rounded-3 ms-md-auto" disabled>
+                        <span id="btnText">
+                            <i class="bi bi-arrow-right-circle-fill me-2"></i>I agree — Continue
+                        </span>
+                        <span id="btnSpinner" class="d-none">
+                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                            Setting up your identity&hellip;
+                        </span>
+                    </button>
                 </div>
 
-                <!-- TOS agreement line -->
-                <p class="text-muted small text-center mb-3">
-                    By continuing, you agree to our
-                    <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-underline" data-bs-toggle="modal" data-bs-target="#tosModal">Terms of Service</button>.
-                </p>
-
-                <button type="button" id="continueBtn" class="btn btn-primary-green btn-lg w-100 rounded-3" disabled>
-                    <span id="btnText">
-                        <i class="bi bi-arrow-right-circle-fill me-2"></i>I agree — Continue
-                    </span>
-                    <span id="btnSpinner" class="d-none">
-                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                        Setting up your identity&hellip;
-                    </span>
-                </button>
-
-                <div id="authError" class="alert alert-danger mt-3 d-none" role="alert"></div>
+                <div id="authError" class="alert alert-danger mt-3 mb-0 d-none" role="alert"></div>
 
             </div>
         </div>
 
-        <div class="text-center mt-3">
+        <div class="text-center mt-2">
             <a href="/" class="text-muted small">
                 <i class="bi bi-arrow-left me-1"></i>Back to home
             </a>

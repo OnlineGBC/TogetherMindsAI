@@ -1,87 +1,88 @@
 {% extends "base.html" %}
-{% block body_class %}long-content{% endblock %}
 {% block title %}Send Feedback — TogetherMindsAI{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8 col-lg-7">
+    <div class="col-md-10 col-lg-10 col-xl-9">
 
-        <div class="d-flex align-items-center justify-content-between mb-3">
-            <div>
+        <!-- Compact title row + privacy note inline -->
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-chat-heart-fill fs-3 text-primary-green"></i>
                 <h3 class="fw-bold mb-0">Share your feedback</h3>
-                <small class="text-muted">Help us improve TogetherMindsAI</small>
             </div>
-        </div>
-
-        <div class="alert alert-light rounded-4 small mb-4">
-            <i class="bi bi-shield-lock-fill text-primary-green me-1"></i>
-            We don't collect your IP, name, or any session content. This goes to our team email.
+            <span class="badge text-success-emphasis bg-success-subtle border border-success-subtle rounded-pill px-3 py-2 fw-normal small">
+                <i class="bi bi-shield-lock-fill me-1"></i>
+                No IP, name, or session content captured
+            </span>
         </div>
 
         <div class="card border-0 shadow-sm rounded-4">
-            <div class="card-body p-4">
+            <div class="card-body p-3 p-md-4">
 
                 <div id="feedbackStatus" class="alert d-none rounded-3 small mb-3" role="status"></div>
 
                 <form id="feedbackForm" novalidate>
 
-                    <div class="mb-4">
-                        <label class="form-label fw-semibold">
-                            How did you feel about your session?
-                        </label>
-                        <div class="d-flex gap-2 align-items-center mb-2" id="ratingButtons">
-                            {% for n in [1, 2, 3, 4, 5] %}
-                            <button type="button" class="btn btn-outline-secondary rounded-circle rating-btn"
-                                    data-rating="{{ n }}" aria-label="Rate {{ n }}">{{ n }}</button>
-                            {% endfor %}
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="ratingNA">
-                            <label class="form-check-label small text-muted" for="ratingNA">
-                                N/A — I didn't use a session
+                    <!-- Top row: rating (with N/A inline) + would-pay side-by-side on ≥md -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-7">
+                            <label class="form-label fw-semibold small mb-1">
+                                How did you feel about your session?
                             </label>
+                            <div class="d-flex gap-2 align-items-center flex-wrap" id="ratingButtons">
+                                {% for n in [1, 2, 3, 4, 5] %}
+                                <button type="button" class="btn btn-outline-secondary rounded-circle rating-btn"
+                                        data-rating="{{ n }}" aria-label="Rate {{ n }}">{{ n }}</button>
+                                {% endfor %}
+                                <div class="form-check ms-2">
+                                    <input class="form-check-input" type="checkbox" id="ratingNA">
+                                    <label class="form-check-label small text-muted" for="ratingNA">
+                                        N/A — no session
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold small mb-1">
+                                Would you pay for longer access or more features?
+                            </label>
+                            <div class="d-flex gap-2 flex-wrap" id="payButtons">
+                                <button type="button" class="btn btn-outline-secondary rounded-pill pay-btn" data-pay="yes">Yes</button>
+                                <button type="button" class="btn btn-outline-secondary rounded-pill pay-btn" data-pay="maybe">Maybe</button>
+                                <button type="button" class="btn btn-outline-secondary rounded-pill pay-btn" data-pay="no">No</button>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label for="whatWorked" class="form-label fw-semibold">What worked well?</label>
-                        <textarea class="form-control rounded-3" id="whatWorked"
-                                  rows="3" maxlength="1000"></textarea>
-                        <div class="form-text"><span class="char-count" data-for="whatWorked">0</span> / 1000</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="whatToImprove" class="form-label fw-semibold">What could be improved?</label>
-                        <textarea class="form-control rounded-3" id="whatToImprove"
-                                  rows="3" maxlength="1000"></textarea>
-                        <div class="form-text"><span class="char-count" data-for="whatToImprove">0</span> / 1000</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="desiredFeatures" class="form-label fw-semibold">
-                            What additional features would you want to see?
-                        </label>
-                        <textarea class="form-control rounded-3" id="desiredFeatures"
-                                  rows="3" maxlength="1000"></textarea>
-                        <div class="form-text"><span class="char-count" data-for="desiredFeatures">0</span> / 1000</div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label fw-semibold">
-                            Would you pay for longer access or more features?
-                        </label>
-                        <div class="d-flex gap-2 flex-wrap" id="payButtons">
-                            <button type="button" class="btn btn-outline-secondary rounded-pill pay-btn" data-pay="yes">Yes</button>
-                            <button type="button" class="btn btn-outline-secondary rounded-pill pay-btn" data-pay="maybe">Maybe</button>
-                            <button type="button" class="btn btn-outline-secondary rounded-pill pay-btn" data-pay="no">No</button>
+                    <!-- 4 textareas in a 2×2 grid on ≥md, stacked on mobile -->
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="whatWorked" class="form-label fw-semibold small mb-1">What worked well?</label>
+                            <textarea class="form-control rounded-3" id="whatWorked"
+                                      rows="3" maxlength="1000"></textarea>
+                            <div class="form-text small"><span class="char-count" data-for="whatWorked">0</span> / 1000</div>
                         </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label for="otherFeedback" class="form-label fw-semibold">Anything else?</label>
-                        <textarea class="form-control rounded-3" id="otherFeedback"
-                                  rows="3" maxlength="1000"></textarea>
-                        <div class="form-text"><span class="char-count" data-for="otherFeedback">0</span> / 1000</div>
+                        <div class="col-md-6">
+                            <label for="whatToImprove" class="form-label fw-semibold small mb-1">What could be improved?</label>
+                            <textarea class="form-control rounded-3" id="whatToImprove"
+                                      rows="3" maxlength="1000"></textarea>
+                            <div class="form-text small"><span class="char-count" data-for="whatToImprove">0</span> / 1000</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="desiredFeatures" class="form-label fw-semibold small mb-1">
+                                Additional features you'd want?
+                            </label>
+                            <textarea class="form-control rounded-3" id="desiredFeatures"
+                                      rows="3" maxlength="1000"></textarea>
+                            <div class="form-text small"><span class="char-count" data-for="desiredFeatures">0</span> / 1000</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="otherFeedback" class="form-label fw-semibold small mb-1">Anything else?</label>
+                            <textarea class="form-control rounded-3" id="otherFeedback"
+                                      rows="3" maxlength="1000"></textarea>
+                            <div class="form-text small"><span class="char-count" data-for="otherFeedback">0</span> / 1000</div>
+                        </div>
                     </div>
 
                     <button type="submit" id="feedbackSubmitBtn"
