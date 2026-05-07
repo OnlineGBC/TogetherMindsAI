@@ -109,6 +109,8 @@ steps:
       - FEEDBACK_SMTP_USER=FEEDBACK_SMTP_USER:latest
       - --set-secrets
       - FEEDBACK_SMTP_PASSWORD=FEEDBACK_SMTP_PASSWORD:latest
+      - --set-secrets
+      - FEEDBACK_TO_EMAIL=FEEDBACK_TO_EMAIL:latest
       - --min-instances
       - "0"
       - --max-instances
