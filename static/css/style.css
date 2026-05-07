@@ -153,6 +153,7 @@ hr.border-green {
 /* ---- Chat window ---- */
 .chat-window {
     height: calc(100vh - 280px);
+    height: calc(100dvh - 280px);
     min-height: 320px;
     border-radius: var(--border-radius) !important;
 }
@@ -328,10 +329,15 @@ hr.border-green {
     to { transform: rotate(360deg); }
 }
 
-/* ---- Therapy page: full-viewport flex layout (no page scroll) ---- */
+/* ---- Reflection page: viewport-fit flex layout, falls back to page scroll
+       when content exceeds viewport (e.g. at high zoom). dvh keeps mobile
+       browser chrome from causing jumps; vh kept as fallback for older UAs. */
 body.therapy-page {
+    min-height: 100vh;
+    min-height: 100dvh;
     height: 100vh;
-    overflow: hidden;
+    height: 100dvh;
+    overflow-y: auto;
 }
 body.therapy-page main.container {
     display: flex;
@@ -339,7 +345,6 @@ body.therapy-page main.container {
     padding-top: 1rem;
     padding-bottom: 0.5rem;
     min-height: 0;
-    overflow: hidden;
 }
 body.therapy-page main.container > .row {
     flex: 1;
@@ -351,7 +356,6 @@ body.therapy-page .therapy-col {
     flex-direction: column;
     min-height: 0;
     height: 100%;
-    overflow: hidden;
 }
 body.therapy-page .chat-window {
     flex: 1;
