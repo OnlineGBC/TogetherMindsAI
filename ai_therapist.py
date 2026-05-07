@@ -621,7 +621,7 @@ _LANGUAGE_NOTE = (
     "\n\n"
     "One note before we begin: my language is English. I will try to understand "
     "and transcribe other languages if you'd like to speak them, but I will only "
-    "respond in English — because English is the only crisis response I am trained on, "
+    "evaluate your responses in English — because English is the only crisis response I am trained on, "
     "and everyone's safety is my primary concern."
     "\n\n"
     "To speak in multiple languages, make sure you have installed a keyboard for that "
