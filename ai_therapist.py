@@ -623,6 +623,11 @@ _LANGUAGE_NOTE = (
     "and transcribe other languages if you'd like to speak them, but I will only "
     "respond in English — because English is the only crisis response I am trained on, "
     "and everyone's safety is my primary concern."
+    "\n\n"
+    "To speak in multiple languages, make sure you have installed a keyboard for that "
+    "language. Activate your device's mic to dictate. I'll then transcribe your input "
+    "in your language and attempt to translate it for you to verify first. This step "
+    "will slow overall response time."
 )
 
 _NAME_HINT = (
