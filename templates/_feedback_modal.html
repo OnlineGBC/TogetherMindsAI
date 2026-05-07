@@ -23,11 +23,13 @@
 
                     <div class="mb-3">
                         <label class="form-label fw-semibold small">How did you feel about your session?</label>
-                        <div class="d-flex gap-2 align-items-center mb-2" id="ratingButtonsModal">
+                        <div class="d-flex gap-2 align-items-center mb-2 flex-wrap" id="ratingButtonsModal">
                             {% for n in [1, 2, 3, 4, 5] %}
                             <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle rating-btn"
                                     data-rating="{{ n }}" aria-label="Rate {{ n }}">{{ n }}</button>
                             {% endfor %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill rating-na-btn ms-1"
+                                    aria-label="Did not use a session">N/A</button>
                         </div>
                     </div>
 

@@ -43,6 +43,7 @@
     function bindRatingButtons(container, state) {
         if (!container) return;
         var btns = container.querySelectorAll(".rating-btn");
+        var naBtn = container.querySelector(".rating-na-btn");
         btns.forEach(function (b) {
             b.addEventListener("click", function () {
                 state.rating = parseInt(b.getAttribute("data-rating"), 10);
@@ -53,8 +54,30 @@
                 b.classList.remove("btn-outline-secondary");
                 b.classList.add("btn-primary-green", "active");
                 if (state.naCheckbox) state.naCheckbox.checked = false;
+                if (naBtn) {
+                    naBtn.classList.remove("btn-primary-green", "active");
+                    naBtn.classList.add("btn-outline-secondary");
+                }
             });
         });
+        if (naBtn) {
+            naBtn.addEventListener("click", function () {
+                if (!state.naCheckbox) state.naCheckbox = { checked: false };
+                state.naCheckbox.checked = !state.naCheckbox.checked;
+                if (state.naCheckbox.checked) {
+                    state.rating = null;
+                    btns.forEach(function (other) {
+                        other.classList.remove("btn-primary-green", "active");
+                        other.classList.add("btn-outline-secondary");
+                    });
+                    naBtn.classList.remove("btn-outline-secondary");
+                    naBtn.classList.add("btn-primary-green", "active");
+                } else {
+                    naBtn.classList.remove("btn-primary-green", "active");
+                    naBtn.classList.add("btn-outline-secondary");
+                }
+            });
+        }
     }
 
     function bindPayButtons(container, state) {
@@ -238,8 +261,8 @@
         var state = {
             rating: null,
             wouldPay: null,
-            naCheckbox: null,
-            redirectUrl: null,   // null = stay on page; string = redirect on close/submit
+            naCheckbox: { checked: false },   // fake checkbox-like for the modal's N/A button
+            redirectUrl: null,                 // null = stay on page; string = redirect on close/submit
         };
         var fields = {
             whatWorked: document.getElementById("whatWorkedModal"),
@@ -256,6 +279,7 @@
         function resetForm() {
             state.rating = null;
             state.wouldPay = null;
+            if (state.naCheckbox) state.naCheckbox.checked = false;
             ["whatWorked", "whatToImprove", "desiredFeatures", "other"].forEach(function (k) {
                 if (fields[k]) fields[k].value = "";
             });
@@ -264,6 +288,11 @@
                 b.classList.remove("btn-primary-green", "active");
                 b.classList.add("btn-outline-secondary");
             });
+            var naBtn = modalEl.querySelector(".rating-na-btn");
+            if (naBtn) {
+                naBtn.classList.remove("btn-primary-green", "active");
+                naBtn.classList.add("btn-outline-secondary");
+            }
             var payBtns = modalEl.querySelectorAll(".pay-btn");
             payBtns.forEach(function (b) {
                 b.classList.remove("btn-primary-green", "active");
