@@ -398,3 +398,46 @@ body.therapy-page .chat-window {
     font-weight: 600;
     color: var(--teal-dark);
 }
+
+/* ---- Floating feedback button (bottom-right, every page) ---- */
+.feedback-fab {
+    position: fixed;
+    bottom: 1.25rem;
+    right: 1.25rem;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background-color: var(--green-primary);
+    color: #fff;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 1040;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+    text-decoration: none;
+}
+.feedback-fab:hover,
+.feedback-fab:focus {
+    background-color: var(--green-dark);
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+    outline: none;
+}
+.feedback-fab i {
+    font-size: 1.4rem;
+    line-height: 1;
+}
+@media (max-width: 576px) {
+    .feedback-fab {
+        width: 48px;
+        height: 48px;
+        bottom: 5rem;          /* clear the chat input on therapy/reflection pages */
+        right: 0.9rem;
+    }
+    .feedback-fab i {
+        font-size: 1.2rem;
+    }
+}
