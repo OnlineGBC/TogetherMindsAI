@@ -235,8 +235,8 @@
 {% block scripts %}{% endblock %}
 
 <!-- Floating feedback button + popup modal (every page except /feedback itself).
-     Placed AFTER Bootstrap JS so `new bootstrap.Modal(...)` works, and AFTER
-     {% block scripts %} so page-specific globals (SESSION_MODE, etc.) are set. -->
+     Placed AFTER Bootstrap JS so bootstrap.Modal is defined, and AFTER the
+     scripts block so page-specific globals (SESSION_MODE, etc.) are set. -->
 {% if request.path != '/feedback' %}
 <button type="button"
         class="feedback-fab"
