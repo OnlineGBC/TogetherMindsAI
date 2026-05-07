@@ -7,39 +7,41 @@
     <div class="col-12 col-lg-10 therapy-col">
 
         <!-- Header -->
-        <div class="d-flex align-items-center justify-content-between mb-3">
-            <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-robot text-primary-green fs-3"></i>
-                <div>
-                    <h4 class="mb-0 fw-bold">Solo Reflection with AI Guide</h4>
-                    <small class="text-muted">Your private, judgment-free space</small>
+        <div class="d-flex align-items-center justify-content-between mb-2 mb-md-3 gap-2">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+                <i class="bi bi-robot text-primary-green fs-3 flex-shrink-0"></i>
+                <div class="min-w-0">
+                    <h4 class="mb-0 fw-bold text-truncate">Solo Reflection with AI Guide</h4>
+                    <small class="text-muted d-none d-md-block">Your private, judgment-free space</small>
                 </div>
             </div>
-            <div class="d-flex gap-2">
-                <a
-                    href="/progress/{{ user_id }}/solo"
-                    class="btn btn-outline-green btn-sm rounded-pill"
-                >
-                    <i class="bi bi-bar-chart-fill me-1"></i>Progress
+            <div class="d-flex gap-1 gap-md-2 flex-shrink-0">
+                <a href="/progress/{{ user_id }}/solo"
+                   class="btn btn-outline-green btn-sm rounded-pill" title="Progress">
+                    <i class="bi bi-bar-chart-fill"></i><span class="d-none d-md-inline ms-1">Progress</span>
                 </a>
-                <button
-                    type="button"
-                    class="btn btn-outline-danger btn-sm rounded-pill"
-                    data-bs-toggle="modal"
-                    data-bs-target="#endSessionModal"
-                >
-                    <i class="bi bi-door-open-fill me-1"></i>End Session
+                <button type="button"
+                        class="btn btn-outline-danger btn-sm rounded-pill"
+                        data-bs-toggle="modal" data-bs-target="#endSessionModal"
+                        title="End Session">
+                    <i class="bi bi-door-open-fill"></i><span class="d-none d-md-inline ms-1">End Session</span>
                 </button>
             </div>
         </div>
 
         <!-- Session ID banner -->
-        <div class="alert alert-share rounded-4 mb-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+        <div class="alert alert-share rounded-4 mb-2 mb-md-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
             <div class="d-flex align-items-center gap-2">
                 <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
                 <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
                 <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
                     <i class="bi bi-clipboard"></i>
+                </button>
+                <!-- Privacy info toggle — phone only -->
+                <button class="btn btn-outline-green btn-sm rounded-pill py-0 d-sm-none"
+                        type="button" data-bs-toggle="collapse" data-bs-target="#privacyBanner"
+                        title="Privacy & session info">
+                    <i class="bi bi-info-circle"></i>
                 </button>
             </div>
             <div class="d-flex align-items-center gap-2">
@@ -51,8 +53,9 @@
             </div>
         </div>
 
-        <!-- Privacy / welcome banner (dismissible — Bootstrap alert; not persisted across reloads by design) -->
-        <div class="alert alert-info alert-dismissible rounded-4 mb-3 py-2 px-3 d-flex align-items-start gap-2" id="privacyBanner">
+        <!-- Privacy / welcome banner — hidden by default on phones (toggle via info icon above);
+             always visible on ≥sm. Dismissible via the close button on tablet+. -->
+        <div class="alert alert-info alert-dismissible rounded-4 mb-2 mb-md-3 py-2 px-3 align-items-start gap-2 collapse privacy-banner" id="privacyBanner">
             <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1"></i>
             <div class="flex-grow-1 small">
                 <strong>This session is fully confidential</strong> — visible only to you.
