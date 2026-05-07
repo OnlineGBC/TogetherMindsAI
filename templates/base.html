@@ -105,9 +105,9 @@
             var el = document.getElementById("feedbackFab");
             if (el) new bootstrap.Tooltip(el);
         }
-        // Initialise FAB + end-of-session modal hookup once the page-specific
-        // scripts (which may set window.SESSION_MODE / END_SESSION_REDIRECT_URL)
-        // have run. {% block scripts %} renders before this script.
+        // Initialise FAB + end-of-session modal hookup. Page-specific scripts
+        // (which may set window.SESSION_MODE / END_SESSION_REDIRECT_URL) render
+        // earlier in the page, so those globals are available here.
         if (typeof initFeedbackOnAllPages === "function") {
             initFeedbackOnAllPages({
                 mode: window.SESSION_MODE || null,
