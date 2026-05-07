@@ -145,17 +145,16 @@
 </div>
 {% endblock %}
 
-{% include "_feedback_modal.html" %}
-
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
-<script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
 <script>
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
     var SESSION_ID = "{{ session_id }}";
     var DISPLAY_ID = "{{ session_id }}";
     var MODE       = "couple";
+    window.SESSION_MODE              = "couple";
+    window.END_SESSION_REDIRECT_URL  = "/progress/" + USER_ID + "/couple";
 
     document.getElementById("shareUrl").value = window.location.href;
 
@@ -251,7 +250,6 @@
         joinRoom(SESSION_ID, USER_ID, MODE, false /* not solo */);
         startWellnessCheck();
         initDisplayNameRename(SESSION_ID, USER_ID, false /* not solo */);
-        initFeedbackModal({ mode: "couple", redirectUrl: "/progress/" + USER_ID + "/couple" });
         initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/couple");
         initVoiceInput({ inputId: "messageInput" });
     });

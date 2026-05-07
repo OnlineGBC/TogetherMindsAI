@@ -216,19 +216,31 @@
         });
     };
 
-    // -------- End-of-session modal -----------------------------------------
+    // -------- Unified popup modal (FAB + end-of-session) -------------------
+    //
+    // Two trigger paths share the SAME modal element:
+    //   (a) FAB click on any page  →  no redirect on submit/close
+    //   (b) End Session confirm    →  redirect to /progress/... on submit/close
+    //
+    // The "redirectUrl" in shared state is set per open and read by the
+    // Submit/Skip handlers to decide whether to navigate away.
 
-    window.initFeedbackModal = function (opts) {
+    window.initFeedbackOnAllPages = function (opts) {
         var modalEl = document.getElementById("feedbackModal");
         if (!modalEl) return;
 
         var statusEl = document.getElementById("feedbackModalStatus");
         var skipBtn = document.getElementById("feedbackSkipBtn");
         var submitBtn = document.getElementById("feedbackModalSubmitBtn");
+        var fabBtn = document.getElementById("feedbackFab");
         var confirmEndBtn = document.getElementById("endSessionConfirmBtn");
-        if (!confirmEndBtn) return;
 
-        var state = { rating: null, wouldPay: null, naCheckbox: null };
+        var state = {
+            rating: null,
+            wouldPay: null,
+            naCheckbox: null,
+            redirectUrl: null,   // null = stay on page; string = redirect on close/submit
+        };
         var fields = {
             whatWorked: document.getElementById("whatWorkedModal"),
             whatToImprove: document.getElementById("whatToImproveModal"),
@@ -241,41 +253,84 @@
 
         var modal = new bootstrap.Modal(modalEl);
 
-        function redirect() {
-            window._sessionEnded = true;
-            window.location.href = opts.redirectUrl;
+        function resetForm() {
+            state.rating = null;
+            state.wouldPay = null;
+            ["whatWorked", "whatToImprove", "desiredFeatures", "other"].forEach(function (k) {
+                if (fields[k]) fields[k].value = "";
+            });
+            var ratingBtns = modalEl.querySelectorAll(".rating-btn");
+            ratingBtns.forEach(function (b) {
+                b.classList.remove("btn-primary-green", "active");
+                b.classList.add("btn-outline-secondary");
+            });
+            var payBtns = modalEl.querySelectorAll(".pay-btn");
+            payBtns.forEach(function (b) {
+                b.classList.remove("btn-primary-green", "active");
+                b.classList.add("btn-outline-secondary");
+            });
+            clearStatus(statusEl);
+            submitBtn.disabled = false;
+            skipBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i>Send feedback';
         }
 
-        // Intercept End Session confirm — capture phase so we run before
-        // initEndSessionGuard's listener does its redirect.
-        confirmEndBtn.addEventListener("click", function (e) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-
-            // Persist nickname (mirroring the original confirm handler)
-            var nicknameInput = document.getElementById("endSessionNickname");
-            if (nicknameInput && nicknameInput.value.trim()) {
-                try {
-                    localStorage.setItem("session_nickname_" + (window.SESSION_ID || ""), nicknameInput.value.trim());
-                } catch (err) {}
+        function closeOrRedirect() {
+            if (state.redirectUrl) {
+                window._sessionEnded = true;
+                window.location.href = state.redirectUrl;
+            } else {
+                modal.hide();
             }
+        }
 
-            // Hide the End Session modal, show the feedback modal
-            var endModal = bootstrap.Modal.getInstance(document.getElementById("endSessionModal"));
-            if (endModal) endModal.hide();
-            clearStatus(statusEl);
-            modal.show();
-        }, true);
+        // ---- Trigger 1: FAB click (no redirect) ---------------------------
+        if (fabBtn) {
+            fabBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                state.redirectUrl = null;
+                skipBtn.textContent = "Cancel";
+                resetForm();
+                modal.show();
+            });
+        }
 
+        // ---- Trigger 2: End Session confirm (with redirect) ---------------
+        // Capture phase so this fires BEFORE initEndSessionGuard's listener.
+        if (confirmEndBtn && opts.endSessionRedirectUrl) {
+            confirmEndBtn.addEventListener("click", function (e) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+
+                // Persist nickname (mirroring the original handler)
+                var nicknameInput = document.getElementById("endSessionNickname");
+                if (nicknameInput && nicknameInput.value.trim()) {
+                    try {
+                        localStorage.setItem("session_nickname_" + (window.SESSION_ID || ""), nicknameInput.value.trim());
+                    } catch (err) {}
+                }
+
+                var endModal = bootstrap.Modal.getInstance(document.getElementById("endSessionModal"));
+                if (endModal) endModal.hide();
+
+                state.redirectUrl = opts.endSessionRedirectUrl;
+                skipBtn.textContent = "Skip";
+                resetForm();
+                modal.show();
+            }, true);
+        }
+
+        // ---- Skip / Cancel button -----------------------------------------
         skipBtn.addEventListener("click", function () {
-            redirect();
+            closeOrRedirect();
         });
 
+        // ---- Submit button ------------------------------------------------
         submitBtn.addEventListener("click", function () {
             clearStatus(statusEl);
             var payload = buildPayload({ fields: fields, mode: opts.mode }, state);
             if (!hasAnyContent(payload)) {
-                redirect();
+                closeOrRedirect();
                 return;
             }
 
@@ -285,8 +340,11 @@
 
             submitFeedback(payload).then(function (r) {
                 if (r.ok) {
-                    setStatus(statusEl, "success", "Thank you — sending you on your way.");
-                    setTimeout(redirect, 900);
+                    var msg = state.redirectUrl
+                        ? "Thank you — sending you on your way."
+                        : "Thank you — your feedback has been sent.";
+                    setStatus(statusEl, "success", msg);
+                    setTimeout(closeOrRedirect, 1100);
                 } else {
                     setStatus(statusEl, "danger", (r.body && r.body.error) || "Could not send feedback.");
                     submitBtn.disabled = false;

@@ -84,21 +84,36 @@
     </small>
 </footer>
 
-<!-- Floating feedback button (every page except /feedback itself) -->
+<!-- Floating feedback button + popup modal (every page except /feedback itself) -->
 {% if request.path != '/feedback' %}
-<a href="/feedback"
-   class="feedback-fab"
-   aria-label="Send feedback"
-   title="Send feedback"
-   data-bs-toggle="tooltip"
-   data-bs-placement="left">
+<button type="button"
+        class="feedback-fab"
+        id="feedbackFab"
+        aria-label="Send feedback"
+        title="Send feedback"
+        data-bs-toggle="tooltip"
+        data-bs-placement="left">
     <i class="bi bi-chat-heart-fill"></i>
-</a>
+</button>
+
+{% include "_feedback_modal.html" %}
+
+<script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
 <script>
     (function () {
-        if (typeof bootstrap === "undefined" || !bootstrap.Tooltip) return;
-        var el = document.querySelector(".feedback-fab");
-        if (el) new bootstrap.Tooltip(el);
+        if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
+            var el = document.getElementById("feedbackFab");
+            if (el) new bootstrap.Tooltip(el);
+        }
+        // Initialise FAB + end-of-session modal hookup once the page-specific
+        // scripts (which may set window.SESSION_MODE / END_SESSION_REDIRECT_URL)
+        // have run. {% block scripts %} renders before this script.
+        if (typeof initFeedbackOnAllPages === "function") {
+            initFeedbackOnAllPages({
+                mode: window.SESSION_MODE || null,
+                endSessionRedirectUrl: window.END_SESSION_REDIRECT_URL || null,
+            });
+        }
     })();
 </script>
 {% endif %}

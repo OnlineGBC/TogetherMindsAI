@@ -154,15 +154,14 @@
 </div>
 {% endblock %}
 
-{% include "_feedback_modal.html" %}
-
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
-<script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
 <script>
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
     var SESSION_ID = "{{ session_id }}";
+    window.SESSION_MODE              = "solo";
+    window.END_SESSION_REDIRECT_URL  = "/progress/" + USER_ID + "/solo";
     var _DISPLAY_ID = SESSION_ID;
 
     function copySessionId(id) {
@@ -233,11 +232,8 @@
     // Wellness check after 20 minutes of inactivity
     startWellnessCheck();
 
-    // Feedback modal must be initialised BEFORE initEndSessionGuard so its
-    // capture-phase listener intercepts the End Session confirm click first.
-    initFeedbackModal({ mode: "solo", redirectUrl: "/progress/" + USER_ID + "/solo" });
-
-    // End Session guard
+    // End Session guard. The feedback popup interceptor is wired in base.html
+    // and uses window.END_SESSION_REDIRECT_URL set above.
     initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/solo");
 
     // Join socket (solo mode — for display name prompt only; messages use HTTP form)
