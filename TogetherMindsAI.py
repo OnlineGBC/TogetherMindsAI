@@ -850,7 +850,7 @@ def _send_feedback_email(subject: str, plain_body: str, html_body: str) -> None:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER
-    msg["To"] = config.FEEDBACK_TO_EMAIL
+    msg["To"] = ", ".join(config.FEEDBACK_TO_EMAILS)
     msg.set_content(plain_body)
     msg.add_alternative(html_body, subtype="html")
 

@@ -122,7 +122,13 @@ FEEDBACK_SMTP_HOST: str = os.environ.get("FEEDBACK_SMTP_HOST", "smtp.gmail.com")
 FEEDBACK_SMTP_PORT: int = int(os.environ.get("FEEDBACK_SMTP_PORT", "587"))
 FEEDBACK_SMTP_USER: str = os.environ.get("FEEDBACK_SMTP_USER", "")
 FEEDBACK_SMTP_PASSWORD: str = os.environ.get("FEEDBACK_SMTP_PASSWORD", "")
-FEEDBACK_TO_EMAIL: str = os.environ.get("FEEDBACK_TO_EMAIL", "raja@onlinegbc.com")
+# Comma-separated list of recipients. Stored as a list internally; rendered
+# back to a comma-separated string when set on the email To: header.
+_feedback_to_raw: str = os.environ.get("FEEDBACK_TO_EMAIL", "raja@onlinegbc.com")
+FEEDBACK_TO_EMAILS: list = [addr.strip() for addr in _feedback_to_raw.split(",") if addr.strip()]
+# Kept for backward-compat with anything that still imports the old name —
+# always the first recipient. New code should use FEEDBACK_TO_EMAILS.
+FEEDBACK_TO_EMAIL: str = FEEDBACK_TO_EMAILS[0] if FEEDBACK_TO_EMAILS else ""
 FEEDBACK_FROM_EMAIL: str = os.environ.get("FEEDBACK_FROM_EMAIL", FEEDBACK_SMTP_USER)
 
 
