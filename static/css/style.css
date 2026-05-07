@@ -417,6 +417,24 @@ body.therapy-page .chat-window {
     .py-4 { padding-top: 1rem !important; padding-bottom: 1rem !important; }
 }
 
+@media (max-height: 800px) {
+    /* Catches 1366×768 laptops which the 900-rule didn't tighten enough */
+    main.container { padding-top: 0.6rem !important; padding-bottom: 0.5rem !important; }
+    .display-1 { font-size: 2.8rem !important; }
+    .display-3 { font-size: 2.1rem !important; }
+    .display-4 { font-size: 1.85rem !important; }
+    .display-5 { font-size: 1.65rem !important; }
+    .hero-icon       { width: 60px; height: 60px; }
+    .hero-icon .bi   { font-size: 2.1rem !important; }
+    .therapy-icon    { width: 52px; height: 52px; }
+    .therapy-icon .bi{ font-size: 1.85rem !important; }
+    .mb-4 { margin-bottom: 0.6rem !important; }
+    .mb-3 { margin-bottom: 0.5rem !important; }
+    .mt-3 { margin-top: 0.5rem !important; }
+    .py-5 { padding-top: 1rem !important; padding-bottom: 1rem !important; }
+    .therapy-card .card-body { padding: 0.85rem !important; }
+}
+
 @media (max-height: 760px) {
     main.container { padding-top: 0.5rem !important; padding-bottom: 0.4rem !important; }
 
@@ -446,15 +464,20 @@ body.therapy-page .chat-window {
     .disclaimer-bar { font-size: 0.72rem; line-height: 1.35; padding: 0.25rem 0.5rem !important; }
 }
 
-/* Long-content pages (privacy, tos) — wrap their content area in a
-   viewport-bound scroll container so the PAGE never scrolls, only the
-   inner card. Applied via body class added below. */
-body.long-content main.container {
-    height: calc(100vh - 110px);
-    height: calc(100dvh - 110px);
+/* Long-content / form-heavy pages — lock body to viewport and let the inner
+   column scroll. The PAGE never scrolls; only the content within the column.
+   Applied to: privacy, tos, auth, feedback (via body class). */
+body.long-content {
+    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
+}
+body.long-content main.container {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 body.long-content main.container > .row {
     flex: 1;
@@ -463,7 +486,15 @@ body.long-content main.container > .row {
 body.long-content main.container > .row > [class*="col"] {
     height: 100%;
     overflow-y: auto;
-    padding-right: 1rem;
+    padding-right: 0.5rem;   /* breathing room for the scrollbar */
+}
+/* Subtle scrollbar styling so the inner scroll doesn't look like a default OS bar */
+body.long-content main.container > .row > [class*="col"]::-webkit-scrollbar {
+    width: 6px;
+}
+body.long-content main.container > .row > [class*="col"]::-webkit-scrollbar-thumb {
+    background: var(--green-light);
+    border-radius: 10px;
 }
 
 /* ---- Silence-nudge countdown line (couple/group) ----
