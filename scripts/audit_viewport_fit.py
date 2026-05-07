@@ -14,14 +14,17 @@ from playwright.sync_api import sync_playwright
 BASE_URL = "https://127.0.0.1:5001"
 
 VIEWPORTS = [
-    ("1920x1080 desktop",   1920, 1080),
-    ("1366x768 laptop",     1366, 768),
-    ("1280x800 macbook",    1280, 800),
-    ("414x896 iPhone 11",   414, 896),
-    ("375x667 iPhone SE",   375, 667),
-    ("412x915 Pixel 7",     412, 915),
-    ("412x892 Pixel 7 Pro", 412, 892),
-    ("360x780 Galaxy S23",  360, 780),
+    ("1920x1080 desktop",        1920, 1080),
+    ("1536x960 14\" Win laptop", 1536, 960),
+    ("1512x982 MBP 14\"",        1512, 982),
+    ("1440x900 14\" XPS / older",1440, 900),
+    ("1366x768 budget laptop",   1366, 768),
+    ("1280x800 legacy MBA",      1280, 800),
+    ("414x896 iPhone 11",        414, 896),
+    ("375x667 iPhone SE",        375, 667),
+    ("412x915 Pixel 7",          412, 915),
+    ("412x892 Pixel 7 Pro",      412, 892),
+    ("360x780 Galaxy S23",       360, 780),
 ]
 
 PUBLIC_PAGES = [
