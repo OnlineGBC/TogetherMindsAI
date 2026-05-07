@@ -3,7 +3,6 @@ const PRECACHE = [
   "/",
   "/static/css/style.css",
   "/static/js/therapy.js",
-  "/static/js/voice.js",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
 ];

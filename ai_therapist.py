@@ -25,13 +25,13 @@ CRISIS_KEYWORDS = {
     "cutting myself", "hurt myself", "hurting myself", "harm myself",
     "overdose", "take my own life", "end it all", "better off dead",
     "not worth living", "rather be dead", "wish i was dead",
-    # Translated-idiom phrases — added when multilingual voice (Whisper translate)
-    # was enabled. Whisper renders non-English crisis idioms literally into
-    # English, which strips clinical weight from phrases that are unmistakable
-    # in their source language. Examples: ES "no veo salida" → "I don't see a way
-    # out"; JA "消えたい" → "I want to disappear"; FR "j'en ai marre de la vie" →
-    # "I'm fed up with life". These additions also strengthen English-original
-    # crisis detection.
+    # Translated-idiom phrases — defence in depth for multilingual input.
+    # Even with Sonnet-based translation in /api/translate-check, machine
+    # translation can flatten clinical weight from phrases unmistakable in
+    # their source language. Examples: ES "no veo salida" → "I don't see a
+    # way out"; JA "消えたい" → "I want to disappear"; FR "j'en ai marre de la
+    # vie" → "I'm fed up with life". Including these patterns here also
+    # strengthens English-original crisis detection.
     "no way out", "no escape", "can't take it anymore", "cannot take it anymore",
     "can't go on", "cannot go on", "no point in living", "no point anymore",
     "tired of living", "fed up with life", "want to disappear", "want to vanish",
@@ -517,7 +517,7 @@ def _medical_guard(response: str) -> str:
     """Two-layer output guard against medical diagnoses, drug names, or treatment instructions.
 
     Layer 1 — keyword pre-filter: catches obvious forbidden phrases instantly.
-    Layer 2 — Claude Haiku check: catches hallucinated drug names, dosage
+    Layer 2 — Claude Sonnet check: catches hallucinated drug names, dosage
               recommendations, or diagnostic language that keywords would miss.
 
     Returns the original response if clean, or MEDICAL_GUARD_SAFE_RESPONSE if flagged.
@@ -529,11 +529,11 @@ def _medical_guard(response: str) -> str:
         logger.warning("Medical guard (keyword) caught forbidden phrase in response.")
         return MEDICAL_GUARD_SAFE_RESPONSE
 
-    # Layer 2: Claude Haiku safety check
+    # Layer 2: Claude Sonnet safety check
     try:
         client = _get_claude_client()
         result = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=5,
             messages=[{
                 "role": "user",
@@ -578,13 +578,14 @@ def _claude_crisis_check(text: str) -> bool:
     "I can't go on anymore" or "I don't want to be here" that keywords
     would not catch.
 
-    Uses Claude Haiku for speed and minimal cost (max_tokens=5, YES/NO only).
+    Uses Claude Sonnet for higher-quality contextual signal preservation,
+    especially in translated non-English idioms (max_tokens=5, YES/NO only).
     Returns False on any API failure so the conversation always continues.
     """
     try:
         client = _get_claude_client()
         result = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-6",
             max_tokens=5,
             messages=[{
                 "role": "user",

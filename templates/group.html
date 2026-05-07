@@ -101,15 +101,6 @@
             </div>
             {% endif %}
             <button
-                type="button"
-                id="voiceBtn"
-                class="btn btn-outline-secondary btn-lg px-3"
-                title="Tap to record"
-                aria-label="Record voice message"
-            >
-                <i class="bi bi-mic-fill"></i>
-            </button>
-            <button
                 class="btn btn-primary-green btn-lg px-4"
                 id="sendBtn"
                 disabled
@@ -117,8 +108,12 @@
                 <i class="bi bi-send-fill"></i>
             </button>
         </div>
-        <div id="voiceIndicator" class="text-danger mt-1 ms-1 d-none" aria-live="polite">
-            <i class="bi bi-record-circle me-1"></i>Listening… (tap mic again to stop)
+        <div class="form-text small text-muted mt-1 px-1" style="line-height:1.35">
+            <i class="bi bi-mic me-1"></i>
+            Tap your keyboard's mic icon to dictate. To speak in multiple languages,
+            make sure you have installed a keyboard for that language.
+            I'll then transcribe your input in your language and translate it for you to
+            verify first — that step is slow.
         </div>
 
     </div>
@@ -126,7 +121,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/voice.js') }}"></script>
 <script>
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
@@ -195,14 +189,16 @@
     // Auto-grow input up to ~3 lines (CSS-capped); scrolls inside thereafter.
     initChatTextareaAutoGrow("messageInput");
 
-    // Wire up send button and Enter key (Shift+Enter inserts a newline)
+    // Wire up send button — translation gate runs first; if non-English the
+    // user confirms the English version in a modal before the message is emitted.
     document.getElementById("sendBtn").addEventListener("click", function () {
         var input = document.getElementById("messageInput");
-        var text = input.value.trim();
-        if (text) {
-            sendMessage(SESSION_ID, USER_ID, text, MODE);
+        var text  = input.value.trim();
+        if (!text) return;
+        checkAndConfirmEnglish(text, function (finalText) {
+            sendMessage(SESSION_ID, USER_ID, finalText, MODE);
             if (input._resetAutoGrow) input._resetAutoGrow(); else input.value = "";
-        }
+        });
     });
 
     document.getElementById("messageInput").addEventListener("keydown", function (e) {
@@ -218,7 +214,6 @@
         startWellnessCheck();
         initDisplayNameRename(SESSION_ID, USER_ID, false /* not solo */);
         initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/group");
-        initVoiceInput({ inputId: "messageInput" });
     });
 </script>
 {% endblock %}

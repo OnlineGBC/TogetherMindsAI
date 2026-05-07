@@ -24,8 +24,6 @@ watchdog==6.0.0
 python-docx==1.2.0
 fpdf2==2.8.3
 anthropic==0.77.0
-# OpenAI client — used for Whisper STT (audio → English text via translate task)
-openai>=1.40.0
 transformers==4.52.4
 # torch CPU-only — installed separately in Dockerfile with the CPU-only index URL
 # to avoid pulling the 2.5 GB CUDA variant from PyPI.

@@ -131,15 +131,6 @@
                     required
                 >{{ draft | e if draft else '' }}</textarea>
                 <button
-                    type="button"
-                    id="voiceBtn"
-                    class="btn btn-outline-secondary btn-lg px-3"
-                    title="Tap to record"
-                    aria-label="Record voice message"
-                >
-                    <i class="bi bi-mic-fill"></i>
-                </button>
-                <button
                     type="submit"
                     id="sendBtn"
                     class="btn btn-primary-green btn-lg px-4"
@@ -147,8 +138,12 @@
                     <i class="bi bi-send-fill"></i>
                 </button>
             </div>
-            <div id="voiceIndicator" class="text-danger mt-1 ms-1 d-none" aria-live="polite">
-                <i class="bi bi-record-circle me-1"></i>Listening… (tap mic again to stop)
+            <div class="form-text small text-muted mt-1 px-1" style="line-height:1.35">
+                <i class="bi bi-mic me-1"></i>
+                Tap your keyboard's mic icon to dictate. To speak in multiple languages,
+                make sure you have installed a keyboard for that language.
+                I'll then transcribe your input in your language and translate it for you to
+                verify first — that step is slow.
             </div>
         </form>
 
@@ -157,7 +152,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/voice.js') }}"></script>
 <script>
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
@@ -244,10 +238,21 @@
         initDisplayNameRename(SESSION_ID, USER_ID, true /* isSolo */);
     });
 
-    // Suppress "Leave site?" dialog and show spinner when submitting a message
-    document.getElementById("chatForm").addEventListener("submit", function () {
-        _sessionEnded = true;
-        _showSendSpinner();
+    // Submit is intercepted to run a translation gate first. If non-English,
+    // the user sees a confirmation modal and on Confirm we replace the input
+    // value with the English translation, then submit the form natively
+    // (form.submit() bypasses this listener).
+    document.getElementById("chatForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var input = document.getElementById("messageInput");
+        var text  = input.value.trim();
+        if (!text) return;
+        checkAndConfirmEnglish(text, function (finalText) {
+            input.value = finalText;
+            _sessionEnded = true;
+            _showSendSpinner();
+            document.getElementById("chatForm").submit();
+        });
     });
 
     // Auto-grow input up to ~3 lines (CSS-capped); scrolls inside thereafter.
@@ -262,8 +267,5 @@
             }
         }
     });
-
-    // Voice input (Web Speech API). Self-disables on unsupported browsers.
-    initVoiceInput({ inputId: "messageInput" });
 </script>
 {% endblock %}

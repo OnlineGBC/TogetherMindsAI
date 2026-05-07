@@ -7,6 +7,67 @@ var socket = null;
 var _currentUserId = null;
 
 // ---------------------------------------------------------------------------
+// Translation gate — call before any chat send. If text is English the helper
+// invokes onProceed(text) immediately. If non-English, it pops a confirmation
+// modal showing the original and the English translation; on Confirm runs
+// onProceed(translation). Cancel/X = no-op (user can edit and re-send).
+//
+// Fail-open: any network/server error proceeds with original text rather than
+// blocking the user from sending.
+// ---------------------------------------------------------------------------
+function checkAndConfirmEnglish(text, onProceed) {
+    if (!text || !text.trim()) return;
+
+    fetch("/api/translate-check", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text }),
+    }).then(function (res) {
+        return res.json().catch(function () { return {}; });
+    }).then(function (data) {
+        if (!data || data.is_english !== false || !data.translation) {
+            // English (or fail-open fallback): send original text.
+            onProceed(text);
+            return;
+        }
+        var modalEl = document.getElementById("translateConfirmModal");
+        if (!modalEl || typeof bootstrap === "undefined") {
+            // Modal not in DOM (shouldn't happen on chat pages) — proceed without confirmation.
+            onProceed(data.translation);
+            return;
+        }
+        document.getElementById("translateOriginal").textContent = text;
+        document.getElementById("translateEnglish").textContent = data.translation;
+
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        var confirmBtn = document.getElementById("translateConfirmBtn");
+        var cancelBtn = document.getElementById("translateCancelBtn");
+
+        function cleanup() {
+            confirmBtn.removeEventListener("click", onConfirm);
+            cancelBtn.removeEventListener("click", onCancel);
+        }
+        function onConfirm() {
+            cleanup();
+            modal.hide();
+            onProceed(data.translation);
+        }
+        function onCancel() {
+            cleanup();
+            modal.hide();
+            // No-op: user can edit and resend.
+        }
+        confirmBtn.addEventListener("click", onConfirm);
+        cancelBtn.addEventListener("click", onCancel);
+        modal.show();
+    }).catch(function () {
+        // Network error → fail-open with original text.
+        onProceed(text);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Chat input auto-grow — wraps text to next line up to a CSS max-height,
 // then scrolls inside. Call once per page on any chat-input textarea.
 // Voice input dispatches an "input" event after pasting transcripts, which

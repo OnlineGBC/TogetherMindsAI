@@ -190,6 +190,45 @@
     </div>
 </div>
 
+<!-- Translation confirm modal (shared across solo/couple/group) -->
+<div class="modal fade" id="translateConfirmModal" tabindex="-1"
+     data-bs-backdrop="static" data-bs-keyboard="false"
+     aria-labelledby="translateConfirmModalLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="translateConfirmModalLabel">
+                    <i class="bi bi-translate text-primary-green me-2"></i>Verify translation
+                </h5>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="text-muted small mb-3">
+                    Your message wasn't in English. To make sure I understood you correctly,
+                    please review the English translation below before sending.
+                </p>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small mb-1">Your message</label>
+                    <div id="translateOriginal" class="p-3 bg-light rounded-3 small"
+                         style="white-space:pre-wrap; word-break:break-word;"></div>
+                </div>
+                <div>
+                    <label class="form-label fw-semibold small mb-1">English translation</label>
+                    <div id="translateEnglish" class="p-3 bg-success-subtle rounded-3 small"
+                         style="white-space:pre-wrap; word-break:break-word;"></div>
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-2 gap-2">
+                <button type="button" class="btn btn-outline-secondary rounded-pill" id="translateCancelBtn">
+                    Cancel — let me edit
+                </button>
+                <button type="button" class="btn btn-primary-green rounded-pill" id="translateConfirmBtn">
+                    <i class="bi bi-check2 me-1"></i>Confirm and send
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- End Session modal (populated by initEndSessionGuard) -->
 <div class="modal fade" id="endSessionModal" tabindex="-1" aria-labelledby="endSessionModalLabel" aria-modal="true" role="dialog">
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
