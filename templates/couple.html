@@ -57,28 +57,6 @@
             </div>
         </div>
 
-        <!-- Share URL card -->
-        <div class="alert alert-share rounded-4 mb-3 d-flex align-items-start gap-2">
-            <i class="bi bi-share-fill text-primary-green fs-5 mt-1"></i>
-            <div class="w-100">
-                <strong>Invite your partner</strong> — share this page URL with them so you both join the same session:
-                <div class="input-group mt-2">
-                    <input
-                        type="text"
-                        id="shareUrl"
-                        class="form-control form-control-sm rounded-start-3 bg-white border-green"
-                        readonly
-                        value=""
-                    />
-                    <button
-                        class="btn btn-outline-green btn-sm rounded-end-3"
-                        onclick="copyUrl()"
-                    >
-                        <i class="bi bi-clipboard"></i> Copy
-                    </button>
-                </div>
-            </div>
-        </div>
 
         <!-- Privacy / welcome banner — hidden by default on phones (toggle via info icon above);
              always visible on ≥sm. Dismissible via the close button on tablet+. -->
@@ -159,8 +137,6 @@
     window.SESSION_MODE              = "couple";
     window.END_SESSION_REDIRECT_URL  = "/progress/" + USER_ID + "/couple";
 
-    document.getElementById("shareUrl").value = window.location.href;
-
     // Ensure privacy banner always shows the session code (belt-and-suspenders)
     (function () {
         var el = document.getElementById("privacyBannerCode");
@@ -214,20 +190,6 @@
             var el = document.createElement("textarea");
             el.value = id; document.body.appendChild(el); el.select();
             document.execCommand("copy"); document.body.removeChild(el);
-        }
-    }
-
-    function copyUrl() {
-        var url = document.getElementById("shareUrl").value;
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(url).catch(function (err) {
-                console.error("Clipboard write failed:", err);
-            });
-        } else {
-            // Fallback for HTTP or older browsers
-            var el = document.getElementById("shareUrl");
-            el.select();
-            document.execCommand("copy");
         }
     }
 

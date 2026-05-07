@@ -111,8 +111,10 @@ steps:
       - FEEDBACK_SMTP_PASSWORD=FEEDBACK_SMTP_PASSWORD:latest
       - --set-secrets
       - FEEDBACK_TO_EMAIL=FEEDBACK_TO_EMAIL:latest
+      # min-instances must always be 1 — keeps a warm worker so couple/group
+      # SocketIO sessions don't pay a 10-15s cold-start penalty on first message.
       - --min-instances
-      - "0"
+      - "1"
       - --max-instances
       - "1"
       - --memory
