@@ -571,7 +571,7 @@ body.therapy-page .chat-window {
     body main.container .card .card-body.p-3 { padding: 0.55rem !important; }
 }
 
-/* ---- Floating feedback button (bottom-right, every page) ---- */
+/* ---- Floating feedback button (bottom-right by default; user-draggable) ---- */
 .feedback-fab {
     position: fixed;
     bottom: 1.25rem;
@@ -589,6 +589,14 @@ body.therapy-page .chat-window {
     z-index: 1040;
     transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
     text-decoration: none;
+    cursor: grab;
+    touch-action: none;          /* prevents touch-drag from scrolling the page */
+    user-select: none;
+    -webkit-user-select: none;
+}
+.feedback-fab.is-dragging {
+    cursor: grabbing;
+    transition: none;
 }
 .feedback-fab:hover,
 .feedback-fab:focus {

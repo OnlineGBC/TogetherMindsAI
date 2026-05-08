@@ -239,6 +239,124 @@
         });
     };
 
+    // -------- Draggable FAB ------------------------------------------------
+    //
+    // Tap = open modal (existing click behavior). Drag = move the FAB; the
+    // last position is persisted in localStorage and re-applied on page load,
+    // clamped into the visible viewport (below navbar/disclaimer bar, above
+    // the bottom edge). Touch is supported via Pointer Events.
+
+    var FAB_POS_KEY = "feedback_fab_pos_v1";
+    var FAB_DRAG_THRESHOLD_PX = 5;
+
+    function _fabTopBoundary() {
+        // Don't let the user drag the button behind the navbar / disclaimer bar.
+        var bottom = 0;
+        var navbar = document.querySelector(".navbar");
+        var disclaimer = document.querySelector(".disclaimer-bar");
+        if (navbar) bottom = Math.max(bottom, navbar.getBoundingClientRect().bottom);
+        if (disclaimer) bottom = Math.max(bottom, disclaimer.getBoundingClientRect().bottom);
+        return bottom + 4;
+    }
+
+    function _applyFabPos(fab, left, top) {
+        var rect = fab.getBoundingClientRect();
+        var w = rect.width, h = rect.height;
+        var minLeft = 4;
+        var maxLeft = window.innerWidth - w - 4;
+        var minTop = _fabTopBoundary();
+        var maxTop = window.innerHeight - h - 4;
+        if (maxLeft < minLeft) maxLeft = minLeft;
+        if (maxTop < minTop) maxTop = minTop;
+        left = Math.max(minLeft, Math.min(left, maxLeft));
+        top = Math.max(minTop, Math.min(top, maxTop));
+        fab.style.left = left + "px";
+        fab.style.top = top + "px";
+        fab.style.right = "auto";
+        fab.style.bottom = "auto";
+    }
+
+    window.makeFabDraggable = function (fab) {
+        if (!fab) return;
+
+        // Restore saved position (if any) once layout has settled.
+        function restore() {
+            try {
+                var saved = JSON.parse(localStorage.getItem(FAB_POS_KEY) || "null");
+                if (saved && typeof saved.left === "number" && typeof saved.top === "number") {
+                    _applyFabPos(fab, saved.left, saved.top);
+                }
+            } catch (e) { /* ignore */ }
+        }
+        // Defer one tick so getBoundingClientRect reflects the rendered FAB size.
+        setTimeout(restore, 0);
+
+        var dragState = null;
+        var didDrag = false;
+
+        fab.addEventListener("pointerdown", function (e) {
+            // Ignore non-primary buttons (right-click, etc.)
+            if (e.button !== undefined && e.button !== 0) return;
+            var rect = fab.getBoundingClientRect();
+            dragState = {
+                startX: e.clientX,
+                startY: e.clientY,
+                offsetX: e.clientX - rect.left,
+                offsetY: e.clientY - rect.top,
+                moving: false,
+            };
+            try { fab.setPointerCapture(e.pointerId); } catch (err) {}
+        });
+
+        fab.addEventListener("pointermove", function (e) {
+            if (!dragState) return;
+            var dx = e.clientX - dragState.startX;
+            var dy = e.clientY - dragState.startY;
+            if (!dragState.moving) {
+                if (Math.abs(dx) + Math.abs(dy) < FAB_DRAG_THRESHOLD_PX) return;
+                dragState.moving = true;
+                didDrag = true;
+                fab.classList.add("is-dragging");
+            }
+            _applyFabPos(fab, e.clientX - dragState.offsetX, e.clientY - dragState.offsetY);
+        });
+
+        function endDrag(e) {
+            if (dragState && dragState.moving) {
+                var rect = fab.getBoundingClientRect();
+                try {
+                    localStorage.setItem(FAB_POS_KEY, JSON.stringify({
+                        left: rect.left, top: rect.top,
+                    }));
+                } catch (err) {}
+            }
+            dragState = null;
+            fab.classList.remove("is-dragging");
+            if (e && e.pointerId !== undefined) {
+                try { fab.releasePointerCapture(e.pointerId); } catch (err) {}
+            }
+        }
+        fab.addEventListener("pointerup", endDrag);
+        fab.addEventListener("pointercancel", endDrag);
+
+        // Capture-phase click suppressor: when the user just dragged, swallow
+        // the click so it doesn't open the modal.
+        fab.addEventListener("click", function (e) {
+            if (didDrag) {
+                didDrag = false;
+                e.stopImmediatePropagation();
+                e.preventDefault();
+            }
+        }, true);
+
+        // Re-clamp on viewport changes so the FAB never ends up off-screen
+        // after rotation, window resize, or browser-chrome show/hide.
+        window.addEventListener("resize", function () {
+            var rect = fab.getBoundingClientRect();
+            _applyFabPos(fab, rect.left, rect.top);
+        });
+    };
+
     // -------- Unified popup modal (FAB + end-of-session) -------------------
     //
     // Three trigger paths share the SAME modal element:

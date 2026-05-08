@@ -292,9 +292,12 @@
 <script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
 <script>
     (function () {
-        if (typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
-            var el = document.getElementById("feedbackFab");
-            if (el) new bootstrap.Tooltip(el);
+        var fab = document.getElementById("feedbackFab");
+        if (fab && typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
+            new bootstrap.Tooltip(fab);
+        }
+        if (fab && typeof makeFabDraggable === "function") {
+            makeFabDraggable(fab);
         }
         if (typeof initFeedbackOnAllPages === "function") {
             initFeedbackOnAllPages({
