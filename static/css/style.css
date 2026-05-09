@@ -579,7 +579,7 @@ body.therapy-page .chat-window {
     width: 56px;
     height: 56px;
     border-radius: 50%;
-    background-color: var(--green-primary);
+    background-color: #fd7e14;          /* orange (matches pencil-icon accent) */
     color: #fff;
     border: none;
     display: flex;
@@ -600,7 +600,7 @@ body.therapy-page .chat-window {
 }
 .feedback-fab:hover,
 .feedback-fab:focus {
-    background-color: var(--green-dark);
+    background-color: #e8690b;         /* darker orange on hover */
     color: #fff;
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);

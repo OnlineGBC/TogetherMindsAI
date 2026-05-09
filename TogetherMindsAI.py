@@ -961,11 +961,23 @@ def progress(user_id, therapy_mode):
 
     chart_data = [{"week": w, "count": c} for w, c in sorted(week_counts.items())]
 
+    # Find the user's most recent session (the session_id of their latest
+    # message). Used for the transcript download links — without this the
+    # template would have to guess which session to download.
+    latest_session_id = (
+        db.session.query(ChatMessage.session_id)
+        .filter_by(user_id=user_id)
+        .order_by(ChatMessage.timestamp.desc())
+        .limit(1)
+        .scalar()
+    )
+
     return render_template(
         "progress.html",
         chart_data=chart_data,
         user_id=user_id,
         therapy_mode=therapy_mode,
+        session_id=latest_session_id,
     )
 
 
@@ -1090,10 +1102,23 @@ _FONT_REGULAR = os.path.join(_FONT_DIR, "DejaVuSans.ttf")
 _FONT_BOLD    = os.path.join(_FONT_DIR, "DejaVuSans-Bold.ttf")
 
 
+def _user_can_access_session(session_id: str, user_id: str) -> bool:
+    """A user can download a session's transcript if they created it OR
+    posted any message in it. Covers solo (creator-only) and couple/group
+    (creator + every participant)."""
+    if not user_id:
+        return False
+    ts = db.session.get(TherapySession, session_id)
+    if not ts:
+        return False
+    if ts.created_by == user_id:
+        return True
+    return ChatMessage.query.filter_by(session_id=session_id, user_id=user_id).first() is not None
+
+
 @app.route("/transcript/<session_id>/pdf")
 def download_transcript_pdf(session_id):
-    ts = db.session.get(TherapySession, session_id)
-    if not ts or session.get("user_id") != ts.created_by:
+    if not _user_can_access_session(session_id, session.get("user_id")):
         return jsonify({"error": "Forbidden"}), 403
 
     from fpdf import FPDF
@@ -1184,8 +1209,7 @@ def download_transcript_pdf(session_id):
 
 @app.route("/transcript/<session_id>/docx")
 def download_transcript_docx(session_id):
-    ts = db.session.get(TherapySession, session_id)
-    if not ts or session.get("user_id") != ts.created_by:
+    if not _user_can_access_session(session_id, session.get("user_id")):
         return jsonify({"error": "Forbidden"}), 403
 
     from docx import Document

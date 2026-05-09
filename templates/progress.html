@@ -17,15 +17,17 @@
         </div>
 
         <!-- Session ID reminder -->
+        {% if session_id %}
         <div class="alert alert-share rounded-4 mb-4 py-2 px-3 d-flex align-items-center justify-content-between gap-2">
             <div class="d-flex align-items-center gap-2">
                 <i class="bi bi-hash text-primary-green"></i>
-                <small><strong>Session ID:</strong> <span class="font-monospace">{{ user_id }}</span></small>
+                <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
             </div>
-            <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ user_id }}')" title="Copy Session ID">
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
                 <i class="bi bi-clipboard"></i>
             </button>
         </div>
+        {% endif %}
 
         {% if chart_data %}
 
@@ -83,13 +85,13 @@
 
         {% endif %}
 
-        <!-- Download transcript -->
-        {% if chart_data %}
+        <!-- Download transcript (most recent session only) -->
+        {% if chart_data and session_id %}
         <div class="d-flex gap-2 flex-wrap mb-3">
-            <a href="/transcript/{{ user_id }}/pdf" class="btn btn-outline-green rounded-pill px-4">
+            <a href="/transcript/{{ session_id }}/pdf" class="btn btn-outline-green rounded-pill px-4">
                 <i class="bi bi-file-earmark-pdf me-1"></i>Download as PDF
             </a>
-            <a href="/transcript/{{ user_id }}/docx" class="btn btn-outline-green rounded-pill px-4">
+            <a href="/transcript/{{ session_id }}/docx" class="btn btn-outline-green rounded-pill px-4">
                 <i class="bi bi-file-earmark-word me-1"></i>Download as Word
             </a>
         </div>
