@@ -16,6 +16,11 @@
                         Real-time session &mdash;
                         <i class="bi bi-circle-fill text-success" style="font-size:0.55rem"></i>
                         <span id="participantCount">0</span> connected
+                        {% if silence_seconds and silence_seconds > 0 %}
+                        <span id="silenceCountdown" class="ms-2 d-none">
+                            &middot; <i class="bi bi-clock me-1"></i>AI checks in in <span id="silenceCountdownValue">--:--</span>
+                        </span>
+                        {% endif %}
                     </small>
                 </div>
             </div>
@@ -91,16 +96,6 @@
                 placeholder="Type a message…"
                 autocomplete="off"
             ></textarea>
-            <!-- Silence-nudge countdown chip — fixed-position overlay so it
-                 doesn't perturb the constrained therapy-col flex layout
-                 (any in-flow element here clips the input-group). -->
-            {% if silence_seconds and silence_seconds > 0 %}
-            <div id="silenceCountdown" class="silence-countdown small text-muted d-none">
-                <i class="bi bi-clock me-1"></i>
-                <span>AI will check in in </span><span id="silenceCountdownValue">--:--</span>
-                <span class="ms-1">unless someone speaks first.</span>
-            </div>
-            {% endif %}
             <button
                 class="btn btn-primary-green btn-lg px-4"
                 id="sendBtn"
