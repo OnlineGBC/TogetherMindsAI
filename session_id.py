@@ -1,17 +1,20 @@
 """
 session_id.py — Single source of truth for all session ID logic.
 
-All sessions (solo, couple, group) use the same 6-character mixed-case
-alphanumeric ID drawn from SESSION_CHARSET. The ID stored in the DB is
-exactly what is shown to the user — no derivation, no transformation.
+All sessions (solo, couple, group) use the same 14-character mixed-case
+alphanumeric ID (with `-` and `_`) drawn from SESSION_CHARSET. The ID stored
+in the DB is exactly what is shown to the user — no derivation, no transformation.
 
-Lookups are case-insensitive: 'aB3k7M' and 'AB3K7M' find the same session.
-Ambiguous characters are excluded to prevent misreading:
+The session_id is effectively a shared password — anyone holding it can join
+the session — so the format is sized to be unguessable: 57 characters × 14
+slots ≈ 82 bits of entropy, comfortably past NIST's 80-bit threshold.
+
+Lookups are case-insensitive: 'aB3k7M-X9_pQ' and 'AB3K7M-X9_PQ' find the
+same session. Ambiguous characters are excluded to prevent misreading:
   - uppercase: no I (eye), no O (oh)
   - lowercase: no i (eye), no l (ell), no o (oh)
   - digits:    no 0 (zero), no 1 (one)
-
-This gives 55 characters and 55^6 ≈ 27.7 billion possible IDs.
+  - symbols:   only `-` and `_` (URL-safe, on every keyboard, visually distinct)
 """
 
 import secrets
@@ -20,9 +23,10 @@ import secrets
 # Constants
 # ---------------------------------------------------------------------------
 
-# 24 uppercase + 23 lowercase + 8 digits = 55 characters, case-sensitive
-SESSION_CHARSET: str = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
-SESSION_ID_LENGTH: int = 6
+# 24 uppercase + 23 lowercase + 8 digits + 2 symbols = 57 characters,
+# case-sensitive. Symbols `-` and `_` are URL-safe (RFC 3986 unreserved set).
+SESSION_CHARSET: str = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789-_"
+SESSION_ID_LENGTH: int = 14
 
 
 # ---------------------------------------------------------------------------
@@ -32,8 +36,8 @@ SESSION_ID_LENGTH: int = 6
 def generate_session_id(existing_ids: set | None = None) -> str:
     """Generate a new unique session ID for any session mode.
 
-    Uses secrets.choice (CSPRNG). With 55 characters and length 6 there are
-    55^6 ≈ 27.7 billion possible IDs, making collisions negligible.
+    Uses secrets.choice (CSPRNG). With 57 characters and length 14 there are
+    57^14 ≈ 2.7 × 10^24 possible IDs, making collisions astronomically unlikely.
 
     Args:
         existing_ids: Optional set of already-in-use IDs. If provided, retries
@@ -85,7 +89,7 @@ def normalise_join_input(raw: str) -> str:
     """Normalise a user-submitted session ID for lookup.
 
     Session IDs are case-insensitive for lookup: the input is uppercased so
-    a user who types 'ab3k7m' matches a session stored as 'aB3k7M'.
+    a user who types 'ab3k7m-x9_pq' matches a session stored as 'aB3k7M-X9_pQ'.
     Whitespace is stripped first.
 
     Args:
@@ -133,4 +137,4 @@ def _example_session_id() -> str:
     """Return a static illustrative example of a session ID (not a real session)."""
     # Hard-coded for determinism and readability.
     # Uses only characters from SESSION_CHARSET to self-document the format.
-    return "aB3k7M"
+    return "aB3k7M-X9_pQrT"
