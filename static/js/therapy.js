@@ -15,7 +15,7 @@ var _currentUserId = null;
 // Fail-open: any network/server error proceeds with original text rather than
 // blocking the user from sending.
 // ---------------------------------------------------------------------------
-function checkAndConfirmEnglish(text, onProceed) {
+function checkAndConfirmEnglish(text, onProceed, onCancel) {
     if (!text || !text.trim()) return;
 
     fetch("/api/translate-check", {
@@ -45,21 +45,21 @@ function checkAndConfirmEnglish(text, onProceed) {
         var cancelBtn = document.getElementById("translateCancelBtn");
 
         function cleanup() {
-            confirmBtn.removeEventListener("click", onConfirm);
-            cancelBtn.removeEventListener("click", onCancel);
+            confirmBtn.removeEventListener("click", onConfirmClick);
+            cancelBtn.removeEventListener("click", onCancelClick);
         }
-        function onConfirm() {
+        function onConfirmClick() {
             cleanup();
             modal.hide();
             onProceed(data.translation);
         }
-        function onCancel() {
+        function onCancelClick() {
             cleanup();
             modal.hide();
-            // No-op: user can edit and resend.
+            if (onCancel) onCancel();
         }
-        confirmBtn.addEventListener("click", onConfirm);
-        cancelBtn.addEventListener("click", onCancel);
+        confirmBtn.addEventListener("click", onConfirmClick);
+        cancelBtn.addEventListener("click", onCancelClick);
         modal.show();
     }).catch(function () {
         // Network error → fail-open with original text.
