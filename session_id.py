@@ -1,20 +1,25 @@
 """
 session_id.py — Single source of truth for all session ID logic.
 
-All sessions (solo, couple, group) use the same 14-character mixed-case
-alphanumeric ID (with `-` and `_`) drawn from SESSION_CHARSET. The ID stored
-in the DB is exactly what is shown to the user — no derivation, no transformation.
+All sessions (solo, couple, group) use the same 16-character mixed-case
+ID drawn from SESSION_CHARSET. The ID stored in the DB is exactly what is
+shown to the user — no derivation, no transformation.
 
-The session_id is effectively a shared password — anyone holding it can join
-the session — so the format is sized to be unguessable: 57 characters × 14
-slots ≈ 82 bits of entropy, comfortably past NIST's 80-bit threshold.
+The session_id is effectively a shared password — anyone holding it can
+join the session — so the format is sized to be unguessable:
+59 characters × 16 slots ≈ 94 bits of entropy, comfortably past NIST's
+80-bit threshold.
 
-Lookups are case-insensitive: 'aB3k7M-X9_pQ' and 'AB3K7M-X9_PQ' find the
-same session. Ambiguous characters are excluded to prevent misreading:
+Lookups are case-insensitive: 'aB3k7M-X9_pQrT!$' and 'AB3K7M-X9_PQRT!$'
+find the same session. Ambiguous characters are excluded to prevent
+misreading:
   - uppercase: no I (eye), no O (oh)
   - lowercase: no i (eye), no l (ell), no o (oh)
   - digits:    no 0 (zero), no 1 (one)
-  - symbols:   only `-` and `_` (URL-safe, on every keyboard, visually distinct)
+  - symbols:   only `-` `_` `!` `$` — URL-path-safe per RFC 3986, on every
+               keyboard, visually distinct, and free of chat-app auto-link
+               edge cases. `#`, `%`, `&`, `@`, `^` etc. are excluded because
+               they either break URL routing or get percent-encoded.
 """
 
 import secrets
@@ -23,10 +28,11 @@ import secrets
 # Constants
 # ---------------------------------------------------------------------------
 
-# 24 uppercase + 23 lowercase + 8 digits + 2 symbols = 57 characters,
-# case-sensitive. Symbols `-` and `_` are URL-safe (RFC 3986 unreserved set).
-SESSION_CHARSET: str = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789-_"
-SESSION_ID_LENGTH: int = 14
+# 24 uppercase + 23 lowercase + 8 digits + 4 symbols = 59 characters,
+# case-sensitive. `-` `_` are RFC 3986 unreserved; `!` `$` are sub-delims
+# allowed unencoded in URL path segments.
+SESSION_CHARSET: str = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789-_!$"
+SESSION_ID_LENGTH: int = 16
 
 
 # ---------------------------------------------------------------------------
@@ -36,8 +42,8 @@ SESSION_ID_LENGTH: int = 14
 def generate_session_id(existing_ids: set | None = None) -> str:
     """Generate a new unique session ID for any session mode.
 
-    Uses secrets.choice (CSPRNG). With 57 characters and length 14 there are
-    57^14 ≈ 2.7 × 10^24 possible IDs, making collisions astronomically unlikely.
+    Uses secrets.choice (CSPRNG). With 59 characters and length 16 there are
+    59^16 ≈ 1.5 × 10^28 possible IDs, making collisions astronomically unlikely.
 
     Args:
         existing_ids: Optional set of already-in-use IDs. If provided, retries
@@ -89,7 +95,7 @@ def normalise_join_input(raw: str) -> str:
     """Normalise a user-submitted session ID for lookup.
 
     Session IDs are case-insensitive for lookup: the input is uppercased so
-    a user who types 'ab3k7m-x9_pq' matches a session stored as 'aB3k7M-X9_pQ'.
+    a user who types 'ab3k7m-x9_pqrt!$' matches a session stored as 'aB3k7M-X9_pQrT!$'.
     Whitespace is stripped first.
 
     Args:
@@ -137,4 +143,4 @@ def _example_session_id() -> str:
     """Return a static illustrative example of a session ID (not a real session)."""
     # Hard-coded for determinism and readability.
     # Uses only characters from SESSION_CHARSET to self-document the format.
-    return "aB3k7M-X9_pQrT"
+    return "aB3k7M-X9_pQrT!$"
