@@ -578,7 +578,6 @@ def therapy_couple(session_id):
     return render_template(
         "couple.html",
         user_id=user_id, session_id=session_id,
-        silence_seconds=config.SILENCE_NUDGE_SECONDS,
     )
 
 
@@ -592,7 +591,6 @@ def therapy_group(session_id):
     return render_template(
         "group.html",
         user_id=user_id, session_id=session_id,
-        silence_seconds=config.SILENCE_NUDGE_SECONDS,
     )
 
 

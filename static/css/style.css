@@ -482,29 +482,6 @@ body.therapy-page .chat-window {
 }
 
 
-/* ---- Silence-nudge countdown line (couple/group) ----
-   Single line of plain italic text in a fixed-position overlay. Anchored at
-   top-right under the navbar+disclaimer bar where nothing is clickable;
-   in-flow placement breaks the constrained therapy-col flex layout. */
-.silence-countdown {
-    position: fixed;
-    top: 6.5rem;
-    right: 1.25rem;
-    z-index: 1050;
-    font-style: italic;
-    color: var(--teal-dark);
-    opacity: 0.85;
-    background: transparent;
-    padding: 0;
-    border: none;
-    box-shadow: none;
-    max-width: 92vw;
-}
-.silence-countdown #silenceCountdownValue {
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-    color: var(--teal-dark);
-}
 
 /* ---- Auth status badges: allow wrapping so they never push the row past viewport ---- */
 .auth-status-row .badge {
