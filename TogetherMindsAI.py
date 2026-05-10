@@ -257,6 +257,31 @@ if not config.IS_TESTING:
                 except Exception:
                     pass
 
+    # Force-expire legacy sessions whose IDs aren't the current 6-char canonical
+    # format (session_id.SESSION_ID_LENGTH). The scheduled purge below will
+    # sweep them in the next pass. Idempotent: matching rows already have their
+    # retention bumped down, repeat runs are a no-op.
+    with app.app_context():
+        from sqlalchemy import func
+        from session_id import SESSION_ID_LENGTH
+        try:
+            now_utc = datetime.now(timezone.utc)
+            updated = (
+                TherapySession.query
+                .filter(func.length(TherapySession.id) != SESSION_ID_LENGTH)
+                .filter((TherapySession.retention_expires_at == None) | (TherapySession.retention_expires_at > now_utc))
+                .update({TherapySession.retention_expires_at: now_utc}, synchronize_session=False)
+            )
+            db.session.commit()
+            if updated:
+                app.logger.info(
+                    "Force-expired %d legacy session(s) with non-%d-char IDs.",
+                    updated, SESSION_ID_LENGTH
+                )
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.warning("Legacy session expiration migration skipped: %s", exc)
+
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(_purge_expired_sessions, "interval", hours=24, id="purge_expired_sessions")
