@@ -185,13 +185,18 @@
 
     // Wire up send button — translation gate runs first; if non-English the
     // user confirms the English version in a modal before the message is emitted.
+    // Spinner is shown early (covers the translate-check fetch + socket emit)
+    // and cleared via the SocketIO new_message handler in therapy.js.
     document.getElementById("sendBtn").addEventListener("click", function () {
         var input = document.getElementById("messageInput");
         var text  = input.value.trim();
         if (!text) return;
+        _showSendSpinner();
         checkAndConfirmEnglish(text, function (finalText) {
             sendMessage(SESSION_ID, USER_ID, finalText, MODE);
             if (input._resetAutoGrow) input._resetAutoGrow(); else input.value = "";
+        }, function () {
+            _hideSendSpinner();   // user cancelled the translation modal
         });
     });
 
