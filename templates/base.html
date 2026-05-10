@@ -74,6 +74,16 @@
 
 <!-- Main content -->
 <main class="container py-4">
+    {% with flashed = get_flashed_messages(with_categories=true) %}
+        {% if flashed %}
+            {% for category, message in flashed %}
+                <div class="alert alert-{{ category if category in ['danger','warning','success','info'] else 'info' }} alert-dismissible rounded-3 small mb-3" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
     {% block content %}{% endblock %}
 </main>
 

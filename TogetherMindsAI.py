@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, join_room, emit
@@ -430,11 +430,28 @@ def auth_post(therapy_mode):
         return redirect(url_for("therapy_group", session_id=sid))
 
 
+def _session_exists(session_id: str) -> bool:
+    """True iff a TherapySession row with that id exists. Used as the entry
+    gate for all /therapy/<mode>/<session_id> routes — without this check,
+    the routes would accept any string and silently create orphan rows."""
+    if not session_id:
+        return False
+    return db.session.get(TherapySession, session_id) is not None
+
+
+def _redirect_invalid_session():
+    """Redirect to home with a flash explaining the session is unknown/expired."""
+    flash("That session doesn't exist or has expired.", "warning")
+    return redirect(url_for("home"))
+
+
 @app.route("/therapy/solo/<session_id>", methods=["GET"])
 def therapy_solo(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="solo"))
+    if not _session_exists(session_id):
+        return _redirect_invalid_session()
 
     # Assign join position for solo (always position 1 — only one participant)
     joined = session_joined_users.setdefault(session_id, [])
@@ -467,6 +484,8 @@ def therapy_solo_post(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="solo"))
+    if not _session_exists(session_id):
+        return _redirect_invalid_session()
     text = request.form.get("message", "").strip()
     if not text:
         return redirect(url_for("therapy_solo", session_id=session_id))
@@ -554,6 +573,8 @@ def therapy_couple(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="couple"))
+    if not _session_exists(session_id):
+        return _redirect_invalid_session()
     return render_template(
         "couple.html",
         user_id=user_id, session_id=session_id,
@@ -566,6 +587,8 @@ def therapy_group(session_id):
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode="group"))
+    if not _session_exists(session_id):
+        return _redirect_invalid_session()
     return render_template(
         "group.html",
         user_id=user_id, session_id=session_id,
