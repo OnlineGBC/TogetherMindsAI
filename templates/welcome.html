@@ -4,110 +4,162 @@
 
 {% block content %}
 <style>
-  /* Tight scoped main padding so welcome fits within a laptop viewport */
-  body.welcome-page main { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
-
-  .welcome-hero {
-    background: linear-gradient(135deg, #e0f2f0 0%, #f5fbf9 100%);
-    border-radius: 0.85rem;
-    padding: 0.55rem 0.85rem 0.55rem;
+  /* Warm page background — sage at top fading to cream at bottom */
+  body.welcome-page {
+    background: linear-gradient(180deg, #e8f0eb 0%, #f5f0e6 100%);
+    min-height: 100vh;
   }
-  .welcome-hero .hero-icon { font-size: 1.6rem; color: #009688; vertical-align: middle; }
-  .welcome-hero h1 { font-size: 1.35rem; line-height: 1.1; }
-  .welcome-hero .tagline { font-size: 0.82rem; }
+  body.welcome-page main {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+
+  /* Bold teal hero — visual anchor */
+  .welcome-hero {
+    background: linear-gradient(135deg, #00796b 0%, #009688 100%);
+    border-radius: 0.95rem;
+    padding: 0.85rem 1rem 0.9rem;
+    color: #ffffff;
+    box-shadow: 0 6px 18px rgba(0, 121, 107, 0.25);
+  }
+  .welcome-hero .hero-icon {
+    display: block;
+    margin: 0 auto;
+    font-size: 1.7rem;
+    color: #ffffff;
+    line-height: 1;
+  }
+  .welcome-hero h1 {
+    color: #ffffff;
+    font-size: 1.4rem;
+    margin: 0.2rem 0 0.15rem;
+    font-weight: 700;
+  }
+  .welcome-hero .tagline {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.85rem;
+    margin: 0 0 0.45rem;
+  }
   .pill-anon, .pill-free {
     display: inline-block;
-    padding: 0.1rem 0.6rem;
+    padding: 0.15rem 0.7rem;
     border-radius: 999px;
-    font-size: 0.72rem;
+    font-size: 0.74rem;
     font-weight: 600;
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
   }
-  .pill-anon { background: #d4f0ec; color: #00695f; }
-  .pill-free { background: #fef3c7; color: #92400e; }
+  .pill-free { margin-left: 0.3rem; }
 
+  /* Color-coded pillar tiles */
   .pillar-tile {
     border-radius: 0.7rem;
-    padding: 0.55rem 0.7rem;
+    padding: 0.6rem 0.75rem;
     height: 100%;
   }
-  .pillar-tile.anon { background: #e0f2f0; }
-  .pillar-tile.free { background: #fef3c7; }
-  .pillar-tile .pillar-icon { font-size: 1.35rem; line-height: 1; }
-  .pillar-tile.anon .pillar-icon, .pillar-tile.anon h3, .pillar-tile.anon p { color: #00695f; }
+  .pillar-tile.anon { background: #d4e8e3; }
+  .pillar-tile.free { background: #fbe9b7; }
+  .pillar-tile .pillar-icon { font-size: 1.4rem; line-height: 1; }
+  .pillar-tile.anon .pillar-icon, .pillar-tile.anon h3, .pillar-tile.anon p { color: #00574e; }
   .pillar-tile.free .pillar-icon, .pillar-tile.free h3, .pillar-tile.free p { color: #92400e; }
-  .pillar-tile h3 { font-size: 0.85rem; margin: 0.15rem 0 0.1rem; font-weight: 700; }
-  .pillar-tile p { font-size: 0.74rem; margin: 0; line-height: 1.25; }
+  .pillar-tile h3 { font-size: 0.88rem; margin: 0.18rem 0 0.1rem; font-weight: 700; }
+  .pillar-tile p { font-size: 0.74rem; margin: 0; line-height: 1.3; }
 
+  /* White modes card with shadow — lifts off the warm page bg */
   .modes-card {
     background: #ffffff;
-    border: 1px solid #e8edec;
-    border-radius: 0.7rem;
-    padding: 0.55rem 0.4rem 0.5rem;
-    box-shadow: 0 2px 6px rgba(15, 60, 55, 0.06);
+    border-radius: 0.85rem;
+    padding: 0.7rem 0.45rem 0.6rem;
+    box-shadow: 0 4px 14px rgba(15, 60, 55, 0.10);
   }
-  .mode-block { position: relative; padding-top: 0.4rem; }
-  .mode-block::before {
-    content: ""; position: absolute; top: 0; left: 22%; right: 22%;
-    height: 3px; border-radius: 2px;
-  }
-  .mode-block.solo::before   { background: #009688; }
-  .mode-block.couple::before { background: #fb7185; }
-  .mode-block.group::before  { background: #6366f1; }
-  .mode-block.solo   .mode-icon { color: #009688; }
-  .mode-block.couple .mode-icon { color: #fb7185; }
-  .mode-block.group  .mode-icon { color: #6366f1; }
-  .mode-block .mode-icon { font-size: 1.4rem; line-height: 1; }
-  .mode-block .mode-title { font-size: 0.85rem; font-weight: 700; margin-top: 0.15rem; }
-  .mode-block p { font-size: 0.74rem; margin: 0; line-height: 1.25; color: #6b7280; }
 
-  .privacy-strip { border-top: 1px solid #e5e7eb; padding-top: 0.4rem; }
-  .privacy-strip .privacy-icon { color: #475569; font-size: 1rem; line-height: 1; }
-  .privacy-strip .privacy-title { font-size: 0.78rem; font-weight: 600; margin-top: 0.15rem; }
-  .privacy-strip p { font-size: 0.7rem; margin: 0; line-height: 1.2; color: #6b7280; }
+  /* Each mode block is a clickable link */
+  .mode-link {
+    display: block;
+    position: relative;
+    padding: 0.5rem 0.4rem 0.55rem;
+    border-radius: 0.55rem;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .mode-link:hover, .mode-link:focus {
+    text-decoration: none;
+    color: inherit;
+    transform: translateY(-2px);
+  }
+  .mode-link::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 25%; right: 25%;
+    height: 3px;
+    border-radius: 2px;
+  }
+  .mode-link.solo::before   { background: #009688; }
+  .mode-link.couple::before { background: #fb7185; }
+  .mode-link.group::before  { background: #6366f1; }
+  .mode-link.solo:hover   { background: rgba(0, 150, 136, 0.08); }
+  .mode-link.couple:hover { background: rgba(251, 113, 133, 0.10); }
+  .mode-link.group:hover  { background: rgba(99, 102, 241, 0.09); }
+  .mode-link.solo   .mode-icon { color: #009688; }
+  .mode-link.couple .mode-icon { color: #fb7185; }
+  .mode-link.group  .mode-icon { color: #6366f1; }
+  .mode-link .mode-icon { font-size: 1.45rem; line-height: 1; }
+  .mode-link .mode-title { font-size: 0.88rem; font-weight: 700; margin-top: 0.18rem; color: #1f2937; }
+  .mode-link p { font-size: 0.74rem; margin: 0; line-height: 1.3; color: #6b7280; }
+
+  /* Slate-tinted privacy strip — visually distinct from white modes card */
+  .privacy-strip {
+    background: #eef2f6;
+    border-radius: 0.7rem;
+    padding: 0.55rem 0.6rem;
+  }
+  .privacy-strip .privacy-icon { color: #475569; font-size: 1.05rem; line-height: 1; }
+  .privacy-strip .privacy-title { font-size: 0.78rem; font-weight: 600; margin-top: 0.15rem; color: #334155; }
+  .privacy-strip p { font-size: 0.7rem; margin: 0; line-height: 1.25; color: #64748b; }
 
   .safety-alert {
     background: #ede9fe;
     border-left: 4px solid #7c3aed;
     border-radius: 0.4rem;
-    padding: 0.35rem 0.7rem;
+    padding: 0.4rem 0.75rem;
     color: #4c1d95;
     font-size: 0.76rem;
     line-height: 1.3;
   }
   .safety-alert strong { color: #4c1d95; }
 
-  .cta-btn {
+  /* Outlined teal rejoin button — primary secondary action */
+  .rejoin-btn {
     display: inline-block;
-    background: linear-gradient(135deg, #009688 0%, #00796b 100%);
-    color: #ffffff;
-    padding: 0.45rem 2rem;
+    padding: 0.4rem 1.4rem;
     border-radius: 999px;
     font-weight: 600;
+    font-size: 0.82rem;
+    color: #00796b;
+    background: #ffffff;
+    border: 2px solid #009688;
     text-decoration: none;
-    font-size: 0.92rem;
-    box-shadow: 0 3px 12px rgba(0, 150, 136, 0.32);
-    transition: transform 0.1s ease, box-shadow 0.1s ease;
+    transition: background 0.15s ease, color 0.15s ease;
   }
-  .cta-btn:hover, .cta-btn:focus {
+  .rejoin-btn:hover, .rejoin-btn:focus {
+    background: #009688;
     color: #ffffff;
-    box-shadow: 0 5px 16px rgba(0, 150, 136, 0.42);
-    transform: translateY(-1px);
+    text-decoration: none;
   }
-  .rejoin-link { font-size: 0.75rem; }
 </style>
 
-<!-- Hero (compact, single line on desktop where possible) -->
+<!-- Hero (centered icon above title, white-on-teal) -->
 <div class="welcome-hero text-center mb-2">
-    <i class="bi bi-heart-pulse-fill hero-icon me-1"></i>
-    <h1 class="d-inline fw-bold text-primary-green mb-0">Welcome to TogetherMindsAI</h1>
-    <div class="tagline text-muted mt-1">
-        A reflective space to talk through what's on your mind &nbsp;
-        <span class="pill-anon"><i class="bi bi-incognito me-1"></i>Anonymous</span>
-        <span class="pill-free ms-1"><i class="bi bi-gift-fill me-1"></i>Free</span>
-    </div>
+    <i class="bi bi-heart-pulse-fill hero-icon"></i>
+    <h1>Welcome to TogetherMindsAI</h1>
+    <p class="tagline">A reflective space to talk through what's on your mind</p>
+    <span class="pill-anon"><i class="bi bi-incognito me-1"></i>Anonymous</span>
+    <span class="pill-free"><i class="bi bi-gift-fill me-1"></i>Free</span>
 </div>
 
-<!-- Pillars: color-coded tiles with one-sentence desktop copy -->
+<!-- Pillars: color-coded tiles -->
 <div class="row g-2 mb-2">
     <div class="col-6">
         <div class="pillar-tile anon text-center">
@@ -133,40 +185,46 @@
     </div>
 </div>
 
-<!-- Three modes (no eyebrow label — modes-card chrome is self-evident) -->
+<!-- Three modes — each block is a direct link to its auth page -->
 <div class="modes-card mb-2">
     <div class="row g-2 text-center">
-        <div class="col-4 mode-block solo">
-            <i class="bi bi-person-fill mode-icon"></i>
-            <div class="mode-title">Solo</div>
-            <p class="d-md-none">One-on-one with the AI.</p>
-            <p class="d-none d-md-block">
-                Private one-on-one with the AI &mdash; vent, journal aloud, or work through
-                what's on your mind at your own pace.
-            </p>
+        <div class="col-4">
+            <a href="/auth/solo" class="mode-link solo">
+                <i class="bi bi-person-fill mode-icon"></i>
+                <div class="mode-title">Solo</div>
+                <p class="d-md-none">One-on-one with the AI.</p>
+                <p class="d-none d-md-block">
+                    Private one-on-one with the AI &mdash; vent, journal, or work through
+                    what's on your mind at your own pace.
+                </p>
+            </a>
         </div>
-        <div class="col-4 mode-block couple">
-            <i class="bi bi-people-fill mode-icon"></i>
-            <div class="mode-title">Couple</div>
-            <p class="d-md-none">Real-time chat with your partner.</p>
-            <p class="d-none d-md-block">
-                Shared real-time room with your partner from any device. The AI moderates
-                and surfaces what might have been missed.
-            </p>
+        <div class="col-4">
+            <a href="/auth/couple" class="mode-link couple">
+                <i class="bi bi-people-fill mode-icon"></i>
+                <div class="mode-title">Couple</div>
+                <p class="d-md-none">Real-time chat with your partner.</p>
+                <p class="d-none d-md-block">
+                    Shared real-time room with your partner from any device. The AI
+                    moderates and surfaces what might have been missed.
+                </p>
+            </a>
         </div>
-        <div class="col-4 mode-block group">
-            <i class="bi bi-person-lines-fill mode-icon"></i>
-            <div class="mode-title">Group</div>
-            <p class="d-md-none">Host or join a small circle.</p>
-            <p class="d-none d-md-block">
-                Host or join a small circle &mdash; friends, peers, support group. Everyone
-                shares one code; the AI moderates the room.
-            </p>
+        <div class="col-4">
+            <a href="/auth/group" class="mode-link group">
+                <i class="bi bi-person-lines-fill mode-icon"></i>
+                <div class="mode-title">Group</div>
+                <p class="d-md-none">Host or join a small circle.</p>
+                <p class="d-none d-md-block">
+                    Host or join a small circle &mdash; friends, peers, support group.
+                    Everyone shares one code; the AI moderates the room.
+                </p>
+            </a>
         </div>
     </div>
 </div>
 
-<!-- Privacy strip (no eyebrow — divider + content reads cleanly) -->
+<!-- Privacy strip (slate panel) -->
 <div class="privacy-strip mb-2">
     <div class="row g-2 text-center">
         <div class="col-4">
@@ -187,7 +245,7 @@
     </div>
 </div>
 
-<!-- Safety framing (one short line) -->
+<!-- Safety framing -->
 <div class="safety-alert mb-2">
     <i class="bi bi-info-circle-fill me-1"></i>
     <strong>Reflections, not therapy.</strong>
@@ -195,16 +253,9 @@
     always shown in the bar above.
 </div>
 
-<!-- Primary CTA -->
-<div class="text-center mb-1">
-    <a href="/home" class="cta-btn">
-        <i class="bi bi-play-fill me-1"></i>Get Started
-    </a>
-</div>
-
-<!-- Secondary: rejoin -->
+<!-- Rejoin (primary secondary action — modes are the primary CTAs above) -->
 <div class="text-center">
-    <a href="/session/join" class="rejoin-link text-muted text-decoration-none">
+    <a href="/session/join" class="rejoin-btn">
         <i class="bi bi-box-arrow-in-right me-1"></i>Already have an anonymous code? Join here
     </a>
 </div>

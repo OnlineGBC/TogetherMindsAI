@@ -96,18 +96,25 @@ def test_root_redirects_to_welcome(client):
 
 def test_welcome_page_returns_200_with_lead_pillars(client):
     """The welcome page must render and surface the headline value props
-    (Anonymous, Free) plus the Get Started CTA — these are the reason it exists."""
+    (Anonymous, Free), the three modes as direct links, the rejoin action,
+    and the reflections-not-therapy framing — these are the reason it exists."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
     assert "Welcome to TogetherMindsAI" in body
     assert "Anonymous" in body
     assert "Free" in body
-    assert "Get Started" in body
-    # The CTA must point users at the mode picker
-    assert 'href="/home"' in body
-    # Reflections-not-therapy framing per product positioning
     assert "Reflections, not therapy" in body
+
+    # The three modes must be direct clickable links to their auth pages
+    # (no longer hidden behind a separate Get Started button).
+    assert 'href="/auth/solo"' in body
+    assert 'href="/auth/couple"' in body
+    assert 'href="/auth/group"' in body
+
+    # Rejoin must be present and styled as a real action, not a quiet text link.
+    assert 'href="/session/join"' in body
+    assert "Already have an anonymous code" in body
 
 
 def test_home_route_returns_mode_picker(client):
