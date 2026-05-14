@@ -86,8 +86,51 @@ def client():
 # Page availability — every route returns the expected status code
 # ---------------------------------------------------------------------------
 
-def test_home_page_returns_200(client):
-    assert client.get("/").status_code == 200
+def test_root_redirects_to_welcome(client):
+    """First-touch URL `/` must redirect to the welcome/landing page so new
+    visitors see the pitch (anonymous, free, three modes) before the mode picker."""
+    rv = client.get("/")
+    assert rv.status_code in (301, 302)
+    assert "/welcome" in rv.headers.get("Location", "")
+
+
+def test_welcome_page_returns_200_with_lead_pillars(client):
+    """The welcome page must render and surface the headline value props
+    (Anonymous, Free) plus the Get Started CTA — these are the reason it exists."""
+    rv = client.get("/welcome")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    assert "Welcome to TogetherMindsAI" in body
+    assert "Anonymous" in body
+    assert "Free" in body
+    assert "Get Started" in body
+    # The CTA must point users at the mode picker
+    assert 'href="/home"' in body
+    # Reflections-not-therapy framing per product positioning
+    assert "Reflections, not therapy" in body
+
+
+def test_home_route_returns_mode_picker(client):
+    """The 3-mode picker (formerly served at /) now lives at /home so the
+    welcome page can take over /. Navbar Home links here too."""
+    rv = client.get("/home")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    assert "Solo Reflection" in body
+    assert "Couple Check-in" in body
+    assert "Group Circle" in body
+
+
+def test_navbar_home_link_points_to_home_not_root(client):
+    """Regression: navbar Home must skip the welcome redirect for users
+    already inside the app — clicking Home should land on the mode picker."""
+    rv = client.get("/welcome")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    # The nav link in base.html must point at /home, not / (which would loop through welcome)
+    assert 'href="/home"' in body, (
+        "Navbar Home link must target /home so in-app users skip the welcome redirect"
+    )
 
 
 def test_tos_page_returns_200(client):

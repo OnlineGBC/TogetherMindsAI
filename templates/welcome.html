@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Welcome to TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="text-center mb-2 mb-md-3">
+    <div class="hero-icon mx-auto mb-2">
+        <i class="bi bi-heart-pulse-fill display-3 text-primary-green"></i>
+    </div>
+    <h1 class="h2 fw-bold text-primary-green mb-1">Welcome to TogetherMindsAI</h1>
+    <p class="text-muted mb-1 small">
+        A reflective space to talk through what's on your mind &mdash; on your own,
+        with your partner, or with a group.
+    </p>
+    <hr class="w-25 mx-auto border-green my-2" />
+</div>
+
+<!-- Lead pillars: Anonymous + Free -->
+<div class="row g-2 g-md-3 justify-content-center mb-2 mb-md-3">
+    <div class="col-6">
+        <div class="therapy-card card h-100 shadow-sm border-0 text-center p-2 p-md-3">
+            <div class="card-body p-2 p-md-3 d-flex flex-column align-items-center">
+                <i class="bi bi-incognito display-6 text-primary-green mb-1"></i>
+                <h3 class="fw-bold mb-1 fs-6 fs-md-5">100% Anonymous</h3>
+                <p class="text-muted mb-0 small">
+                    No signup. No email. No personal info &mdash; just a session code.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6">
+        <div class="therapy-card card h-100 shadow-sm border-0 text-center p-2 p-md-3">
+            <div class="card-body p-2 p-md-3 d-flex flex-column align-items-center">
+                <i class="bi bi-gift-fill display-6 text-primary-green mb-1"></i>
+                <h3 class="fw-bold mb-1 fs-6 fs-md-5">Always Free</h3>
+                <p class="text-muted mb-0 small">
+                    No paywall. No subscription. Use it as much as you need.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Three modes -->
+<div class="text-center mb-1">
+    <p class="text-muted small mb-1 fw-semibold">Three ways to reflect</p>
+</div>
+<div class="row g-2 g-md-3 justify-content-center mb-2 mb-md-3">
+    <div class="col-4">
+        <div class="therapy-card card h-100 shadow-sm border-0 text-center p-2">
+            <div class="card-body p-1 p-md-2 d-flex flex-column align-items-center">
+                <i class="bi bi-person-fill fs-4 fs-md-2 text-primary-green mb-1"></i>
+                <h4 class="fw-bold mb-1 fs-6">Solo</h4>
+                <p class="text-muted mb-0 small d-none d-md-block" style="font-size:0.78rem">
+                    One-on-one with the AI, at your own pace.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-4">
+        <div class="therapy-card card h-100 shadow-sm border-0 text-center p-2">
+            <div class="card-body p-1 p-md-2 d-flex flex-column align-items-center">
+                <i class="bi bi-people-fill fs-4 fs-md-2 text-primary-green mb-1"></i>
+                <h4 class="fw-bold mb-1 fs-6">Couple</h4>
+                <p class="text-muted mb-0 small d-none d-md-block" style="font-size:0.78rem">
+                    Real-time chat with your partner, AI guided.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-4">
+        <div class="therapy-card card h-100 shadow-sm border-0 text-center p-2">
+            <div class="card-body p-1 p-md-2 d-flex flex-column align-items-center">
+                <i class="bi bi-person-lines-fill fs-4 fs-md-2 text-primary-green mb-1"></i>
+                <h4 class="fw-bold mb-1 fs-6">Group</h4>
+                <p class="text-muted mb-0 small d-none d-md-block" style="font-size:0.78rem">
+                    Host or join a small circle &mdash; AI moderated.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tech / privacy strip -->
+<div class="row g-2 justify-content-center mb-2 mb-md-3">
+    <div class="col-4 text-center">
+        <i class="bi bi-robot text-primary-green fs-5 fs-md-3"></i>
+        <p class="mt-1 small text-muted mb-0" style="font-size:0.72rem">AI-Powered<br/>Reflective</p>
+    </div>
+    <div class="col-4 text-center">
+        <i class="bi bi-emoji-smile text-primary-green fs-5 fs-md-3"></i>
+        <p class="mt-1 small text-muted mb-0" style="font-size:0.72rem">Sentiment-aware<br/>Responses</p>
+    </div>
+    <div class="col-4 text-center">
+        <i class="bi bi-shield-lock-fill text-primary-green fs-5 fs-md-3"></i>
+        <p class="mt-1 small text-muted mb-0" style="font-size:0.72rem">Encrypted<br/>at rest</p>
+    </div>
+</div>
+
+<!-- Safety framing -->
+<div class="alert alert-light border rounded-3 small text-center py-2 px-3 mb-3">
+    <i class="bi bi-info-circle-fill text-primary-green me-1"></i>
+    <strong>Reflections, not therapy.</strong>
+    TogetherMindsAI is a supportive AI companion &mdash; not a licensed professional.
+    Crisis resources (988, findahelpline, befrienders) are always shown in the bar above.
+</div>
+
+<!-- Primary CTA -->
+<div class="text-center mb-2">
+    <a href="/home" class="btn btn-primary-green rounded-pill px-4 px-md-5 py-2">
+        <i class="bi bi-play-fill me-1"></i>Get Started
+    </a>
+</div>
+
+<!-- Secondary: rejoin -->
+<div class="text-center">
+    <a href="/session/join" class="btn btn-outline-green rounded-pill px-3 px-md-4 btn-sm">
+        <i class="bi bi-box-arrow-in-right me-2"></i>Already have an anonymous code? Join here
+    </a>
+</div>
+{% endblock %}
