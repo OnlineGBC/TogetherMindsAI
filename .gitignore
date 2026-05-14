@@ -230,3 +230,6 @@ android.keystore
 *.apk.idsig
 manifest-checksum.txt
 
+# Runtime server log dumps (may contain PHI)
+nohup.out
+
