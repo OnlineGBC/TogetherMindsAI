@@ -9,7 +9,7 @@
 |--------|------------------------|-----------------|-------------|
 | Solo   | Created per-user at registration | Full UUID (same as user_id) | `/therapy/solo` (no ID in URL) |
 | Couple | Created per-user at registration; partner joins by ID | Full UUID (same as creator's user_id) | `/therapy/couple/<session_id>` |
-| Group  | Created per-user at registration | 6-char alphanumeric (e.g. `AB3K7M`) | `/therapy/group/<session_id>` |
+| Group  | Created per-user at registration | randomized private key (e.g. `AB3K7M`) | `/therapy/group/<session_id>` |
 
 ---
 
@@ -26,7 +26,7 @@
 - Identifies the shared conversation room
 - **Solo**: `session_id == user_id` (the user's UUID)
 - **Couple**: `session_id == creator's user_id` (a UUID)
-- **Group**: a 6-char alphanumeric string from charset `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O, 1/I/l)
+- **Group**: a randomized private key string from charset `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O, 1/I/l)
 - Appears in the URL for couple and group
 - Used as PK in `therapy_sessions` table
 
@@ -34,7 +34,7 @@
 - A short human-readable code shown in the UI
 - **Solo**: `_short_id(user_id)` → first 6 chars of UUID with hyphens stripped and uppercased (e.g. `7A6D1E`)
 - **Couple**: `_short_id(session_id)` → same transformation on the couple UUID
-- **Group**: `session_id` directly (already 6 chars)
+- **Group**: `session_id` directly (already a randomized private key)
 - Passed to every therapy template as `display_id=...`
 - Shown in the session ID banner and privacy banner
 - Used as the localStorage key for dismissing the privacy banner and storing nickname
@@ -74,7 +74,7 @@ def _short_id(id_str: str) -> str:
 | Solo   | *(absent / null)*        |
 | Couple (new session) | `user_id` (the creator's UUID becomes the couple session ID) |
 | Couple (joining existing) | the existing couple `session_id` from `pending_couple_session` cookie |
-| Group (new session) | the 6-char alphanumeric |
+| Group (new session) | the randomized private key |
 | Group (joining existing) | the existing group `session_id` from `pending_group_session` cookie |
 
 ### What the API verify response includes
@@ -94,7 +94,7 @@ POST /auth/<mode>  →  server creates User + TherapySession + sets session["use
     │
     ├─ solo   → redirect /therapy/solo
     ├─ couple → redirect /therapy/couple/<session_id>   (session_id = user_id if new)
-    └─ group  → redirect /therapy/group/<session_id>    (session_id = 6-char alphanumeric)
+    └─ group  → redirect /therapy/group/<session_id>    (session_id = randomized private key)
 ```
 
 ---
@@ -150,7 +150,7 @@ render_template("couple.html",
 ### `/therapy/group/<session_id>` (GET)
 ```python
 user_id    = session["user_id"]         # full UUID of current user
-session_id = <from URL>                 # 6-char alphanumeric (already short)
+session_id = <from URL>                 # randomized private key (already short)
 display_id = session_id                 # same — no transformation needed
 render_template("group.html",
     user_id=user_id, session_id=session_id, display_id=display_id)
@@ -201,7 +201,7 @@ Solo does NOT use SocketIO — it uses plain HTTP POST to `/therapy/solo`.
 1. **Solo URL**: changed from `/therapy/solo/<user_id>` to `/therapy/solo` (user_id read from Flask cookie)
 2. **Couple URL**: changed from `/therapy/couple/<user_id>?session_id=...` to `/therapy/couple/<session_id>`
 3. **Group URL**: changed from `/therapy/group/<user_id>/<session_id>` to `/therapy/group/<session_id>`
-4. **Group session ID format**: changed from 4-digit int to 6-char alphanumeric
+4. **Group session ID format**: changed from 4-digit int to randomized private key
 5. **display_id**: introduced `_short_id()` helper and `display_id` template variable
 6. **auth.html JS redirects**: updated to match new URL patterns
 7. **Session banner**: `sessionNicknameDisplay` moved inline with code span (so both show together)

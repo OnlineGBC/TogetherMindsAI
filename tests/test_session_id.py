@@ -1,9 +1,9 @@
 """
 Unit tests for session_id.py — the single source of truth for session ID logic.
 
-All sessions (solo, couple, group) now use the same 6-char mixed-case
-alphanumeric format from SESSION_CHARSET. These tests verify every public
-function's contract.
+All sessions (solo, couple, group) now use the same long randomized
+private key format from SESSION_CHARSET. These tests verify every
+public function's contract.
 """
 
 import sys

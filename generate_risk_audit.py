@@ -474,7 +474,7 @@ bullet("Configure log rotation: local 7-day; Cloud Run 30-day via GCP Cloud Logg
 h("4.4  Session ID Anonymity", 2)
 sev("MEDIUM")
 doc.add_paragraph(
-    "6-char session IDs correctly decouple session from user identity. However, "
+    "Long randomized private key session IDs correctly decouple session from user identity. However, "
     "the user's UUID is broadcast to other participants via SocketIO events."
 )
 bold_label("Evidence:")

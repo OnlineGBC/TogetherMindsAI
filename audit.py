@@ -30,7 +30,7 @@ def log_event(event_type: str, session_id: str = None, user_id: str = None, **de
 
     Args:
         event_type: Short identifier, e.g. 'session_created', 'crisis_detected'.
-        session_id: Therapy session ID (anonymised 6-char code, not a UUID).
+        session_id: Therapy session ID (anonymised randomized private key, not a UUID).
         user_id:    Internal user UUID.  Never exposed to other participants.
         **details:  Arbitrary metadata — no message content, no PII allowed.
     """

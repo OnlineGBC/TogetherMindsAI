@@ -257,10 +257,11 @@ if not config.IS_TESTING:
                 except Exception:
                     pass
 
-    # Force-expire legacy sessions whose IDs aren't the current 6-char canonical
-    # format (session_id.SESSION_ID_LENGTH). The scheduled purge below will
-    # sweep them in the next pass. Idempotent: matching rows already have their
-    # retention bumped down, repeat runs are a no-op.
+    # Force-expire legacy sessions whose IDs aren't the current canonical
+    # randomized-private-key format (session_id.SESSION_ID_LENGTH). The
+    # scheduled purge below will sweep them in the next pass. Idempotent:
+    # matching rows already have their retention bumped down, repeat runs
+    # are a no-op.
     with app.app_context():
         from sqlalchemy import func
         from session_id import SESSION_ID_LENGTH

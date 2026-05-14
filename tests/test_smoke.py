@@ -565,7 +565,7 @@ def test_end_session_modal_present_in_base(client):
 # ---------------------------------------------------------------------------
 
 def test_solo_register_returns_valid_session_id(client):
-    """Solo registration must return a valid 6-char session_id, not a UUID."""
+    """Solo registration must return a valid randomized-private-key session_id, not a UUID."""
     priv, pub_b64 = _make_keypair()
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "solo"})
@@ -573,7 +573,7 @@ def test_solo_register_returns_valid_session_id(client):
     data = rv.get_json()
     assert "session_id" in data, "solo registration must include session_id in response"
     assert is_valid_session_id(data["session_id"]), (
-        f"solo session_id {data['session_id']!r} is not a valid 6-char session ID"
+        f"solo session_id {data['session_id']!r} is not a valid randomized-private-key session ID"
     )
     assert data["session_id"] != data["user_id"], (
         "session_id must be independent of user_id (no longer UUID-based)"
@@ -581,7 +581,7 @@ def test_solo_register_returns_valid_session_id(client):
 
 
 def test_couple_register_returns_valid_session_id(client):
-    """Couple registration must return a valid 6-char session_id."""
+    """Couple registration must return a valid randomized-private-key session_id."""
     priv, pub_b64 = _make_keypair()
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": "couple"})
@@ -592,7 +592,7 @@ def test_couple_register_returns_valid_session_id(client):
         "JS redirect uses data.session_id to build the URL"
     )
     assert is_valid_session_id(data["session_id"]), (
-        f"couple session_id {data['session_id']!r} is not a valid 6-char session ID"
+        f"couple session_id {data['session_id']!r} is not a valid randomized-private-key session ID"
     )
 
 
@@ -614,10 +614,10 @@ def test_all_modes_return_different_session_and_user_ids(client):
     for mode in ("solo", "couple", "group"):
         priv, user_id, session_id = _register(client, mode)
         assert session_id != user_id, (
-            f"{mode}: session_id should be a 6-char code, not the user UUID"
+            f"{mode}: session_id should be a randomized private key, not the user UUID"
         )
         assert is_valid_session_id(session_id), (
-            f"{mode}: session_id {session_id!r} is not a valid 6-char session ID"
+            f"{mode}: session_id {session_id!r} is not a valid randomized-private-key session ID"
         )
 
 
@@ -647,14 +647,14 @@ def test_join_page_does_not_say_1234(client):
 
 
 def test_solo_page_shows_session_id_in_banner(client):
-    """The solo therapy page must show the 6-char session ID, not a UUID."""
+    """The solo therapy page must show the randomized-private-key session ID, not a UUID."""
     priv, user_id, session_id = _register(client, "solo")
 
     rv = client.get(f"/therapy/solo/{session_id}")
     assert rv.status_code == 200
     body = rv.data.decode()
 
-    # The 6-char session ID must appear in the page
+    # The randomized-private-key session ID must appear in the page
     assert session_id in body, f"session_id {session_id!r} not found in solo page"
 
     # No raw UUID (with hyphens) should appear in the session banner area
@@ -666,13 +666,14 @@ def test_solo_page_shows_session_id_in_banner(client):
     banner_start = body.find("Session ID:")
     banner_section = body[banner_start:banner_start + 200] if banner_start != -1 else ""
     assert not uuid_pattern.search(banner_section), (
-        f"Raw UUID found in session banner — 6-char IDs should not contain hyphens.\n"
+        f"Raw UUID found in session banner — randomized private keys must not "
+        f"match the UUID hyphen-segmented pattern.\n"
         f"Banner section: {banner_section!r}"
     )
 
 
 def test_couple_page_shows_session_id_in_banner(client):
-    """The couple therapy page session banner must show the 6-char session ID."""
+    """The couple therapy page session banner must show the randomized-private-key session ID."""
     priv, user_id, session_id = _register(client, "couple")
 
     rv = client.get(f"/therapy/couple/{session_id}")
@@ -694,7 +695,7 @@ def test_couple_page_shows_session_id_in_banner(client):
 
 
 def test_group_page_shows_session_id_in_banner(client):
-    """For group sessions, the 6-char session_id should appear in the rendered page."""
+    """For group sessions, the randomized-private-key session_id should appear in the rendered page."""
     priv, user_id, session_id = _register(client, "group")
 
     rv = client.get(f"/therapy/group/{session_id}")
@@ -726,7 +727,7 @@ def test_join_post_session_id_is_case_insensitive(client):
 
 
 def test_solo_rejoin_by_session_id(client):
-    """Solo sessions must be rejoinable by the exact 6-char session ID."""
+    """Solo sessions must be rejoinable by the exact randomized-private-key session ID."""
     priv, user_id, session_id = _register(client, "solo")
 
     rv = client.post("/session/join", data={"session_id": session_id},
@@ -738,7 +739,7 @@ def test_solo_rejoin_by_session_id(client):
 
 
 def test_couple_rejoin_by_session_id(client):
-    """Couple sessions must be rejoinable by the exact 6-char session ID."""
+    """Couple sessions must be rejoinable by the exact randomized-private-key session ID."""
     priv, user_id, session_id = _register(client, "couple")
 
     with client.session_transaction() as sess:
@@ -753,7 +754,7 @@ def test_couple_rejoin_by_session_id(client):
 
 
 def test_group_rejoin_by_session_id(client):
-    """Group sessions must be rejoinable by the exact 6-char session ID."""
+    """Group sessions must be rejoinable by the exact randomized-private-key session ID."""
     priv, user_id, session_id = _register(client, "group")
 
     with client.session_transaction() as sess:
@@ -785,7 +786,7 @@ def test_solo_nickname_cannot_be_used_to_join(client):
     """Submitting a label/nickname to the join form must return 'not found'.
 
     Friendly names are local-only (localStorage). The server never translates
-    a label to a session ID — only the 6-character session ID is accepted.
+    a label to a session ID — only the randomized-private-key session ID is accepted.
     """
     _register(client, "solo")  # creates a session, but we submit a label instead
     rv = client.post("/session/join", data={"session_id": "My Monday session"},
