@@ -1,54 +1,54 @@
 {% extends "base.html" %}
 {% block title %}Welcome to TogetherMindsAI{% endblock %}
+{% block body_class %}welcome-page{% endblock %}
 
 {% block content %}
 <style>
-  /* Welcome page palette — scoped to this template only */
+  /* Tight scoped main padding so welcome fits within a laptop viewport */
+  body.welcome-page main { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+
   .welcome-hero {
     background: linear-gradient(135deg, #e0f2f0 0%, #f5fbf9 100%);
-    border-radius: 1rem;
-    padding: 1rem 1rem 0.85rem;
+    border-radius: 0.85rem;
+    padding: 0.55rem 0.85rem 0.55rem;
   }
+  .welcome-hero .hero-icon { font-size: 1.6rem; color: #009688; vertical-align: middle; }
+  .welcome-hero h1 { font-size: 1.35rem; line-height: 1.1; }
+  .welcome-hero .tagline { font-size: 0.82rem; }
   .pill-anon, .pill-free {
     display: inline-block;
-    padding: 0.2rem 0.75rem;
+    padding: 0.1rem 0.6rem;
     border-radius: 999px;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 600;
   }
   .pill-anon { background: #d4f0ec; color: #00695f; }
   .pill-free { background: #fef3c7; color: #92400e; }
 
   .pillar-tile {
-    border-radius: 0.85rem;
-    padding: 0.85rem;
+    border-radius: 0.7rem;
+    padding: 0.55rem 0.7rem;
     height: 100%;
   }
   .pillar-tile.anon { background: #e0f2f0; }
   .pillar-tile.free { background: #fef3c7; }
-  .pillar-tile .pillar-icon { font-size: 1.7rem; }
-  .pillar-tile.anon .pillar-icon { color: #00695f; }
-  .pillar-tile.free .pillar-icon { color: #b45309; }
-  .pillar-tile.anon h3, .pillar-tile.anon p { color: #00695f; }
-  .pillar-tile.free h3, .pillar-tile.free p { color: #92400e; }
+  .pillar-tile .pillar-icon { font-size: 1.35rem; line-height: 1; }
+  .pillar-tile.anon .pillar-icon, .pillar-tile.anon h3, .pillar-tile.anon p { color: #00695f; }
+  .pillar-tile.free .pillar-icon, .pillar-tile.free h3, .pillar-tile.free p { color: #92400e; }
+  .pillar-tile h3 { font-size: 0.85rem; margin: 0.15rem 0 0.1rem; font-weight: 700; }
+  .pillar-tile p { font-size: 0.74rem; margin: 0; line-height: 1.25; }
 
   .modes-card {
     background: #ffffff;
     border: 1px solid #e8edec;
-    border-radius: 0.85rem;
-    padding: 0.85rem 0.5rem 0.7rem;
+    border-radius: 0.7rem;
+    padding: 0.55rem 0.4rem 0.5rem;
     box-shadow: 0 2px 6px rgba(15, 60, 55, 0.06);
   }
-  .mode-block {
-    position: relative;
-    padding-top: 0.5rem;
-  }
+  .mode-block { position: relative; padding-top: 0.4rem; }
   .mode-block::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 22%; right: 22%;
-    height: 3px;
-    border-radius: 2px;
+    content: ""; position: absolute; top: 0; left: 22%; right: 22%;
+    height: 3px; border-radius: 2px;
   }
   .mode-block.solo::before   { background: #009688; }
   .mode-block.couple::before { background: #fb7185; }
@@ -56,28 +56,23 @@
   .mode-block.solo   .mode-icon { color: #009688; }
   .mode-block.couple .mode-icon { color: #fb7185; }
   .mode-block.group  .mode-icon { color: #6366f1; }
+  .mode-block .mode-icon { font-size: 1.4rem; line-height: 1; }
+  .mode-block .mode-title { font-size: 0.85rem; font-weight: 700; margin-top: 0.15rem; }
+  .mode-block p { font-size: 0.74rem; margin: 0; line-height: 1.25; color: #6b7280; }
 
-  .eyebrow {
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: #6b7280;
-  }
-
-  .privacy-strip {
-    border-top: 1px solid #e5e7eb;
-    padding-top: 0.55rem;
-  }
-  .privacy-strip .privacy-icon { color: #475569; font-size: 1.15rem; }
+  .privacy-strip { border-top: 1px solid #e5e7eb; padding-top: 0.4rem; }
+  .privacy-strip .privacy-icon { color: #475569; font-size: 1rem; line-height: 1; }
+  .privacy-strip .privacy-title { font-size: 0.78rem; font-weight: 600; margin-top: 0.15rem; }
+  .privacy-strip p { font-size: 0.7rem; margin: 0; line-height: 1.2; color: #6b7280; }
 
   .safety-alert {
     background: #ede9fe;
     border-left: 4px solid #7c3aed;
-    border-radius: 0.5rem;
-    padding: 0.6rem 0.85rem;
+    border-radius: 0.4rem;
+    padding: 0.35rem 0.7rem;
     color: #4c1d95;
-    font-size: 0.83rem;
+    font-size: 0.76rem;
+    line-height: 1.3;
   }
   .safety-alert strong { color: #4c1d95; }
 
@@ -85,148 +80,119 @@
     display: inline-block;
     background: linear-gradient(135deg, #009688 0%, #00796b 100%);
     color: #ffffff;
-    padding: 0.65rem 2.5rem;
+    padding: 0.45rem 2rem;
     border-radius: 999px;
     font-weight: 600;
     text-decoration: none;
-    box-shadow: 0 4px 14px rgba(0, 150, 136, 0.35);
+    font-size: 0.92rem;
+    box-shadow: 0 3px 12px rgba(0, 150, 136, 0.32);
     transition: transform 0.1s ease, box-shadow 0.1s ease;
   }
   .cta-btn:hover, .cta-btn:focus {
     color: #ffffff;
-    box-shadow: 0 6px 20px rgba(0, 150, 136, 0.45);
+    box-shadow: 0 5px 16px rgba(0, 150, 136, 0.42);
     transform: translateY(-1px);
   }
+  .rejoin-link { font-size: 0.75rem; }
 </style>
 
-<!-- Hero -->
+<!-- Hero (compact, single line on desktop where possible) -->
 <div class="welcome-hero text-center mb-2">
-    <i class="bi bi-heart-pulse-fill display-4 text-primary-green"></i>
-    <h1 class="h3 fw-bold text-primary-green mb-1 mt-1">Welcome to TogetherMindsAI</h1>
-    <p class="text-muted small mb-2">
-        A reflective space to talk through what's on your mind
-    </p>
-    <span class="pill-anon"><i class="bi bi-incognito me-1"></i>Anonymous</span>
-    <span class="pill-free ms-1"><i class="bi bi-gift-fill me-1"></i>Free</span>
+    <i class="bi bi-heart-pulse-fill hero-icon me-1"></i>
+    <h1 class="d-inline fw-bold text-primary-green mb-0">Welcome to TogetherMindsAI</h1>
+    <div class="tagline text-muted mt-1">
+        A reflective space to talk through what's on your mind &nbsp;
+        <span class="pill-anon"><i class="bi bi-incognito me-1"></i>Anonymous</span>
+        <span class="pill-free ms-1"><i class="bi bi-gift-fill me-1"></i>Free</span>
+    </div>
 </div>
 
-<!-- Anonymous + Free pillars (color-coded tiles) -->
+<!-- Pillars: color-coded tiles with one-sentence desktop copy -->
 <div class="row g-2 mb-2">
     <div class="col-6">
         <div class="pillar-tile anon text-center">
             <i class="bi bi-incognito pillar-icon"></i>
-            <h3 class="fw-bold small mb-1 mt-1">100% Anonymous</h3>
-            <p class="small mb-0 d-md-none" style="font-size:0.72rem">
-                No signup, no email.
-            </p>
-            <p class="small mb-0 d-none d-md-block">
-                No signup. No email. No personal information collected. Just a 6-character
-                session code that's yours alone &mdash; share it to invite a partner or group,
-                or keep it private for solo reflection.
+            <h3>100% Anonymous</h3>
+            <p class="d-md-none">No signup, no email.</p>
+            <p class="d-none d-md-block">
+                No signup, no email, no PII &mdash; just a 6-character session code that's
+                yours alone to share or keep private.
             </p>
         </div>
     </div>
     <div class="col-6">
         <div class="pillar-tile free text-center">
             <i class="bi bi-gift-fill pillar-icon"></i>
-            <h3 class="fw-bold small mb-1 mt-1">Always Free</h3>
-            <p class="small mb-0 d-md-none" style="font-size:0.72rem">
-                No paywall, no subscription.
-            </p>
-            <p class="small mb-0 d-none d-md-block">
-                No paywall, no subscription, no upsells. Use it as much as you need,
-                whenever you need it. Your wellbeing shouldn't depend on a payment plan.
+            <h3>Always Free</h3>
+            <p class="d-md-none">No paywall, no subscription.</p>
+            <p class="d-none d-md-block">
+                No paywall, no subscription, no upsells &mdash; use it as much as you need,
+                whenever you need it.
             </p>
         </div>
     </div>
 </div>
 
-<!-- Three modes -->
-<div class="text-center mb-1">
-    <span class="eyebrow">How it works &middot; Three ways to reflect</span>
-</div>
+<!-- Three modes (no eyebrow label — modes-card chrome is self-evident) -->
 <div class="modes-card mb-2">
     <div class="row g-2 text-center">
         <div class="col-4 mode-block solo">
-            <i class="bi bi-person-fill fs-3 mode-icon"></i>
-            <div class="fw-bold small mt-1">Solo</div>
-            <p class="small text-muted mb-0 d-md-none" style="font-size:0.7rem">
-                One-on-one with the AI.
-            </p>
-            <p class="small text-muted mb-0 d-none d-md-block">
-                A private one-on-one conversation with the AI. Vent, journal aloud, or
-                work through what's on your mind at your own pace. The AI reflects back
-                what it hears and asks gentle follow-up questions.
+            <i class="bi bi-person-fill mode-icon"></i>
+            <div class="mode-title">Solo</div>
+            <p class="d-md-none">One-on-one with the AI.</p>
+            <p class="d-none d-md-block">
+                Private one-on-one with the AI &mdash; vent, journal aloud, or work through
+                what's on your mind at your own pace.
             </p>
         </div>
         <div class="col-4 mode-block couple">
-            <i class="bi bi-people-fill fs-3 mode-icon"></i>
-            <div class="fw-bold small mt-1">Couple</div>
-            <p class="small text-muted mb-0 d-md-none" style="font-size:0.7rem">
-                Real-time chat with your partner.
-            </p>
-            <p class="small text-muted mb-0 d-none d-md-block">
-                A shared real-time session with your partner. Both of you join the same
-                room from any device using one session code. The AI moderates, surfaces
-                what might have been missed, and keeps the conversation grounded.
+            <i class="bi bi-people-fill mode-icon"></i>
+            <div class="mode-title">Couple</div>
+            <p class="d-md-none">Real-time chat with your partner.</p>
+            <p class="d-none d-md-block">
+                Shared real-time room with your partner from any device. The AI moderates
+                and surfaces what might have been missed.
             </p>
         </div>
         <div class="col-4 mode-block group">
-            <i class="bi bi-person-lines-fill fs-3 mode-icon"></i>
-            <div class="fw-bold small mt-1">Group</div>
-            <p class="small text-muted mb-0 d-md-none" style="font-size:0.7rem">
-                Host or join a small circle.
-            </p>
-            <p class="small text-muted mb-0 d-none d-md-block">
-                Host or join a small group circle &mdash; friends, peers, a support
-                group. Everyone joins with the same session code. The AI moderates the
-                room and reflects on what comes up across the group.
+            <i class="bi bi-person-lines-fill mode-icon"></i>
+            <div class="mode-title">Group</div>
+            <p class="d-md-none">Host or join a small circle.</p>
+            <p class="d-none d-md-block">
+                Host or join a small circle &mdash; friends, peers, support group. Everyone
+                shares one code; the AI moderates the room.
             </p>
         </div>
     </div>
 </div>
 
-<!-- Built for privacy strip (secondary, smaller) -->
-<div class="text-center mb-1">
-    <span class="eyebrow">Built for privacy</span>
-</div>
+<!-- Privacy strip (no eyebrow — divider + content reads cleanly) -->
 <div class="privacy-strip mb-2">
     <div class="row g-2 text-center">
         <div class="col-4">
             <i class="bi bi-robot privacy-icon"></i>
-            <div class="small fw-semibold mt-1">AI-Powered</div>
-            <p class="text-muted mb-0 d-none d-md-block" style="font-size:0.75rem">
-                Powered by Anthropic's Claude &mdash; designed to reflect, not direct.
-            </p>
+            <div class="privacy-title">AI-Powered</div>
+            <p class="d-none d-md-block">Anthropic's Claude &mdash; reflects, doesn't direct.</p>
         </div>
         <div class="col-4">
             <i class="bi bi-emoji-smile privacy-icon"></i>
-            <div class="small fw-semibold mt-1">Sentiment-aware</div>
-            <p class="text-muted mb-0 d-none d-md-block" style="font-size:0.75rem">
-                Reads tone and emotion to respond with appropriate warmth and pace.
-            </p>
+            <div class="privacy-title">Sentiment-aware</div>
+            <p class="d-none d-md-block">Reads tone and emotion to set the right pace.</p>
         </div>
         <div class="col-4">
             <i class="bi bi-shield-lock-fill privacy-icon"></i>
-            <div class="small fw-semibold mt-1">Encrypted</div>
-            <p class="text-muted mb-0 d-none d-md-block" style="font-size:0.75rem">
-                Messages encrypted at rest. Sensitive fields redacted from server logs.
-            </p>
+            <div class="privacy-title">Encrypted</div>
+            <p class="d-none d-md-block">Encrypted at rest. Sensitive fields redacted from logs.</p>
         </div>
     </div>
 </div>
 
-<!-- Safety framing as soft lavender alert -->
+<!-- Safety framing (one short line) -->
 <div class="safety-alert mb-2">
     <i class="bi bi-info-circle-fill me-1"></i>
     <strong>Reflections, not therapy.</strong>
-    <span class="d-md-none">Crisis resources are always shown above.</span>
-    <span class="d-none d-md-inline">
-        TogetherMindsAI is a supportive AI companion &mdash; not a licensed
-        professional. It will not diagnose, prescribe, or replace human care.
-        If you're in crisis, the resources at the top of every page (988,
-        findahelpline, befrienders) are the right place to go first.
-    </span>
+    A supportive AI companion &mdash; not a licensed professional. Crisis resources are
+    always shown in the bar above.
 </div>
 
 <!-- Primary CTA -->
@@ -238,7 +204,7 @@
 
 <!-- Secondary: rejoin -->
 <div class="text-center">
-    <a href="/session/join" class="btn btn-link btn-sm text-muted text-decoration-none">
+    <a href="/session/join" class="rejoin-link text-muted text-decoration-none">
         <i class="bi bi-box-arrow-in-right me-1"></i>Already have an anonymous code? Join here
     </a>
 </div>
