@@ -178,7 +178,6 @@ doc.add_paragraph(
     "marketing and system prompts, inviting liability for harmful advice."
 )
 bold_label("Evidence:")
-bullet('templates/home.html — "AI-powered mental health support"')
 bullet('ai_therapist.py lines 226-292 — AI described as "a thoughtful, experienced counsellor"')
 bullet('ai_therapist.py line 232 — implies AI has "many years in the consulting room" (false credentials)')
 bullet("Disclaimers in small text only; not signed off by user")
