@@ -369,11 +369,6 @@ def welcome():
     return render_template("welcome.html")
 
 
-@app.route("/home")
-def home():
-    return render_template("home.html")
-
-
 @app.route("/privacy")
 def privacy():
     return render_template("privacy.html")
@@ -451,9 +446,10 @@ def _session_exists(session_id: str) -> bool:
 
 
 def _redirect_invalid_session():
-    """Redirect to home with a flash explaining the session is unknown/expired."""
+    """Redirect to the welcome/landing page with a flash explaining the
+    session is unknown/expired."""
     flash("That session doesn't exist or has expired.", "warning")
-    return redirect(url_for("home"))
+    return redirect(url_for("welcome"))
 
 
 @app.route("/therapy/solo/<session_id>", methods=["GET"])

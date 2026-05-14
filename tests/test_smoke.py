@@ -117,26 +117,27 @@ def test_welcome_page_returns_200_with_lead_pillars(client):
     assert "Already have an anonymous code" in body
 
 
-def test_home_route_returns_mode_picker(client):
-    """The 3-mode picker (formerly served at /) now lives at /home so the
-    welcome page can take over /. Navbar Home links here too."""
-    rv = client.get("/home")
-    assert rv.status_code == 200
-    body = rv.data.decode()
-    assert "Solo Reflection" in body
-    assert "Couple Check-in" in body
-    assert "Group Circle" in body
+def test_home_route_removed_returns_404(client):
+    """Regression: /home was deleted after the welcome page absorbed the
+    mode-picker UI (the three modes are now clickable directly on /welcome).
+    Re-introducing /home would silently restore a duplicate mode picker —
+    this test locks in the removal."""
+    assert client.get("/home").status_code == 404
 
 
-def test_navbar_home_link_points_to_home_not_root(client):
-    """Regression: navbar Home must skip the welcome redirect for users
-    already inside the app — clicking Home should land on the mode picker."""
+def test_navbar_home_link_points_to_root(client):
+    """Regression: navbar Home now points to / (which redirects to /welcome)
+    since the standalone /home mode-picker page was deleted. Re-pointing the
+    nav link at a non-existent /home would cause a 404 when users click it."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    # The nav link in base.html must point at /home, not / (which would loop through welcome)
-    assert 'href="/home"' in body, (
-        "Navbar Home link must target /home so in-app users skip the welcome redirect"
+    assert 'href="/home"' not in body, (
+        "Navbar must not link to /home — that route was removed"
+    )
+    # The nav link in base.html should now point at /
+    assert '<a class="nav-link" href="/"' in body, (
+        "Navbar Home link must target /"
     )
 
 
