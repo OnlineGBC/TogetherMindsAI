@@ -26,7 +26,7 @@ CRISIS_KEYWORDS = {
     "overdose", "take my own life", "end it all", "better off dead",
     "not worth living", "rather be dead", "wish i was dead",
     # Translated-idiom phrases — defence in depth for multilingual input.
-    # Even with Sonnet-based translation in /api/translate-check, machine
+    # Even with Opus-based translation in /api/translate-check, machine
     # translation can flatten clinical weight from phrases unmistakable in
     # their source language. Examples: ES "no veo salida" → "I don't see a
     # way out"; JA "消えたい" → "I want to disappear"; FR "j'en ai marre de la
