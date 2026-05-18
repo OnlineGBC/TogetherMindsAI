@@ -52,47 +52,48 @@
                     {% endif %}
                 </div>
 
-                <p class="fw-semibold mb-2 small auth-please-read">Please read and agree to each:</p>
+                <p class="fw-semibold mb-2 small auth-please-read">Please read before continuing:</p>
 
-                <!-- 3-up consent grid on ≥lg, stacked on smaller -->
+                <!-- 3-up informational grid on ≥lg, stacked on smaller (no per-card checkboxes; single acceptance below) -->
                 <div class="row g-2 mb-3">
                     <div class="col-lg-4">
-                        <label class="consent-item h-100 d-flex align-items-start gap-2 p-2 p-md-3 rounded-3 border border-2 cursor-pointer" for="ageCheck">
-                            <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="ageCheck" required>
+                        <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
                                 I am <strong>18 years of age or older</strong>.
                                 <span class="text-muted d-block mt-1" style="font-size:0.78rem">
                                     Under 18: please speak with a trusted adult or call/text <strong>988</strong>.
                                 </span>
                             </span>
-                        </label>
+                        </div>
                     </div>
                     <div class="col-lg-4">
-                        <label class="consent-item h-100 d-flex align-items-start gap-2 p-2 p-md-3 rounded-3 border border-2 cursor-pointer" for="aiCheck">
-                            <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="aiCheck" required>
+                        <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
                                 TogetherMindsAI is an <strong>AI tool, not a licensed professional</strong>,
                                 and is not a substitute for professional mental health care.
                             </span>
-                        </label>
+                        </div>
                     </div>
                     <div class="col-lg-4">
-                        <label class="consent-item h-100 d-flex align-items-start gap-2 p-2 p-md-3 rounded-3 border border-2 cursor-pointer" for="dataCheck">
-                            <input class="consent-check flex-shrink-0 mt-1" type="checkbox" id="dataCheck" required>
+                        <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
                                 My conversations are <strong>stored on this server</strong> and
                                 deleted by default at session end unless I retain them.
                             </span>
-                        </label>
+                        </div>
                     </div>
                 </div>
 
-                <!-- TOS line + Continue button on a single row (stacks on mobile) -->
+                <!-- Single acceptance checkbox + Continue button on a single row (stacks on mobile) -->
                 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                    <p class="text-muted small mb-0">
-                        By continuing, you agree to our
-                        <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-underline" data-bs-toggle="modal" data-bs-target="#tosModal">Terms of Service</button>.
-                    </p>
+                    <div class="form-check d-flex align-items-start gap-2 mb-0">
+                        <input class="form-check-input flex-shrink-0 mt-1" type="checkbox" id="agreeAll" required>
+                        <label class="form-check-label small text-muted mb-0" for="agreeAll">
+                            By continuing, you agree to our
+                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-underline" data-bs-toggle="modal" data-bs-target="#tosModal" onclick="event.stopPropagation()">Terms of Service</button>
+                            and all the points above.
+                        </label>
+                    </div>
                     <button type="button" id="continueBtn" class="btn btn-primary-green btn-lg rounded-3 ms-md-auto" disabled>
                         <span id="btnText">
                             <i class="bi bi-arrow-right-circle-fill me-2"></i>I agree — Continue
@@ -200,14 +201,14 @@
 <script>
     var THERAPY_MODE = "{{ therapy_mode }}";
 
-    // Enable button only when all consent boxes are checked
-    var checks = document.querySelectorAll(".consent-check");
-    var btn    = document.getElementById("continueBtn");
+    // Enable button only when the single acceptance checkbox is checked
+    var agreeAll = document.getElementById("agreeAll");
+    var btn      = document.getElementById("continueBtn");
 
     function _updateBtn() {
-        btn.disabled = !Array.from(checks).every(function (c) { return c.checked; });
+        btn.disabled = !agreeAll.checked;
     }
-    checks.forEach(function (c) { c.addEventListener("change", _updateBtn); });
+    agreeAll.addEventListener("change", _updateBtn);
 
     btn.addEventListener("click", function () {
         document.getElementById("btnText").classList.add("d-none");
