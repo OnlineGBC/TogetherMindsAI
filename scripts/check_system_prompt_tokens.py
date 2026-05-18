@@ -30,6 +30,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Load .env the same way the app does so ANTHROPIC_API_KEY is available
+from dotenv import load_dotenv
+load_dotenv()
+
 from ai_therapist import (
     _SYSTEM_PROMPT_TEMPLATE,
     _MODE_CONTEXT,
