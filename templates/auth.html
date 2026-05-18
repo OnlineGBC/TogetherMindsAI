@@ -2,6 +2,30 @@
 {% block title %}Getting Started — TogetherMindsAI{% endblock %}
 
 {% block content %}
+<style>
+  /* Make the single acceptance checkbox visible — default Bootstrap form-check-input
+     is ~16px with a thin light border; that gets lost on this critical action. */
+  #agreeAll {
+    width: 1.4rem;
+    height: 1.4rem;
+    border: 2px solid #6c757d;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  #agreeAll:hover {
+    border-color: #009688;
+    box-shadow: 0 0 0 3px rgba(0, 150, 136, 0.12);
+  }
+  #agreeAll:checked {
+    background-color: #009688;
+    border-color: #009688;
+  }
+  #agreeAll:focus {
+    border-color: #009688;
+    box-shadow: 0 0 0 3px rgba(0, 150, 136, 0.25);
+    outline: 0;
+  }
+</style>
 <div class="row justify-content-center">
     <div class="col-md-10 col-lg-10 col-xl-9">
 
