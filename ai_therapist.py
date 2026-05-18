@@ -3,7 +3,7 @@ ai_therapist.py
 ---------------
 Two-stage AI pipeline:
   1. Emotion classifier  — j-hartmann/emotion-english-distilroberta-base (local, CPU)
-  2. Response generator  — Claude Opus 4.7 with prompt caching
+  2. Response generator  — Claude Opus 4.7
 
 Crisis detection remains a hard keyword pre-filter that Claude never overrides.
 """
@@ -395,7 +395,7 @@ def _generate_claude_response(
     history: list = None,
     referral_already_made: bool = False,
 ) -> str:
-    """Call Claude Opus with a cached system prompt and full conversation history.
+    """Call Claude Opus with the system prompt and full conversation history.
 
     Falls back to the static response bank if the API call fails.
     """
@@ -438,13 +438,7 @@ def _generate_claude_response(
         response = client.messages.create(
             model="claude-opus-4-7",
             max_tokens=400,
-            system=[
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
+            system=system_prompt,
             messages=messages,
         )
         return response.content[0].text
@@ -653,11 +647,7 @@ def generate_opening_message(mode: str = "solo") -> str:
         response = client.messages.create(
             model="claude-opus-4-7",
             max_tokens=300,
-            system=[{
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"},
-            }],
+            system=system_prompt,
             messages=[{
                 "role": "user",
                 "content": "[New session — please open the conversation as the counsellor.]",
@@ -699,11 +689,7 @@ def generate_silence_nudge(mode: str, history: list = None) -> str:
         response = client.messages.create(
             model="claude-opus-4-7",
             max_tokens=150,
-            system=[{
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"},
-            }],
+            system=system_prompt,
             messages=messages,
         )
         return response.content[0].text
