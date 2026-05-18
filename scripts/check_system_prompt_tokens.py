@@ -1,22 +1,30 @@
 """
 check_system_prompt_tokens.py
 -----------------------------
-Verify the cached system prompt in ai_therapist.py is large enough to
-actually benefit from prompt caching on Claude Opus 4.7.
+Verify the system prompt in ai_therapist.py is large enough to
+actually benefit from prompt caching if cache_control markers are added.
 
 Why this matters
 ================
-Opus 4.7's minimum cacheable prefix is 4096 tokens (Sonnet 4.6 was 2048).
-If the rendered system prompt is below the threshold, `cache_control:
-{"type": "ephemeral"}` markers silently no-op — no error, just full-price
-input tokens on every request, forever.
+Each Claude model has a minimum cacheable prefix size:
+  - Sonnet 4.6:           2048 tokens  (current production model)
+  - Opus 4.7 / 4.6 / 4.5: 4096 tokens
+  - Sonnet 4.5 / earlier: 1024 tokens
+
+If the rendered system prompt is below the threshold for the model in use,
+`cache_control: {"type": "ephemeral"}` markers silently no-op — no error,
+just full-price input tokens on every request, forever. As of the last
+check the system prompt rendered to ~1800 tokens, below Sonnet 4.6's
+2048 threshold (and well below any Opus tier), so cache_control markers
+have been removed from ai_therapist.py. Run this script before re-adding
+them.
 
 What this script does
 =====================
 Renders _SYSTEM_PROMPT_TEMPLATE for each session mode (solo / couple / group)
 exactly as generate_response() / generate_opening_message() / generate_silence_nudge()
-do, calls client.messages.count_tokens() against claude-opus-4-7, and reports
-whether each rendered prompt clears the 4096-token cacheable threshold.
+do, calls client.messages.count_tokens() against the current model, and reports
+whether each rendered prompt clears the threshold.
 
 Usage
 -----
@@ -40,8 +48,8 @@ from ai_therapist import (
     _get_claude_client,
 )
 
-OPUS_47_CACHE_MIN = 4096
-MODEL = "claude-opus-4-7"
+CACHE_MIN_TOKENS = 2048  # Sonnet 4.6 threshold; bump to 4096 if migrating to Opus
+MODEL = "claude-sonnet-4-6"
 
 
 def render_prompt(mode: str) -> str:
@@ -88,15 +96,15 @@ def main() -> int:
 
     client = _get_claude_client()
     print(f"Counting tokens against {MODEL}")
-    print(f"Cacheable-prefix threshold: {OPUS_47_CACHE_MIN} tokens")
+    print(f"Cacheable-prefix threshold: {CACHE_MIN_TOKENS} tokens")
     print("-" * 70)
 
     all_pass = True
     for mode in ("solo", "couple", "group"):
         system_tokens, total_with_user = count_tokens_for_mode(client, mode)
-        passes = system_tokens >= OPUS_47_CACHE_MIN
-        status = "OK  (will cache)" if passes else "FAIL (silently won't cache)"
-        margin = system_tokens - OPUS_47_CACHE_MIN
+        passes = system_tokens >= CACHE_MIN_TOKENS
+        status = "would cache" if passes else "below threshold (caching won't apply)"
+        margin = system_tokens - CACHE_MIN_TOKENS
         sign = "+" if margin >= 0 else ""
         print(
             f"{mode:6s}  system={system_tokens:5d} tokens  "
@@ -107,16 +115,18 @@ def main() -> int:
 
     print("-" * 70)
     if all_pass:
-        print("All modes clear the 4096-token threshold. Prompt caching is active.")
+        print(
+            f"All modes clear the {CACHE_MIN_TOKENS}-token threshold. Adding\n"
+            "cache_control: {type: ephemeral} to system blocks would actually save money."
+        )
         return 0
     else:
         print(
-            "At least one mode is below 4096 tokens. cache_control breakpoints\n"
-            "on those modes silently no-op. Options:\n"
-            "  1. Expand the system prompt (e.g. add few-shot examples) above 4096.\n"
-            "  2. Remove cache_control on affected sites (clarity over false hope).\n"
-            "  3. Accept the cost and move on (system prompt is small enough that\n"
-            "     the cache savings would be modest anyway)."
+            f"At least one mode is below {CACHE_MIN_TOKENS} tokens. Adding cache_control\n"
+            "to those modes would silently no-op. Options:\n"
+            f"  1. Expand the system prompt above {CACHE_MIN_TOKENS} tokens to enable caching.\n"
+            "  2. Leave cache_control off (current state — no false hope).\n"
+            "  3. Accept the cost and move on (savings would be modest anyway)."
         )
         return 2
 

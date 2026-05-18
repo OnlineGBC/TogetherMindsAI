@@ -641,7 +641,7 @@ def api_translate_check():
         translation and have them confirm before the message proceeds
 
     On any error: returns is_english=true so the user is never blocked.
-    Crisis-signal preservation matters: uses Opus 4.7 with a prompt that
+    Crisis-signal preservation matters: uses Sonnet 4.6 with a prompt that
     explicitly preserves emotional intensity and clinical idioms (e.g.,
     "I want to disappear" must keep its suicidal-ideation connotation in the
     English output, not flatten to "I want to leave").
@@ -661,7 +661,7 @@ def api_translate_check():
         from ai_therapist import _get_claude_client
         client = _get_claude_client()
         result = client.messages.create(
-            model="claude-opus-4-7",
+            model="claude-sonnet-4-6",
             max_tokens=600,
             messages=[{
                 "role": "user",
