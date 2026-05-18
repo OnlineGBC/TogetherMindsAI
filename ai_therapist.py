@@ -3,7 +3,7 @@ ai_therapist.py
 ---------------
 Two-stage AI pipeline:
   1. Emotion classifier  — j-hartmann/emotion-english-distilroberta-base (local, CPU)
-  2. Response generator  — Claude Sonnet 4.6 with prompt caching
+  2. Response generator  — Claude Opus 4.7 with prompt caching
 
 Crisis detection remains a hard keyword pre-filter that Claude never overrides.
 """
@@ -395,7 +395,7 @@ def _generate_claude_response(
     history: list = None,
     referral_already_made: bool = False,
 ) -> str:
-    """Call Claude Sonnet with a cached system prompt and full conversation history.
+    """Call Claude Opus with a cached system prompt and full conversation history.
 
     Falls back to the static response bank if the API call fails.
     """
@@ -436,7 +436,7 @@ def _generate_claude_response(
         import anthropic
         client = _get_claude_client()
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-7",
             max_tokens=400,
             system=[
                 {
@@ -517,7 +517,7 @@ def _medical_guard(response: str) -> str:
     """Two-layer output guard against medical diagnoses, drug names, or treatment instructions.
 
     Layer 1 — keyword pre-filter: catches obvious forbidden phrases instantly.
-    Layer 2 — Claude Sonnet check: catches hallucinated drug names, dosage
+    Layer 2 — Claude Opus check: catches hallucinated drug names, dosage
               recommendations, or diagnostic language that keywords would miss.
 
     Returns the original response if clean, or MEDICAL_GUARD_SAFE_RESPONSE if flagged.
@@ -529,11 +529,11 @@ def _medical_guard(response: str) -> str:
         logger.warning("Medical guard (keyword) caught forbidden phrase in response.")
         return MEDICAL_GUARD_SAFE_RESPONSE
 
-    # Layer 2: Claude Sonnet safety check
+    # Layer 2: Claude Opus safety check
     try:
         client = _get_claude_client()
         result = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-7",
             max_tokens=5,
             messages=[{
                 "role": "user",
@@ -578,14 +578,14 @@ def _claude_crisis_check(text: str) -> bool:
     "I can't go on anymore" or "I don't want to be here" that keywords
     would not catch.
 
-    Uses Claude Sonnet for higher-quality contextual signal preservation,
+    Uses Claude Opus for higher-quality contextual signal preservation,
     especially in translated non-English idioms (max_tokens=5, YES/NO only).
     Returns False on any API failure so the conversation always continues.
     """
     try:
         client = _get_claude_client()
         result = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-7",
             max_tokens=5,
             messages=[{
                 "role": "user",
@@ -651,7 +651,7 @@ def generate_opening_message(mode: str = "solo") -> str:
     try:
         client = _get_claude_client()
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-7",
             max_tokens=300,
             system=[{
                 "type": "text",
@@ -697,7 +697,7 @@ def generate_silence_nudge(mode: str, history: list = None) -> str:
             messages.extend(history[-10:])  # last 10 turns for context, capped
         messages.append({"role": "user", "content": nudge_instruction})
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-7",
             max_tokens=150,
             system=[{
                 "type": "text",
@@ -726,7 +726,7 @@ def process_input(
     1a. Crisis keyword check  → return CRISIS_RESPONSE immediately (fast, no API call).
     1b. Claude crisis check   → contextual check for phrases keywords miss.
     2.  Emotion classification → j-hartmann/emotion-english-distilroberta-base (CPU).
-    3.  Claude Sonnet 4.6     → generates the response with the emotion as context.
+    3.  Claude Opus 4.7       → generates the response with the emotion as context.
     4.  Medical output guard  → keyword + Claude check for medical/diagnostic language.
     """
     # 1a. Crisis check Layer 1 — keywords (zero latency)
