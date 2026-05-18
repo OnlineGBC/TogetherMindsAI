@@ -319,5 +319,86 @@
 </script>
 {% endif %}
 
+<!-- iOS install prompt — shown only on /welcome to iOS Safari users who haven't dismissed it
+     and aren't already running the page as an installed PWA. Other platforms either handle this
+     natively (Android Chrome via beforeinstallprompt, desktop Chrome via the URL-bar install icon)
+     or use the dedicated Android TWA / future App Store app. -->
+<style>
+  .ios-install-prompt {
+    position: fixed;
+    left: 0.85rem;
+    right: 0.85rem;
+    bottom: 0.85rem;
+    z-index: 1050;
+    background: linear-gradient(135deg, #00796b 0%, #009688 100%);
+    color: #ffffff;
+    border-radius: 0.85rem;
+    padding: 0.6rem 0.85rem;
+    box-shadow: 0 6px 20px rgba(0, 121, 107, 0.35);
+    display: none;
+  }
+  .ios-install-prompt.show { display: block; }
+  .ios-install-prompt .iip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .ios-install-prompt .iip-icon { font-size: 1.4rem; line-height: 1; }
+  .ios-install-prompt .iip-text { font-size: 0.82rem; line-height: 1.3; flex-grow: 1; }
+  .ios-install-prompt .iip-text strong { font-weight: 700; }
+  .ios-install-prompt .iip-dismiss {
+    background: transparent;
+    border: 0;
+    color: #ffffff;
+    opacity: 0.85;
+    font-size: 1.2rem;
+    line-height: 1;
+    padding: 0 0.25rem;
+    cursor: pointer;
+  }
+  .ios-install-prompt .iip-dismiss:hover { opacity: 1; }
+</style>
+<div id="iosInstallPrompt" class="ios-install-prompt" role="dialog" aria-label="Install on iPhone">
+    <div class="iip-row">
+        <i class="bi bi-phone iip-icon"></i>
+        <div class="iip-text">
+            <strong>Install on your iPhone</strong> &mdash; tap
+            <i class="bi bi-box-arrow-up"></i>
+            then <strong>Add to Home Screen</strong>.
+        </div>
+        <button type="button" id="iosInstallDismiss" class="iip-dismiss" aria-label="Dismiss">&times;</button>
+    </div>
+</div>
+<script>
+    (function () {
+        // Only on the welcome/landing page — first-touch is enough; don't pop on every page.
+        if (window.location.pathname !== "/welcome") return;
+
+        var ua = navigator.userAgent;
+        // iPad on iPadOS 13+ reports as Mac; touch-points disambiguates.
+        var isIPad13 = ua.indexOf("Mac") !== -1 && navigator.maxTouchPoints > 1;
+        var isIOS = /iPad|iPhone|iPod/.test(ua) || isIPad13;
+        // Safari only — Chrome/Firefox/Edge on iOS can't install PWAs.
+        var isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+        var isStandalone = window.navigator.standalone === true
+            || window.matchMedia("(display-mode: standalone)").matches;
+        var dismissed = localStorage.getItem("iosInstallDismissed") === "1";
+
+        if (!(isIOS && isSafari) || isStandalone || dismissed) return;
+
+        var promptEl = document.getElementById("iosInstallPrompt");
+        if (!promptEl) return;
+        promptEl.classList.add("show");
+
+        var dismissBtn = document.getElementById("iosInstallDismiss");
+        if (dismissBtn) {
+            dismissBtn.addEventListener("click", function () {
+                localStorage.setItem("iosInstallDismissed", "1");
+                promptEl.classList.remove("show");
+            });
+        }
+    })();
+</script>
+
 </body>
 </html>
