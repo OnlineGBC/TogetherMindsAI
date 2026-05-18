@@ -620,22 +620,15 @@ def _claude_crisis_check(text: str) -> bool:
 
 _LANGUAGE_NOTE = (
     "\n\n"
-    "One note before we begin: my language is English. I will try to understand "
-    "and transcribe other languages if you'd like to speak them, but I will only "
-    "evaluate your responses in English — because English is the only crisis response I am trained on, "
-    "and everyone's safety is my primary concern."
-    "\n\n"
-    "To speak in multiple languages, make sure you have installed a keyboard for that "
-    "language. Activate your device's mic to dictate. I'll then transcribe your input "
-    "in your language and attempt to translate it for you to verify first. This step "
-    "will slow overall response time."
+    "A quick note: I work in English — my crisis safeguards are calibrated for it, "
+    "and your safety comes first. You can write or dictate in other languages; "
+    "I'll show you a translation to confirm before we proceed. That step adds a moment."
 )
 
 _NAME_HINT = (
     "\n\n"
-    "One quick note: you're shown by a generic, anonymous name for now. "
-    "If you'd like to personalize it, click the pencil icon next to your name at the top right — "
-    "any name not already used in the past for this session works fine."
+    "You'll see a generic name above. To change it, tap the pencil next to your name — "
+    "any name not already taken in this session works."
 )
 
 
