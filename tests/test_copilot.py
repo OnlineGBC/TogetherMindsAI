@@ -34,12 +34,28 @@ os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5001")
 TEST_KEY = Fernet.generate_key().decode()
 os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 
+from datetime import datetime, timezone, timedelta
+
 import copilot
 from TogetherMindsAI import app, socketio, session_therapist_id
-from models import db, init_encryption
+from models import db, init_encryption, TherapySession
 from ai_therapist import CRISIS_RESPONSE
+from session_id import generate_session_id
 
 init_encryption(TEST_KEY)
+
+
+def _insert_solo_session(therapist_id=None, created_by="owner-xyz"):
+    """Insert a solo TherapySession (therapist-led iff therapist_id given) and return its id."""
+    sid = generate_session_id()
+    db.session.add(TherapySession(
+        id=sid, mode="solo", created_by=created_by,
+        created_at=datetime.now(timezone.utc),
+        retention_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        therapist_id=therapist_id,
+    ))
+    db.session.commit()
+    return sid
 
 
 # ---------------------------------------------------------------------------
@@ -301,3 +317,51 @@ def test_non_therapist_session_still_drives_ai(enc_client):
         c_sio.emit("send_message", {"session_id": sid, "user_id": user_id,
                                     "text": "Just checking in", "mode": "couple"})
     mock_pi.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Therapist-led 1:1 (solo) — distinct client identity + realtime co-pilot
+# ---------------------------------------------------------------------------
+
+def test_therapist_led_solo_join_gives_client_own_identity(enc_client):
+    """A client joining a therapist-led 1:1 must get their OWN identity — never
+    take over the therapist's (the consumer-solo behaviour)."""
+    sid = _insert_solo_session(therapist_id="therapist-xyz", created_by="therapist-xyz")
+
+    rv = enc_client.post("/session/join", data={"session_id": sid})
+    assert rv.status_code == 302
+    assert "/auth/solo" in rv.headers["Location"]
+    with enc_client.session_transaction() as sess:
+        assert sess.get("pending_solo_session") == sid
+        assert sess.get("user_id") != "therapist-xyz"
+
+
+def test_consumer_solo_join_unchanged(enc_client):
+    """Regression: joining a normal (AI-led) solo session still resumes the
+    creator's identity, exactly as before."""
+    sid = _insert_solo_session(therapist_id=None, created_by="owner-abc")
+
+    rv = enc_client.post("/session/join", data={"session_id": sid})
+    assert rv.status_code == 302
+    assert f"/therapy/solo/{sid}" in rv.headers["Location"]
+    with enc_client.session_transaction() as sess:
+        assert sess.get("user_id") == "owner-abc"
+
+
+def test_therapist_led_solo_cards_isolated_and_no_autoreply(enc_client):
+    """In a therapist-led 1:1: cards reach only the therapist and the AI never
+    replies to the room — same guarantees as couple/group, on solo mode."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client, mode="solo")
+
+    fake = [{"type": "observation", "text": "Client minimizes their own needs.", "confidence": 0.6}]
+    with patch("copilot.generate_suggestions", return_value=fake):
+        c_sio.emit("send_message", {"session_id": sid, "user_id": client_user,
+                                    "text": "I guess it's fine, whatever", "mode": "solo"})
+
+    t_recv = t_sio.get_received()
+    c_recv = c_sio.get_received()
+
+    assert "suggestion_cards" in _names(t_recv)
+    assert "suggestion_cards" not in _names(c_recv)
+    c_new = _args_of(c_recv, "new_message")
+    assert all(m["user_id"] != "AI" for m in c_new)

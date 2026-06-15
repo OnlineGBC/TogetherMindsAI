@@ -475,9 +475,10 @@ def auth_post(therapy_mode):
     # Check if this auth is for joining an existing session (not creating a new one)
     pending_couple = session.pop("pending_couple_session", None)
     pending_group  = session.pop("pending_group_session",  None)
+    pending_solo   = session.pop("pending_solo_session",   None)
 
     new_session_id = None
-    if therapy_mode == "solo" and not pending_couple and not pending_group:
+    if therapy_mode == "solo" and not pending_solo and not pending_couple and not pending_group:
         new_session_id = generate_session_id()
         db.session.add(TherapySession(
             id=new_session_id, mode="solo", created_by=user_id,
@@ -507,7 +508,8 @@ def auth_post(therapy_mode):
                   mode=therapy_mode)
 
     if therapy_mode == "solo":
-        return redirect(url_for("therapy_solo", session_id=new_session_id))
+        sid = pending_solo or new_session_id
+        return redirect(url_for("therapy_solo", session_id=sid))
     elif therapy_mode == "couple":
         sid = pending_couple or new_session_id
         return redirect(url_for("therapy_couple", session_id=sid))
@@ -548,6 +550,17 @@ def therapy_solo(session_id):
         return redirect(url_for("auth_get", therapy_mode="solo"))
     if not _session_exists(session_id):
         return _redirect_invalid_session()
+
+    # Therapist-led 1:1 — a realtime page with the co-pilot console for the
+    # therapist. The therapist + their one client are distinct participants over
+    # SocketIO. The consumer (AI-led) solo journaling flow below is unchanged.
+    ts = db.session.get(TherapySession, session_id)
+    if ts and ts.therapist_id:
+        return render_template(
+            "solo_live.html",
+            user_id=user_id, session_id=session_id,
+            is_therapist=(ts.therapist_id == user_id),
+        )
 
     # Assign join position for solo (always position 1 — only one participant)
     joined = session_joined_users.setdefault(session_id, [])
@@ -1161,6 +1174,15 @@ def session_join_post():
     session_id = ts.id  # always use the real ID from DB
 
     if ts.mode == "solo":
+        if ts.therapist_id:
+            # Therapist-led 1:1 — the joiner is a CLIENT and must get their OWN
+            # identity (never the therapist's). Mirror the couple/group join flow.
+            user_id = session.get("user_id")
+            if not user_id:
+                session["pending_solo_session"] = session_id
+                return redirect(url_for("auth_get", therapy_mode="solo"))
+            return redirect(url_for("therapy_solo", session_id=session_id))
+        # Consumer solo journaling — joiner resumes the creator's identity (unchanged).
         session["user_id"] = ts.created_by
         return redirect(url_for("therapy_solo", session_id=session_id))
 
@@ -1460,6 +1482,7 @@ def api_auth_register():
     # Check if this auth is for joining an existing session (not creating a new one)
     pending_couple = session.pop("pending_couple_session", None)
     pending_group  = session.pop("pending_group_session",  None)
+    pending_solo   = session.pop("pending_solo_session",   None)   # joining a therapist-led 1:1
 
     # When true, the new session is therapist-led: this user is the professional
     # leading it, and the AI becomes a private co-pilot instead of replying to clients.
@@ -1472,7 +1495,7 @@ def api_auth_register():
     response_data = {"user_id": user_id, "therapy_mode": therapy_mode}
     _therapist_id = user_id if as_therapist else None
 
-    if therapy_mode == "solo" and not pending_couple and not pending_group:
+    if therapy_mode == "solo" and not pending_solo and not pending_couple and not pending_group:
         new_sid = generate_session_id()
         db.session.add(TherapySession(
             id=new_sid, mode="solo", created_by=user_id,
@@ -1504,12 +1527,14 @@ def api_auth_register():
         response_data["session_id"] = pending_couple
     if pending_group:
         response_data["session_id"] = pending_group
+    if pending_solo:
+        response_data["session_id"] = pending_solo
 
     db.session.commit()
     session["user_id"] = user_id
 
     created_sid = response_data.get("session_id")
-    if created_sid and not pending_couple and not pending_group:
+    if created_sid and not pending_couple and not pending_group and not pending_solo:
         log_event("session_created", session_id=created_sid, user_id=user_id,
                   mode=therapy_mode)
 
