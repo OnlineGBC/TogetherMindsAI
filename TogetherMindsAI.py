@@ -268,6 +268,15 @@ if not config.IS_TESTING:
         except Exception:
             pass  # column already removed or never existed
 
+        # One-time migration: add the therapist_id column for therapist-led
+        # sessions. create_all() does not alter existing tables, so add it here.
+        # Idempotent: a no-op once the column exists. Works on SQLite and Postgres.
+        try:
+            db.session.execute(text("ALTER TABLE therapy_sessions ADD COLUMN therapist_id VARCHAR(36)"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
+
     # Load the emotion classifier synchronously at startup so no request ever
     # triggers a mid-request model load.  The app runs with use_reloader=False
     # so there is no parent/child process split — always load here.
