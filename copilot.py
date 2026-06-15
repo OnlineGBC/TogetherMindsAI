@@ -61,6 +61,10 @@ Rules:
 - "question": a specific question the therapist might pose next.
 - "technique": a named tool/technique that fits right now, stated in a phrase.
 - "observation": a pattern they may not have clocked (e.g. possible catastrophizing, repeated deflection).
+- The transcript labels each turn "Therapist:" or "Client:". If the THERAPIST's own
+  message is the most recent turn, you may react to that intervention — a sharper
+  follow-up question, a refinement, or a gentle caution if it risks closing the client
+  down. Skip empty praise; only surface it if it genuinely sharpens their next move.
 - Do NOT produce risk or crisis flags — those are handled by a separate safety layer.
 - Output ONLY the raw JSON array. No code fences, no commentary before or after.
 """

@@ -1851,11 +1851,12 @@ def on_send_message(data):
             log_event("message_sent", session_id=session_id, user_id=user_id,
                       mode=mode, message_length=len(text))
 
-            # Only client utterances drive the co-pilot. The therapist's own
-            # messages are context, not a trigger (they steer via therapist_note).
+            # Every utterance drives the co-pilot — including the therapist's own,
+            # so they get feedback on their interventions, not just the client's words.
             if user_id != therapist_id:
-                # Crisis safety net retained: the resources message is still shown
-                # to the client (chosen "Both"), and a risk card alerts the therapist.
+                # CLIENT spoke. Crisis safety net retained: the resources message is
+                # still shown to the client (chosen "Both"), and a risk card alerts
+                # the therapist. trigger_text drives the keyword risk check.
                 if detect_crisis(text):
                     crisis_now = datetime.now(timezone.utc)
                     db.session.add(ChatMessage(
@@ -1870,6 +1871,10 @@ def on_send_message(data):
                     log_event("crisis_detected", session_id=session_id, user_id=user_id,
                               layer="keyword", recipient="client_and_therapist")
                 _run_copilot(session_id, mode, trigger_text=text)
+            else:
+                # THERAPIST spoke. Reflect on the intervention too. No client crisis
+                # net and no keyword risk card from the therapist's own words.
+                _run_copilot(session_id, mode, trigger_text=None)
             return
 
         # AI response cooldown — prevent consecutive AI messages when partners

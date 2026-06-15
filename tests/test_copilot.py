@@ -293,6 +293,22 @@ def test_therapist_note_emits_cards_to_therapist_only(enc_client):
     assert "new_message" not in _names(c_recv)
 
 
+def test_therapist_own_message_triggers_copilot(enc_client):
+    """The therapist's own messages drive the co-pilot too — feedback on their
+    interventions, not just the client's words — and stay private to the therapist."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+    therapist_id = session_therapist_id[sid]
+
+    fake = [{"type": "observation", "text": "Reframe may move too fast — check it landed.", "confidence": 0.6}]
+    with patch("copilot.generate_suggestions", return_value=fake):
+        t_sio.emit("send_message", {"session_id": sid, "user_id": therapist_id,
+                                    "text": "It sounds like you're being hard on yourself.",
+                                    "mode": "couple"})
+
+    assert "suggestion_cards" in _names(t_sio.get_received())
+    assert "suggestion_cards" not in _names(c_sio.get_received())
+
+
 def test_therapist_note_rejected_from_non_therapist(enc_client):
     t_sio, c_sio, sid, client_user = _join_pair(enc_client)
 
