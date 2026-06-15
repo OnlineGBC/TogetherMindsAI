@@ -183,10 +183,16 @@
     display: inline-flex; align-items: center; justify-content: center;
     font-size: 1.1rem; flex-shrink: 0;
   }
-  .clinician-card .cc-title { font-size: 1.1rem; font-weight: 700; color: #1f2937; }
-  .clinician-card .cc-sub { font-size: 0.84rem; color: #5b6b67; line-height: 1.4; }
-  .cc-features i { font-size: 1.2rem; color: var(--teal-primary); display: block; margin-bottom: 0.15rem; }
-  .cc-feat-label { font-size: 0.72rem; color: #51635f; }
+  .clinician-card .cc-title { font-size: 1.12rem; font-weight: 700; color: #1f2937; }
+  .clinician-card .cc-sub { font-size: 0.85rem; color: #5b6b67; line-height: 1.5; }
+  .cc-feature-strip {
+    background: #f4f9f8;
+    border: 1px solid #e4efec;
+    border-radius: 0.65rem;
+    padding: 0.6rem 0.25rem;
+  }
+  .cc-features i { font-size: 1.2rem; color: var(--teal-primary); display: block; margin-bottom: 0.2rem; }
+  .cc-feat-label { font-size: 0.72rem; font-weight: 600; color: #51635f; }
   .cc-foot { font-size: 0.74rem; color: #8a9794; }
   .consumer-divider {
     text-align: center;
@@ -217,15 +223,19 @@
         surfaces brief suggestions, technique reminders, and high-priority risk alerts.
         Clients never see it.
     </p>
-    <div class="row g-2 mb-3 cc-features">
-        <div class="col-4 text-center"><i class="bi bi-eye-slash-fill"></i><div class="cc-feat-label">Private to you</div></div>
-        <div class="col-4 text-center"><i class="bi bi-lightbulb-fill"></i><div class="cc-feat-label">Technique cues</div></div>
-        <div class="col-4 text-center"><i class="bi bi-exclamation-triangle-fill"></i><div class="cc-feat-label">Risk alerts</div></div>
+    <div class="cc-feature-strip mb-3">
+        <div class="row g-0 cc-features text-center">
+            <div class="col-4"><i class="bi bi-eye-slash-fill"></i><div class="cc-feat-label">Private to you</div></div>
+            <div class="col-4"><i class="bi bi-lightbulb-fill"></i><div class="cc-feat-label">Technique cues</div></div>
+            <div class="col-4"><i class="bi bi-exclamation-triangle-fill"></i><div class="cc-feat-label">Risk alerts</div></div>
+        </div>
     </div>
-    <a href="/therapist" class="btn btn-primary-green btn-lg w-100 rounded-3 fw-bold">
-        <i class="bi bi-clipboard2-pulse-fill me-2"></i>Start as a clinician<i class="bi bi-arrow-right ms-2"></i>
-    </a>
-    <p class="cc-foot text-center mb-0 mt-2">Runs 1:1, couple, or group sessions.</p>
+    <div class="text-center">
+        <a href="/therapist" class="btn btn-primary-green btn-lg px-5 rounded-3 fw-semibold">
+            Start as a clinician<i class="bi bi-arrow-right ms-2"></i>
+        </a>
+        <p class="cc-foot mb-0 mt-2">Runs 1:1, couple, or group sessions.</p>
+    </div>
 </div>
 
 <!-- Privacy strip (slate panel) -->
