@@ -22,11 +22,25 @@
     color: #ffffff;
     box-shadow: 0 6px 18px rgba(0, 121, 107, 0.25);
   }
-  .welcome-hero .welcome-hero-icon {
-    display: block;
-    margin: 0 auto;
-    font-size: 2.6rem;
+  .welcome-hero .welcome-hero-stack {
+    position: relative;
+    display: inline-block;
+    width: 2.6rem;
+    height: 2.6rem;
+    line-height: 1;
+  }
+  .welcome-hero .heart-base {
     color: #ef4444;
+    font-size: 2.6rem;
+    line-height: 1;
+  }
+  .welcome-hero .pulse-line {
+    color: #ffffff;
+    font-size: 1.5rem;
+    position: absolute;
+    top: 52%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     line-height: 1;
   }
   .welcome-hero h1 {
@@ -156,7 +170,10 @@
 
 <!-- Hero (centered icon above title, white-on-teal) -->
 <div class="welcome-hero text-center mb-2">
-    <i class="bi bi-heart-pulse-fill welcome-hero-icon"></i>
+    <span class="welcome-hero-stack">
+        <i class="bi bi-heart-fill heart-base"></i>
+        <i class="bi bi-activity pulse-line"></i>
+    </span>
     <h1>Welcome to TogetherMindsAI</h1>
     <p class="tagline">A reflective space to talk through what's on your mind</p>
     <span class="pill-anon"><i class="bi bi-incognito me-1"></i>Anonymous</span>

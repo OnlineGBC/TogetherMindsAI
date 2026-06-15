@@ -118,22 +118,32 @@ def test_welcome_page_returns_200_with_lead_pillars(client):
 
 
 def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
-    """Regression: the welcome page's heart-pulse glyph in the teal hero must
-    not use the bare class `hero-icon`. The global rule `.hero-icon` in
-    static/css/style.css paints a 90x90 pale-green circle (it was written for
-    the wrapper-div pattern on auth/join/progress pages). Applying it to the
-    <i> directly drew a ghost circle on top of the white icon, looking like a
-    broken image. The hero icon must use the page-scoped class instead."""
+    """Regression: the welcome page's hero icon must not use the bare class
+    `hero-icon`. The global rule `.hero-icon` in static/css/style.css paints
+    a 90x90 pale-green circle (it was written for the wrapper-div pattern on
+    auth/join/progress pages). Applying it to an <i> in the welcome hero drew
+    a ghost circle on top of the icon, looking like a broken image. The hero
+    must use page-scoped classes only.
+
+    The hero is now a stacked composition (red bi-heart-fill base + white
+    bi-activity pulse line on top) to render a red heart with a white EKG
+    line, per the user's reference image."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    assert 'class="bi bi-heart-pulse-fill welcome-hero-icon"' in body, (
-        "Welcome hero icon must use the page-scoped class `welcome-hero-icon`"
+    assert 'class="welcome-hero-stack"' in body, (
+        "Welcome hero must use the page-scoped wrapper `welcome-hero-stack`"
     )
-    assert 'bi-heart-pulse-fill hero-icon' not in body, (
-        "Welcome hero icon must NOT use bare `hero-icon` — it collides with the "
-        "global 90x90 pale-green circle rule in static/css/style.css"
+    assert 'class="bi bi-heart-fill heart-base"' in body, (
+        "Welcome hero must include the red heart base (bi-heart-fill)"
     )
+    assert 'class="bi bi-activity pulse-line"' in body, (
+        "Welcome hero must include the white pulse line (bi-activity)"
+    )
+    # Lock out the original bug — no bare hero-icon class on icons in the hero.
+    assert 'bi-heart-pulse-fill hero-icon' not in body
+    assert 'bi-heart-fill hero-icon' not in body
+    assert 'bi-activity hero-icon' not in body
 
 
 def test_home_route_removed_returns_404(client):
