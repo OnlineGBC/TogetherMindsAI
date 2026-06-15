@@ -98,6 +98,16 @@
   .mode-btn .mb-arrow { margin-left: auto; color: #9aa7a3; font-size: 1.1rem; }
   .mode-btn:not(:disabled):hover .mb-arrow { color: var(--teal-primary); transform: translateX(2px); }
   .mode-btn .mb-arrow { transition: transform 0.15s ease, color 0.15s ease; }
+
+  /* Resume list */
+  .resume-item {
+    border: 1px solid #e3e8e6;
+    border-radius: 0.6rem;
+    padding: 0.55rem 0.7rem;
+    color: inherit;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .resume-item:hover { border-color: var(--teal-primary); background: #f4f9f8; color: inherit; }
 </style>
 
 <div class="row justify-content-center">
@@ -195,6 +205,22 @@
             </div>
         </div>
 
+        <!-- Resume a session you started (remembered in this browser) -->
+        <div id="resumeSection" class="card tcp-card border-0 mt-3 d-none">
+            <div class="card-body p-3 p-md-4">
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <i class="bi bi-clock-history text-primary-green"></i>
+                    <h6 class="fw-bold mb-0">Resume a session</h6>
+                </div>
+                <p class="text-muted small mb-3">Sessions you started in this browser — re-entering keeps your Co-Pilot.</p>
+                <div id="resumeList" class="d-grid gap-2"></div>
+                <form action="/session/join" method="POST" class="input-group input-group-sm mt-3">
+                    <input name="session_id" class="form-control" placeholder="…or paste a Session ID" autocomplete="off">
+                    <button class="btn btn-outline-green" type="submit">Resume</button>
+                </form>
+            </div>
+        </div>
+
         <div class="text-center mt-3">
             <a href="/" class="text-muted small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to home</a>
         </div>
@@ -227,6 +253,17 @@
         el.classList.remove("d-none");
     }
 
+    // Remember sessions this browser started, so they can be resumed below.
+    var RESUME_KEY = "tcp_recent_sessions";
+    function _rememberSession(mode, sid) {
+        try {
+            var list = JSON.parse(localStorage.getItem(RESUME_KEY) || "[]");
+            list = list.filter(function (s) { return s.sid !== sid; });
+            list.unshift({ sid: sid, mode: mode, at: Date.now() });
+            localStorage.setItem(RESUME_KEY, JSON.stringify(list.slice(0, 8)));
+        } catch (e) { /* localStorage unavailable — resume list just won't persist */ }
+    }
+
     buttons.forEach(function (btn) {
         btn.addEventListener("click", function () {
             if (!agree.checked) { return; }   // disabled, but belt-and-suspenders
@@ -241,11 +278,34 @@
 
             var mode = btn.getAttribute("data-mode");
             registerUser(mode, { as_therapist: true }).then(function (data) {
+                _rememberSession(data.therapy_mode, data.session_id);
                 window.location.href = "/therapy/" + data.therapy_mode + "/" + data.session_id;
             }).catch(function (err) {
                 _showError(err && err.message);
             });
         });
     });
+
+    // Render the "Resume a session" list from localStorage.
+    (function renderResume() {
+        var list = [];
+        try { list = JSON.parse(localStorage.getItem(RESUME_KEY) || "[]"); } catch (e) {}
+        if (!list.length) { return; }
+        var box = document.getElementById("resumeList");
+        var labels = { solo: "1:1 Session", couple: "Couple Session", group: "Group Session" };
+        var icons  = { solo: "person-fill", couple: "people-fill", group: "person-lines-fill" };
+        box.innerHTML = list.map(function (s) {
+            var mode = s.mode || "solo";
+            var when = "";
+            try { when = new Date(s.at).toLocaleString(); } catch (e) {}
+            return '<a href="/therapy/' + mode + '/' + s.sid + '" class="resume-item d-flex align-items-center gap-2">' +
+                   '<i class="bi bi-' + (icons[mode] || "person-fill") + ' text-primary-green"></i>' +
+                   '<span class="flex-grow-1"><span class="fw-semibold">' + (labels[mode] || mode) + '</span>' +
+                   '<span class="font-monospace small text-muted d-block">' + s.sid + '</span></span>' +
+                   '<span class="small text-muted d-none d-sm-inline">' + when + '</span>' +
+                   '<i class="bi bi-arrow-right text-muted"></i></a>';
+        }).join("");
+        document.getElementById("resumeSection").classList.remove("d-none");
+    })();
 </script>
 {% endblock %}
