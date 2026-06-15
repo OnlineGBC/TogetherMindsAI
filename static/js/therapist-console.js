@@ -17,6 +17,8 @@ var _TC_MAX_CARDS = 15;
 function initTherapistConsole(sessionId, userId) {
     var panel = _tcBuildPanel();
     document.body.appendChild(panel);
+    // Shift the page so the fixed panel doesn't cover the chat (desktop CSS).
+    document.body.classList.add("tcp-console-open");
 
     var sock = window.socket;
     if (!sock) {
@@ -25,7 +27,7 @@ function initTherapistConsole(sessionId, userId) {
     }
 
     sock.on("console_init", function () {
-        _tcSetStatus("Listening — suggestions will appear here.");
+        _tcSetStatus("Listening for suggestions…");
     });
 
     sock.on("suggestion_cards", function (data) {
@@ -63,6 +65,7 @@ function initTherapistConsole(sessionId, userId) {
     document.getElementById("tcMuteBtn").addEventListener("click", function () {
         _tcMuted = !_tcMuted;
         this.classList.toggle("active", _tcMuted);
+        panel.classList.toggle("tc-muted", _tcMuted);
         this.innerHTML = _tcMuted
             ? '<i class="bi bi-bell-slash-fill"></i>'
             : '<i class="bi bi-bell-fill"></i>';
@@ -70,9 +73,16 @@ function initTherapistConsole(sessionId, userId) {
         _tcSetStatus(_tcMuted ? "Muted — incoming suggestions are hidden." : "Listening for suggestions…");
     });
 
-    // Collapse toggle (useful on smaller screens)
+    // Collapse / expand — keep the body padding in sync so the chat reclaims space.
+    function _tcSetCollapsed(collapsed) {
+        panel.classList.toggle("collapsed", collapsed);
+        document.body.classList.toggle("tcp-collapsed", collapsed);
+    }
     document.getElementById("tcCollapseBtn").addEventListener("click", function () {
-        panel.classList.toggle("collapsed");
+        _tcSetCollapsed(!panel.classList.contains("collapsed"));
+    });
+    document.getElementById("tcExpandBtn").addEventListener("click", function () {
+        _tcSetCollapsed(false);
     });
 }
 
@@ -85,6 +95,8 @@ function _tcBuildPanel() {
     panel.id = "therapistConsole";
     panel.className = "therapist-console";
     panel.innerHTML =
+        '<button type="button" id="tcExpandBtn" class="tc-expand-handle" title="Open Co-Pilot">' +
+        '  <i class="bi bi-chevron-bar-left"></i>Co-Pilot</button>' +
         '<div class="tc-header">' +
         '  <span class="tc-title"><i class="bi bi-clipboard2-pulse-fill me-1"></i>Co-Pilot</span>' +
         '  <span class="tc-badge">private</span>' +
@@ -93,13 +105,18 @@ function _tcBuildPanel() {
         '    <button type="button" id="tcCollapseBtn" class="tc-icon-btn" title="Collapse"><i class="bi bi-chevron-bar-right"></i></button>' +
         '  </div>' +
         '</div>' +
-        '<div class="tc-status" id="tcStatus">Connecting…</div>' +
-        '<div class="tc-cards" id="tcCards"></div>' +
-        '<div class="tc-notes">' +
-        '  <textarea id="tcNoteInput" rows="1" class="form-control form-control-sm" ' +
-        '            placeholder="Private note to the co-pilot…"></textarea>' +
-        '  <button type="button" id="tcNoteBtn" class="btn btn-sm btn-primary-green" title="Send note">' +
-        '    <i class="bi bi-send-fill"></i></button>' +
+        '<div class="tc-body">' +
+        '  <div class="tc-status" id="tcStatus">Connecting…</div>' +
+        '  <div class="tc-cards" id="tcCards">' +
+        '    <div class="tc-empty" id="tcEmpty"><i class="bi bi-stars"></i>' +
+        'Suggestions and risk alerts will appear here as the conversation unfolds.</div>' +
+        '  </div>' +
+        '  <div class="tc-notes">' +
+        '    <textarea id="tcNoteInput" rows="1" class="form-control form-control-sm" ' +
+        '              placeholder="Private note to the co-pilot…"></textarea>' +
+        '    <button type="button" id="tcNoteBtn" class="btn btn-sm btn-primary-green" title="Send note">' +
+        '      <i class="bi bi-send-fill"></i></button>' +
+        '  </div>' +
         '</div>';
     return panel;
 }
@@ -115,12 +132,12 @@ function _tcRenderCard(card) {
     var el = document.createElement("div");
     el.className = "tc-card tc-card-" + type + (card.priority === "high" ? " tc-card-urgent" : "");
 
-    var label = {
-        risk:        "Risk",
-        question:    "Ask",
-        technique:   "Technique",
-        observation: "Notice",
-    }[type] || "Note";
+    var meta = {
+        risk:        { label: "Risk",      icon: "exclamation-triangle-fill" },
+        question:    { label: "Ask",       icon: "chat-quote-fill" },
+        technique:   { label: "Technique", icon: "life-preserver" },
+        observation: { label: "Notice",    icon: "eye-fill" },
+    }[type] || { label: "Note", icon: "sticky-fill" };
 
     var dismiss = document.createElement("button");
     dismiss.className = "tc-dismiss";
@@ -130,7 +147,8 @@ function _tcRenderCard(card) {
 
     var head = document.createElement("div");
     head.className = "tc-card-label";
-    head.textContent = label;
+    head.innerHTML = '<i class="bi bi-' + meta.icon + '"></i><span></span>';
+    head.querySelector("span").textContent = meta.label;
 
     var body = document.createElement("div");
     body.className = "tc-card-text";
