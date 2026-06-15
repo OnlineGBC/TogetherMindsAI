@@ -37,26 +37,22 @@
                     </label>
                 </div>
 
-                <div class="row g-2">
-                    <div class="col-12">
-                        <button type="button" class="btn btn-primary-green btn-lg w-100 rounded-3 therapist-start-btn"
-                                data-mode="solo" disabled>
-                            <i class="bi bi-person-fill me-2"></i>Start a 1:1 session
-                            <span class="small fw-normal opacity-75">— you and one client</span>
-                        </button>
-                    </div>
-                    <div class="col-sm-6">
-                        <button type="button" class="btn btn-primary-green btn-lg w-100 rounded-3 therapist-start-btn"
-                                data-mode="couple" disabled>
-                            <i class="bi bi-people-fill me-2"></i>Start a Couple session
-                        </button>
-                    </div>
-                    <div class="col-sm-6">
-                        <button type="button" class="btn btn-primary-green btn-lg w-100 rounded-3 therapist-start-btn"
-                                data-mode="group" disabled>
-                            <i class="bi bi-person-lines-fill me-2"></i>Start a Group session
-                        </button>
-                    </div>
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
+                            data-mode="solo" disabled>
+                        <i class="bi bi-person-fill me-2"></i>Start a 1:1 session
+                        <span class="small fw-normal opacity-75">— you and one client</span>
+                    </button>
+                    <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
+                            data-mode="couple" disabled>
+                        <i class="bi bi-people-fill me-2"></i>Start a Couple session
+                        <span class="small fw-normal opacity-75">— you and two partners</span>
+                    </button>
+                    <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
+                            data-mode="group" disabled>
+                        <i class="bi bi-person-lines-fill me-2"></i>Start a Group session
+                        <span class="small fw-normal opacity-75">— you and several participants</span>
+                    </button>
                 </div>
 
                 <div id="therapistError" class="alert alert-danger mt-3 mb-0 d-none" role="alert"></div>
