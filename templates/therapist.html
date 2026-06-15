@@ -39,17 +39,17 @@
 
                 <div class="d-grid gap-2">
                     <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
-                            data-mode="solo" disabled>
+                            data-mode="solo">
                         <i class="bi bi-person-fill me-2"></i>Start a 1:1 session
                         <span class="small fw-normal opacity-75">— you and one client</span>
                     </button>
                     <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
-                            data-mode="couple" disabled>
+                            data-mode="couple">
                         <i class="bi bi-people-fill me-2"></i>Start a Couple session
                         <span class="small fw-normal opacity-75">— you and two partners</span>
                     </button>
                     <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
-                            data-mode="group" disabled>
+                            data-mode="group">
                         <i class="bi bi-person-lines-fill me-2"></i>Start a Group session
                         <span class="small fw-normal opacity-75">— you and several participants</span>
                     </button>
@@ -78,13 +78,19 @@
     var agree   = document.getElementById("agreeTherapist");
     var buttons = document.querySelectorAll(".therapist-start-btn");
 
-    agree.addEventListener("change", function () {
-        buttons.forEach(function (b) { b.disabled = !agree.checked; });
-    });
+    // Buttons are always clickable. If clicked before the acknowledgment is
+    // ticked, we highlight the checkbox and ask for confirmation instead of
+    // sitting there looking disabled.
+    var agreeRow = agree.closest(".form-check");
+
+    function _clearAgreePrompt() {
+        if (agreeRow) { agreeRow.classList.remove("text-danger", "fw-semibold"); }
+        document.getElementById("therapistError").classList.add("d-none");
+    }
+    agree.addEventListener("change", _clearAgreePrompt);
 
     function _showError(msg) {
         document.getElementById("therapistSpinner").classList.add("d-none");
-        buttons.forEach(function (b) { b.disabled = false; });
         var el = document.getElementById("therapistError");
         el.textContent = "Could not start session: " + (msg || "Unknown error");
         el.classList.remove("d-none");
@@ -92,10 +98,17 @@
 
     buttons.forEach(function (btn) {
         btn.addEventListener("click", function () {
-            if (!agree.checked) return;
-            document.getElementById("therapistError").classList.add("d-none");
+            if (!agree.checked) {
+                // Draw attention to the unticked acknowledgment.
+                if (agreeRow) { agreeRow.classList.add("text-danger", "fw-semibold"); }
+                var el = document.getElementById("therapistError");
+                el.textContent = "Please confirm you are a licensed professional first.";
+                el.classList.remove("d-none");
+                agree.focus();
+                return;
+            }
+            _clearAgreePrompt();
             document.getElementById("therapistSpinner").classList.remove("d-none");
-            buttons.forEach(function (b) { b.disabled = true; });
 
             if (!window.crypto || !window.crypto.subtle) {
                 _showError("A secure (HTTPS) connection is required to start a therapist session.");
