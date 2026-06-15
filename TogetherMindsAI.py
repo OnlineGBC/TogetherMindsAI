@@ -28,9 +28,10 @@ from cryptography.exceptions import InvalidSignature
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, init_encryption
 from ai_therapist import (
     process_input, generate_opening_message, generate_silence_nudge,
-    contains_referral, strip_referral_sentences, detect_escalation,
+    contains_referral, strip_referral_sentences, detect_escalation, detect_crisis,
     CRISIS_RESPONSE, MEDICAL_GUARD_SAFE_RESPONSE, OFFTOPIC_SAFE_RESPONSE,
 )
+import copilot
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 from log_filter import install_log_filter
@@ -97,6 +98,69 @@ session_ai_last_response: dict   = {}    # session_id → datetime of last AI re
 session_escalation_hint_sent: set = set() # session_ids where Claude has been invited to make the referral once
 session_last_message_at: dict    = {}    # session_id → datetime of last message (user OR AI), used for silence nudge
 session_silence_check_pending: set = set() # session_ids with a silence check task scheduled (debounces)
+
+# Therapist co-pilot state — all ephemeral, repopulated on join from the DB.
+session_therapist_id: dict    = {}  # session_id → therapist user_id (set only for therapist-led sessions)
+session_therapist_notes: dict = {}  # session_id → list[str] of the therapist's private notes (co-pilot context)
+session_recent_cards: dict    = {}  # session_id → list[str] of recently shown card texts (dedup memory)
+
+
+def _therapist_room(session_id: str) -> str:
+    """Private SocketIO room that only the session's therapist joins.
+
+    Co-pilot cards are emitted here, never to the main session room, so clients
+    are structurally unable to receive them (they are never added to this room).
+    """
+    return f"{session_id}::therapist"
+
+
+def _build_transcript(session_id: str, limit: int = 20) -> str:
+    """Build a speaker-labelled transcript of the last `limit` messages for the co-pilot."""
+    msgs = (
+        ChatMessage.query
+        .filter_by(session_id=session_id)
+        .order_by(ChatMessage.timestamp.asc())
+        .all()
+    )
+    therapist_id = session_therapist_id.get(session_id)
+    lines = []
+    for m in msgs[-limit:]:
+        if m.user_id == therapist_id:
+            who = "Therapist"
+        elif m.user_id == "AI":
+            who = "AI"
+        else:
+            who = m.display_name or "Client"
+        lines.append(f"{who}: {m.text}")
+    return "\n".join(lines)
+
+
+def _run_copilot(session_id: str, mode: str, trigger_text: str = None) -> None:
+    """Generate co-pilot cards and emit them to the therapist-only room.
+
+    `trigger_text`, when given, is the latest client utterance — used for the
+    zero-latency keyword risk check. Never raises into the caller.
+    """
+    try:
+        transcript = _build_transcript(session_id)
+        notes = "\n".join(session_therapist_notes.get(session_id, []))
+        cards = []
+        if trigger_text:
+            cards.extend(copilot.build_risk_cards(trigger_text))
+        cards.extend(copilot.generate_suggestions(transcript, mode=mode, therapist_notes=notes))
+
+        recent = session_recent_cards.setdefault(session_id, [])
+        cards = copilot.dedupe_cards(cards, recent)
+        if not cards:
+            return
+        for c in cards:
+            recent.append(c["text"])
+        del recent[:-30]   # cap dedup memory
+
+        socketio.emit("suggestion_cards", {"cards": cards}, to=_therapist_room(session_id))
+        log_event("suggestions_generated", session_id=session_id, count=len(cards))
+    except Exception as e:
+        app.logger.error("copilot error: %s", type(e).__name__)
 
 
 def _default_display_name(mode: str, position: int) -> str:
@@ -370,6 +434,12 @@ def welcome():
     return render_template("welcome.html")
 
 
+@app.route("/therapist")
+def therapist_start():
+    """Landing page for a licensed therapist to start a therapist-led session."""
+    return render_template("therapist.html")
+
+
 @app.route("/privacy")
 def privacy():
     return render_template("privacy.html")
@@ -451,6 +521,15 @@ def _redirect_invalid_session():
     session is unknown/expired."""
     flash("That session doesn't exist or has expired.", "warning")
     return redirect(url_for("welcome"))
+
+
+def _is_session_therapist(session_id: str, user_id: str) -> bool:
+    """True iff this user is the therapist leading this (therapist-led) session.
+
+    Drives whether the realtime therapy page renders the private co-pilot console.
+    """
+    ts = db.session.get(TherapySession, session_id)
+    return bool(ts and ts.therapist_id and ts.therapist_id == user_id)
 
 
 @app.route("/therapy/solo/<session_id>", methods=["GET"])
@@ -586,6 +665,7 @@ def therapy_couple(session_id):
     return render_template(
         "couple.html",
         user_id=user_id, session_id=session_id,
+        is_therapist=_is_session_therapist(session_id, user_id),
     )
 
 
@@ -599,6 +679,7 @@ def therapy_group(session_id):
     return render_template(
         "group.html",
         user_id=user_id, session_id=session_id,
+        is_therapist=_is_session_therapist(session_id, user_id),
     )
 
 
@@ -1371,11 +1452,16 @@ def api_auth_register():
     pending_couple = session.pop("pending_couple_session", None)
     pending_group  = session.pop("pending_group_session",  None)
 
+    # When true, the new session is therapist-led: this user is the professional
+    # leading it, and the AI becomes a private co-pilot instead of replying to clients.
+    as_therapist = bool(data.get("as_therapist"))
+
     user_id = str(uuid.uuid4())
     user = User(id=user_id, therapy_mode=therapy_mode, public_key=public_key_b64)
     db.session.add(user)
 
     response_data = {"user_id": user_id, "therapy_mode": therapy_mode}
+    _therapist_id = user_id if as_therapist else None
 
     if therapy_mode == "solo" and not pending_couple and not pending_group:
         new_sid = generate_session_id()
@@ -1383,6 +1469,7 @@ def api_auth_register():
             id=new_sid, mode="solo", created_by=user_id,
             created_at=datetime.now(timezone.utc),
             retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
+            therapist_id=_therapist_id,
         ))
         response_data["session_id"] = new_sid
     elif therapy_mode == "couple" and not pending_couple:
@@ -1391,6 +1478,7 @@ def api_auth_register():
             id=new_sid, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
             retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
+            therapist_id=_therapist_id,
         ))
         response_data["session_id"] = new_sid
     elif therapy_mode == "group" and not pending_group:
@@ -1399,6 +1487,7 @@ def api_auth_register():
             id=new_sid, mode="group", created_by=user_id,
             created_at=datetime.now(timezone.utc),
             retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
+            therapist_id=_therapist_id,
         ))
         response_data["session_id"] = new_sid
 
@@ -1503,6 +1592,18 @@ def on_join(data):
         sid_to_user[request.sid]    = user_id
         sid_to_session[request.sid] = session_id
 
+        # Therapist co-pilot: if this session is therapist-led, remember who the
+        # therapist is and — when the joiner IS the therapist — add them to the
+        # private console room. Clients are never added to this room, so the
+        # suggestion cards emitted there can never reach them.
+        ts = db.session.get(TherapySession, session_id)
+        is_therapist_led = bool(ts and ts.therapist_id)
+        if is_therapist_led:
+            session_therapist_id[session_id] = ts.therapist_id
+            if user_id == ts.therapist_id:
+                join_room(_therapist_room(session_id))
+                emit("console_init", {"mode": mode})
+
         # Assign join position (used for default display names)
         joined = session_joined_users.setdefault(session_id, [])
         if user_id not in joined:
@@ -1516,7 +1617,7 @@ def on_join(data):
             .order_by(ChatMessage.timestamp.asc())
             .all()
         )
-        if not messages and not config.IS_TESTING and session_id not in session_opening_sent:
+        if not messages and not is_therapist_led and not config.IS_TESTING and session_id not in session_opening_sent:
             session_opening_sent.add(session_id)
             # Pre-claim the AI cooldown slot so any partner message arriving
             # while the opening message is generating correctly sees an active
@@ -1596,6 +1697,8 @@ def _schedule_silence_check(session_id: str, mode: str) -> None:
         return
     if config.SILENCE_NUDGE_SECONDS <= 0:
         return
+    if session_therapist_id.get(session_id) is not None:
+        return   # therapist-led sessions are paced by the human; no AI nudge
     now = datetime.now(timezone.utc)
     session_last_message_at[session_id] = now
     if session_id in session_silence_check_pending:
@@ -1696,6 +1799,50 @@ def on_send_message(data):
         now  = datetime.now(timezone.utc)
         mode = room_mode.get(session_id, "solo")
 
+        # ---- Therapist-led sessions: the AI never replies to the room. It acts
+        # as a private co-pilot, emitting suggestion cards to the therapist only.
+        therapist_id = session_therapist_id.get(session_id)
+        if therapist_id is not None:
+            display_name = session_display_names.get(session_id, {}).get(user_id)
+            user_msg = ChatMessage(
+                session_id=session_id, user_id=user_id, text=text,
+                timestamp=now, display_name=display_name,
+            )
+            db.session.add(user_msg)
+            db.session.add(Exercise(
+                user_id=user_id, type="realtime_chat", mode=mode, timestamp=now,
+            ))
+            db.session.commit()
+
+            # The conversation itself is shared with everyone in the room.
+            emit("new_message",
+                 {"user_id": user_id, "text": text, "display_name": display_name,
+                  "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
+                 to=session_id)
+            log_event("message_sent", session_id=session_id, user_id=user_id,
+                      mode=mode, message_length=len(text))
+
+            # Only client utterances drive the co-pilot. The therapist's own
+            # messages are context, not a trigger (they steer via therapist_note).
+            if user_id != therapist_id:
+                # Crisis safety net retained: the resources message is still shown
+                # to the client (chosen "Both"), and a risk card alerts the therapist.
+                if detect_crisis(text):
+                    crisis_now = datetime.now(timezone.utc)
+                    db.session.add(ChatMessage(
+                        session_id=session_id, user_id="AI", text=CRISIS_RESPONSE,
+                        timestamp=crisis_now,
+                    ))
+                    db.session.commit()
+                    emit("new_message",
+                         {"user_id": "AI", "text": CRISIS_RESPONSE, "display_name": None,
+                          "timestamp": crisis_now.strftime("%Y-%m-%d %H:%M:%S")},
+                         to=session_id)
+                    log_event("crisis_detected", session_id=session_id, user_id=user_id,
+                              layer="keyword", recipient="client_and_therapist")
+                _run_copilot(session_id, mode, trigger_text=text)
+            return
+
         # AI response cooldown — prevent consecutive AI messages when partners
         # send messages in rapid succession (couple/group only; solo always responds).
         # The slot is pre-claimed immediately (before the Claude call) so that any
@@ -1793,6 +1940,31 @@ def on_send_message(data):
         app.logger.error("on_send_message error: %s", type(e).__name__)
         db.session.rollback()
         emit("error", {"message": "Failed to send message. Please try again."})
+
+
+@socketio.on("therapist_note")
+def on_therapist_note(data):
+    """Private note from the therapist that steers the co-pilot.
+
+    The note is NOT broadcast to clients. It is appended to the co-pilot context
+    and triggers a fresh round of suggestion cards. Rejected unless the sender is
+    the session's therapist.
+    """
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    text       = (data.get("text") or "").strip()
+    if not text:
+        return
+    therapist_id = session_therapist_id.get(session_id)
+    if therapist_id is None or user_id != therapist_id:
+        return   # only the session therapist may add notes
+    if len(text) > _MAX_MSG_LEN:
+        return
+
+    notes = session_therapist_notes.setdefault(session_id, [])
+    notes.append(text)
+    del notes[:-20]   # keep the most recent notes only
+    _run_copilot(session_id, room_mode.get(session_id, "solo"), trigger_text=None)
 
 
 @socketio.on("set_display_name")

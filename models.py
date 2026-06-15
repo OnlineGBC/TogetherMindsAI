@@ -115,3 +115,8 @@ class TherapySession(db.Model):
     created_by = db.Column(db.String(36), nullable=False)    # user_id of creator
     created_at = db.Column(db.DateTime, nullable=False)
     retention_expires_at = db.Column(db.DateTime, nullable=True)  # auto-purge after 30 days
+    # When set, the session is therapist-led: this user_id is the licensed
+    # professional leading it. The AI then acts as a private co-pilot (suggestion
+    # cards to the therapist only) instead of replying to clients. Null = the
+    # original AI-led consumer flow, unchanged.
+    therapist_id = db.Column(db.String(36), nullable=True)

@@ -102,6 +102,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% if is_therapist %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}"></script>{% endif %}
 <script>
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
@@ -197,6 +198,7 @@
     // Join SocketIO room after page loads and start wellness check
     window.addEventListener("load", function () {
         joinRoom(SESSION_ID, USER_ID, MODE, false /* not solo */);
+        {% if is_therapist %}initTherapistConsole(SESSION_ID, USER_ID);{% endif %}
         startWellnessCheck();
         initDisplayNameRename(SESSION_ID, USER_ID, false /* not solo */);
         initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/couple");

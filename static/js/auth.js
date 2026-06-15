@@ -96,14 +96,20 @@ function generateAndStoreKeypair() {
 /**
  * Register a new user: generate keypair, POST public key to server.
  * @param {string} therapyMode - "solo", "couple", or "group"
+ * @param {object} [extraBody] - optional extra fields merged into the request body
+ *                               (e.g. { as_therapist: true } to start a therapist-led session)
  * @returns {Promise<object>} server response data
  */
-function registerUser(therapyMode) {
+function registerUser(therapyMode, extraBody) {
     return generateAndStoreKeypair().then(function (publicKeyB64) {
+        var body = { public_key: publicKeyB64, therapy_mode: therapyMode };
+        if (extraBody) {
+            Object.keys(extraBody).forEach(function (k) { body[k] = extraBody[k]; });
+        }
         return fetch("/api/auth/register", {
             method:  "POST",
             headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ public_key: publicKeyB64, therapy_mode: therapyMode }),
+            body:    JSON.stringify(body),
         });
     }).then(function (res) {
         if (!res.ok) {

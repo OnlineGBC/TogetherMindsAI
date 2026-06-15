@@ -598,3 +598,122 @@ body.therapy-page .chat-window {
         font-size: 1.2rem;
     }
 }
+
+/* ============================================================
+   Therapist co-pilot console — private side panel
+   ============================================================ */
+.therapist-console {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 340px;
+    max-width: 90vw;
+    height: 100vh;
+    background: #ffffff;
+    border-left: 1px solid #e0e0e0;
+    box-shadow: -4px 0 18px rgba(0, 0, 0, 0.06);
+    display: flex;
+    flex-direction: column;
+    z-index: 1045;          /* above chat, below Bootstrap modals (1050+) */
+    transition: transform 0.2s ease;
+}
+.therapist-console.collapsed {
+    transform: translateX(calc(100% - 42px));
+}
+
+.tc-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    background: linear-gradient(135deg, var(--teal-primary) 0%, var(--green-dark) 100%);
+    color: #fff;
+}
+.tc-title { font-weight: 700; font-size: 0.95rem; }
+.tc-badge {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    padding: 0.05rem 0.45rem;
+}
+.tc-actions { margin-left: auto; display: flex; gap: 0.25rem; }
+.tc-icon-btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    opacity: 0.9;
+    padding: 0.15rem 0.35rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.tc-icon-btn:hover { background: rgba(255, 255, 255, 0.18); }
+.tc-icon-btn.active { background: rgba(255, 255, 255, 0.28); }
+
+.tc-status {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    padding: 0.4rem 0.8rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.tc-cards {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.tc-card {
+    position: relative;
+    background: var(--gray-bubble);
+    border-left: 3px solid var(--teal-primary);
+    border-radius: 10px;
+    padding: 0.5rem 1.6rem 0.5rem 0.65rem;
+}
+.tc-card-question    { border-left-color: var(--teal-primary); }
+.tc-card-technique   { border-left-color: var(--green-primary); }
+.tc-card-observation { border-left-color: #fd7e14; }
+.tc-card-risk,
+.tc-card-urgent {
+    background: #fdecea;
+    border-left-color: #d32f2f;
+}
+.tc-card-label {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.15rem;
+}
+.tc-card-urgent .tc-card-label { color: #b71c1c; }
+.tc-card-text { font-size: 0.85rem; line-height: 1.35; color: var(--text-dark); }
+.tc-dismiss {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.3rem;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.1rem;
+}
+.tc-dismiss:hover { color: var(--text-dark); }
+
+.tc-notes {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.6rem;
+    border-top: 1px solid #f0f0f0;
+}
+.tc-notes textarea { resize: none; }
+
+@media (max-width: 576px) {
+    .therapist-console { width: 86vw; }
+}
+
