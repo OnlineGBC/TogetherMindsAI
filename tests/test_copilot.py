@@ -381,6 +381,34 @@ def test_consumer_couple_page_unstyled(enc_client):
     assert b"tcp-session" not in rv.data
 
 
+def test_therapist_led_composer_is_enabled(enc_client):
+    """Regression: therapist-led pages must NOT disable the send button — there is
+    no AI opening message to unlock it, so a hard-disabled composer = unusable."""
+    # solo_live (always therapist-led)
+    s_sid = _insert_solo_session(therapist_id="t1", created_by="t1")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "t1"
+    s_body = enc_client.get("/therapy/solo/" + s_sid).get_data(as_text=True)
+    assert 'id="sendBtn"' in s_body
+    assert 'id="sendBtn" disabled' not in s_body
+
+    # therapist-led couple
+    c_sid = _insert_couple_session(therapist_id="t2", created_by="t2")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "t2"
+    c_body = enc_client.get("/therapy/couple/" + c_sid).get_data(as_text=True)
+    assert 'id="sendBtn" disabled' not in c_body
+
+
+def test_consumer_couple_composer_stays_gated(enc_client):
+    """Consumer couple keeps the disabled-until-AI-opens composer (unchanged)."""
+    sid = _insert_couple_session(therapist_id=None, created_by="o1")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "o1"
+    body = enc_client.get("/therapy/couple/" + sid).get_data(as_text=True)
+    assert 'id="sendBtn" disabled' in body
+
+
 def test_therapist_led_solo_cards_isolated_and_no_autoreply(enc_client):
     """In a therapist-led 1:1: cards reach only the therapist and the AI never
     replies to the room — same guarantees as couple/group, on solo mode."""

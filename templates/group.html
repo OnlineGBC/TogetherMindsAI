@@ -90,11 +90,7 @@
                 placeholder="Share with the group…"
                 autocomplete="off"
             ></textarea>
-            <button
-                class="btn btn-primary-green btn-lg px-4"
-                id="sendBtn"
-                disabled
-            >
+            <button class="btn btn-primary-green btn-lg px-4" id="sendBtn"{% if not is_therapist_led %} disabled{% endif %}>
                 <i class="bi bi-send-fill"></i>
             </button>
         </div>
