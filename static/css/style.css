@@ -784,3 +784,38 @@ body.therapy-page .chat-window {
     body.tcp-console-open.tcp-collapsed main { padding-right: 70px; }
 }
 
+/* ============================================================
+   Therapist-led session pages — calm, polished treatment.
+   Applied via body.tcp-session (1:1, and therapist-led couple/group).
+   Consumer couple/group/solo pages never receive this class.
+   ============================================================ */
+body.tcp-session {
+    background: linear-gradient(180deg, #eef5f3 0%, #f6f4ee 100%);
+}
+body.tcp-session .session-private-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #00695c;
+    background: #d8efe9;
+    border: 1px solid #bfe3da;
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+}
+body.tcp-session .chat-window {
+    border: 1px solid #e3ece9 !important;
+    box-shadow: 0 10px 30px rgba(15, 60, 55, 0.08) !important;
+    background: #ffffff;
+}
+body.tcp-session #chatBox { min-height: 48vh; }
+body.tcp-session .alert-share { border: 1px solid #cfe6df; }
+body.tcp-session .input-group {
+    box-shadow: 0 8px 22px rgba(15, 60, 55, 0.10) !important;
+    border: 1px solid #e3ece9;
+}
+body.tcp-session .chat-input { background: #ffffff; }
+body.tcp-session .bubble { border-radius: 15px; }
+

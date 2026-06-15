@@ -348,6 +348,39 @@ def test_consumer_solo_join_unchanged(enc_client):
         assert sess.get("user_id") == "owner-abc"
 
 
+def _insert_couple_session(therapist_id=None, created_by="owner-xyz"):
+    sid = generate_session_id()
+    db.session.add(TherapySession(
+        id=sid, mode="couple", created_by=created_by,
+        created_at=datetime.now(timezone.utc),
+        retention_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        therapist_id=therapist_id,
+    ))
+    db.session.commit()
+    return sid
+
+
+def test_therapist_led_couple_page_gets_polish_class(enc_client):
+    """A therapist-led couple page carries the scoped polish class."""
+    sid = _insert_couple_session(therapist_id="ther-1", created_by="ther-1")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
+    rv = enc_client.get("/therapy/couple/" + sid)
+    assert rv.status_code == 200
+    assert b"tcp-session" in rv.data
+
+
+def test_consumer_couple_page_unstyled(enc_client):
+    """Regression: a normal (consumer) couple page must NOT get the polish class —
+    the therapist-led styling never bleeds into the regular experience."""
+    sid = _insert_couple_session(therapist_id=None, created_by="owner-1")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "owner-1"
+    rv = enc_client.get("/therapy/couple/" + sid)
+    assert rv.status_code == 200
+    assert b"tcp-session" not in rv.data
+
+
 def test_therapist_led_solo_cards_isolated_and_no_autoreply(enc_client):
     """In a therapist-led 1:1: cards reach only the therapist and the AI never
     replies to the room — same guarantees as couple/group, on solo mode."""

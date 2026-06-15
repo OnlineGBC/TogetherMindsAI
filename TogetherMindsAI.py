@@ -534,15 +534,6 @@ def _redirect_invalid_session():
     return redirect(url_for("welcome"))
 
 
-def _is_session_therapist(session_id: str, user_id: str) -> bool:
-    """True iff this user is the therapist leading this (therapist-led) session.
-
-    Drives whether the realtime therapy page renders the private co-pilot console.
-    """
-    ts = db.session.get(TherapySession, session_id)
-    return bool(ts and ts.therapist_id and ts.therapist_id == user_id)
-
-
 @app.route("/therapy/solo/<session_id>", methods=["GET"])
 def therapy_solo(session_id):
     user_id = session.get("user_id")
@@ -684,10 +675,12 @@ def therapy_couple(session_id):
         return redirect(url_for("auth_get", therapy_mode="couple"))
     if not _session_exists(session_id):
         return _redirect_invalid_session()
+    ts = db.session.get(TherapySession, session_id)
     return render_template(
         "couple.html",
         user_id=user_id, session_id=session_id,
-        is_therapist=_is_session_therapist(session_id, user_id),
+        is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
+        is_therapist_led=bool(ts and ts.therapist_id),
     )
 
 
@@ -698,10 +691,12 @@ def therapy_group(session_id):
         return redirect(url_for("auth_get", therapy_mode="group"))
     if not _session_exists(session_id):
         return _redirect_invalid_session()
+    ts = db.session.get(TherapySession, session_id)
     return render_template(
         "group.html",
         user_id=user_id, session_id=session_id,
-        is_therapist=_is_session_therapist(session_id, user_id),
+        is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
+        is_therapist_led=bool(ts and ts.therapist_id),
     )
 
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block body_class %}therapy-page{% endblock %}
+{% block body_class %}therapy-page{% if is_therapist_led %} tcp-session{% endif %}{% endblock %}
 {% block title %}Couple Check-in — TogetherMindsAI{% endblock %}
 
 {% block content %}
@@ -11,7 +11,10 @@
             <div class="d-flex align-items-center gap-2 min-w-0">
                 <i class="bi bi-people-fill text-primary-green fs-3 flex-shrink-0"></i>
                 <div class="min-w-0">
-                    <h4 class="mb-0 fw-bold text-truncate">Couple Check-in</h4>
+                    <div class="d-flex align-items-center gap-2">
+                        <h4 class="mb-0 fw-bold text-truncate">Couple Check-in</h4>
+                        {% if is_therapist_led %}<span class="session-private-chip flex-shrink-0"><i class="bi bi-lock-fill"></i>Private</span>{% endif %}
+                    </div>
                     <small class="text-muted d-none d-md-block">
                         Real-time session &mdash;
                         <i class="bi bi-circle-fill text-success" style="font-size:0.55rem"></i>
