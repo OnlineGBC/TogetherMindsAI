@@ -117,6 +117,25 @@ def test_welcome_page_returns_200_with_lead_pillars(client):
     assert "Already have an anonymous code" in body
 
 
+def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
+    """Regression: the welcome page's heart-pulse glyph in the teal hero must
+    not use the bare class `hero-icon`. The global rule `.hero-icon` in
+    static/css/style.css paints a 90x90 pale-green circle (it was written for
+    the wrapper-div pattern on auth/join/progress pages). Applying it to the
+    <i> directly drew a ghost circle on top of the white icon, looking like a
+    broken image. The hero icon must use the page-scoped class instead."""
+    rv = client.get("/welcome")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    assert 'class="bi bi-heart-pulse-fill welcome-hero-icon"' in body, (
+        "Welcome hero icon must use the page-scoped class `welcome-hero-icon`"
+    )
+    assert 'bi-heart-pulse-fill hero-icon' not in body, (
+        "Welcome hero icon must NOT use bare `hero-icon` — it collides with the "
+        "global 90x90 pale-green circle rule in static/css/style.css"
+    )
+
+
 def test_home_route_removed_returns_404(client):
     """Regression: /home was deleted after the welcome page absorbed the
     mode-picker UI (the three modes are now clickable directly on /welcome).
