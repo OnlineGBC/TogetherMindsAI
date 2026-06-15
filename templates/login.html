@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Clinician sign-in — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<style>
+  .login-hero-icon {
+    width: 3.4rem; height: 3.4rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--teal-primary) 0%, var(--green-dark) 100%);
+    color: #fff; font-size: 1.5rem;
+    box-shadow: 0 6px 16px rgba(0, 121, 107, 0.28);
+  }
+  .oauth-btn {
+    display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+    font-weight: 600;
+  }
+</style>
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6 col-xl-5">
+
+        <div class="text-center mb-3">
+            <span class="login-hero-icon mb-2"><i class="bi bi-clipboard2-pulse-fill"></i></span>
+            <h3 class="fw-bold mb-1">Clinician sign-in</h3>
+            <p class="text-muted mb-0">Sign in to lead sessions with the Co-Pilot.</p>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body p-4">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('oauth_login', provider='google') }}"
+                       class="btn btn-outline-secondary btn-lg rounded-3 oauth-btn">
+                        <i class="bi bi-google"></i>Sign in with Google
+                    </a>
+                    <a href="{{ url_for('oauth_login', provider='microsoft') }}"
+                       class="btn btn-outline-secondary btn-lg rounded-3 oauth-btn">
+                        <i class="bi bi-microsoft"></i>Sign in with Microsoft
+                    </a>
+                </div>
+                <p class="text-muted small text-center mb-0 mt-3">
+                    We don't store your email or password — your provider handles sign-in and 2FA.
+                    Use the <strong>same provider each time</strong>.
+                </p>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="/" class="text-muted small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to home</a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

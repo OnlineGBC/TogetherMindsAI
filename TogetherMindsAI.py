@@ -25,7 +25,8 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, init_encryption
+from authlib.integrations.flask_client import OAuth
 from ai_therapist import (
     process_input, generate_opening_message, generate_silence_nudge,
     contains_referral, strip_referral_sentences, detect_escalation, detect_crisis,
@@ -80,6 +81,32 @@ _RATE_MAX_MSGS   = config.RATE_MAX_MESSAGES
 _MAX_MSG_LEN     = config.MAX_MESSAGE_LENGTH
 _RETENTION_DAYS  = 30
 _RETENTION_DELTA = timedelta(days=_RETENTION_DAYS)
+# Therapist-led sessions are clinical records, retained ~6 years (HIPAA § 164.312(b)),
+# not auto-purged at 30 days like anonymous consumer sessions.
+_CLINICAL_RETENTION_DELTA = timedelta(days=2192)   # ~6 years
+
+# ---------------------------------------------------------------------------
+# Clinician OAuth (OpenID Connect) — Google & Microsoft. Registered even when
+# credentials are unset (the /login buttons just won't work until they are set).
+# ---------------------------------------------------------------------------
+oauth = OAuth(app)
+oauth.register(
+    name="google",
+    client_id=config.GOOGLE_CLIENT_ID,
+    client_secret=config.GOOGLE_CLIENT_SECRET,
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid"},
+)
+oauth.register(
+    name="microsoft",
+    client_id=config.MICROSOFT_CLIENT_ID,
+    client_secret=config.MICROSOFT_CLIENT_SECRET,
+    server_metadata_url=(
+        f"https://login.microsoftonline.com/{config.MICROSOFT_TENANT}/v2.0/.well-known/openid-configuration"
+    ),
+    client_kwargs={"scope": "openid"},
+)
+_OAUTH_PROVIDERS = ("google", "microsoft")
 
 
 
@@ -443,10 +470,128 @@ def welcome():
     return render_template("welcome.html")
 
 
+# ---------------------------------------------------------------------------
+# Clinician OAuth login — Google & Microsoft (OpenID Connect)
+# ---------------------------------------------------------------------------
+
+def _current_clinician_id():
+    """Return the logged-in clinician's account id, or None."""
+    return session.get("clinician_id")
+
+
+@app.context_processor
+def _inject_auth_state():
+    """Expose login state to every template (drives the navbar)."""
+    return {"current_clinician_id": session.get("clinician_id")}
+
+
+@app.route("/login")
+def login():
+    """Clinician login page — Sign in with Google / Microsoft."""
+    if _current_clinician_id():
+        return redirect(url_for("therapist_start"))
+    return render_template("login.html")
+
+
+@app.route("/auth/<provider>/login")
+def oauth_login(provider):
+    if provider not in _OAUTH_PROVIDERS:
+        return _redirect_invalid_session()
+    client = oauth.create_client(provider)
+    redirect_uri = url_for("oauth_callback", provider=provider, _external=True, _scheme="https")
+    return client.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/<provider>/callback")
+def oauth_callback(provider):
+    if provider not in _OAUTH_PROVIDERS:
+        return _redirect_invalid_session()
+    client = oauth.create_client(provider)
+    try:
+        token = client.authorize_access_token()
+    except Exception as exc:
+        app.logger.error("OAuth callback failed (%s): %s", provider, type(exc).__name__)
+        flash("Sign-in did not complete. Please try again.", "warning")
+        return redirect(url_for("login"))
+
+    userinfo = token.get("userinfo") or {}
+    subject = userinfo.get("sub")
+    if not subject:
+        flash("Sign-in did not return an account id. Please try again.", "warning")
+        return redirect(url_for("login"))
+
+    now = datetime.now(timezone.utc)
+    clinician = (
+        Clinician.query
+        .filter_by(provider=provider, provider_subject=subject)
+        .first()
+    )
+    if clinician is None:
+        clinician = Clinician(
+            id=str(uuid.uuid4()), provider=provider, provider_subject=subject,
+            created_at=now, last_login_at=now,
+        )
+        db.session.add(clinician)
+        log_event("clinician_registered", user_id=clinician.id, provider=provider)
+    else:
+        clinician.last_login_at = now
+    db.session.commit()
+
+    # The clinician's account id is their identity everywhere (session owner).
+    session["user_id"]      = clinician.id
+    session["clinician_id"] = clinician.id
+    session.permanent = True
+    log_event("clinician_login", user_id=clinician.id, provider=provider)
+    return redirect(url_for("therapist_start"))
+
+
+@app.route("/logout")
+def logout():
+    cid = _current_clinician_id()
+    if cid:
+        log_event("clinician_logout", user_id=cid)
+    session.clear()
+    return redirect(url_for("welcome"))
+
+
 @app.route("/therapist")
 def therapist_start():
-    """Landing page for a licensed therapist to start a therapist-led session."""
-    return render_template("therapist.html")
+    """Landing page for a logged-in clinician to start / resume therapist-led sessions."""
+    clinician_id = _current_clinician_id()
+    if not clinician_id:
+        return redirect(url_for("login"))
+    my_sessions = (
+        TherapySession.query
+        .filter_by(therapist_id=clinician_id)
+        .order_by(TherapySession.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    return render_template("therapist.html", my_sessions=my_sessions)
+
+
+@app.route("/therapist/start/<mode>", methods=["POST"])
+def therapist_start_session(mode):
+    """Create a new therapist-led session owned by the logged-in clinician."""
+    clinician_id = _current_clinician_id()
+    if not clinician_id:
+        return redirect(url_for("login"))
+    if mode not in ("solo", "couple", "group"):
+        return _redirect_invalid_session()
+
+    now = datetime.now(timezone.utc)
+    new_sid = generate_session_id()
+    db.session.add(TherapySession(
+        id=new_sid, mode=mode, created_by=clinician_id,
+        created_at=now,
+        # Clinical record retention (~6 years), not the 30-day consumer purge.
+        retention_expires_at=now + _CLINICAL_RETENTION_DELTA,
+        therapist_id=clinician_id,
+    ))
+    db.session.commit()
+    log_event("session_created", session_id=new_sid, user_id=clinician_id,
+              mode=mode, therapist_led=True)
+    return redirect(url_for(f"therapy_{mode}", session_id=new_sid))
 
 
 @app.route("/privacy")
@@ -1273,6 +1418,9 @@ def _user_can_access_session(session_id: str, user_id: str) -> bool:
     if not ts:
         return False
     if ts.created_by == user_id:
+        return True
+    # The clinician who led the session can always retrieve its full record.
+    if ts.therapist_id and ts.therapist_id == user_id:
         return True
     return ChatMessage.query.filter_by(session_id=session_id, user_id=user_id).first() is not None
 

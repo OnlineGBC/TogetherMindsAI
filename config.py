@@ -109,6 +109,20 @@ FIELD_ENCRYPTION_KEY: str = os.environ.get("FIELD_ENCRYPTION_KEY", "")
 ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ---------------------------------------------------------------------------
+# Clinician OAuth login (OpenID Connect) — Google & Microsoft.
+# Optional: the app starts fine without these, but the /login buttons only work
+# once the corresponding client id/secret are set. No email/PII is stored — only
+# the provider's opaque subject id. Keep secrets in .env (local) / Secret Manager.
+# ---------------------------------------------------------------------------
+
+GOOGLE_CLIENT_ID: str        = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET: str    = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+MICROSOFT_CLIENT_ID: str     = os.environ.get("MICROSOFT_CLIENT_ID", "")
+MICROSOFT_CLIENT_SECRET: str = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
+# "common" lets any work/school or personal Microsoft account sign in.
+MICROSOFT_TENANT: str        = os.environ.get("MICROSOFT_TENANT", "common")
+
+# ---------------------------------------------------------------------------
 # Feedback form — Gmail SMTP send (no DB storage, no audit log)
 # ---------------------------------------------------------------------------
 

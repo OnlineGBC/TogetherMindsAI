@@ -107,6 +107,30 @@ class RateLimitEntry(db.Model):
     timestamp = db.Column(db.Float, nullable=False)   # Unix epoch float
 
 
+class Clinician(db.Model):
+    """A logged-in therapist account, authenticated via Google or Microsoft OAuth.
+
+    Deliberately stores NO email / PII — only the provider's opaque, stable subject
+    id. `id` (our own UUID) is what owns therapist-led sessions (TherapySession.
+    therapist_id / created_by). Google and Microsoft logins are separate accounts
+    (we don't store email to link them).
+    """
+    __tablename__ = "clinicians"
+
+    id               = db.Column(db.String(36), primary_key=True)            # our UUID
+    provider         = db.Column(db.String(20),  nullable=False)             # "google" | "microsoft"
+    provider_subject = db.Column(db.String(255), nullable=False)             # provider's stable user id ("sub")
+    created_at       = db.Column(db.DateTime, nullable=False)
+    last_login_at    = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("provider", "provider_subject", name="uq_clinician_provider_subject"),
+    )
+
+    def __repr__(self):
+        return f"<Clinician {self.id} provider={self.provider}>"
+
+
 class TherapySession(db.Model):
     __tablename__ = "therapy_sessions"
 
