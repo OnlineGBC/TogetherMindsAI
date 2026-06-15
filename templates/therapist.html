@@ -2,6 +2,25 @@
 {% block title %}Therapist Co-Pilot — TogetherMindsAI{% endblock %}
 
 {% block content %}
+<style>
+  /* Prominent, required acknowledgment — gate for starting a session */
+  .therapist-ack {
+    border: 2px solid #009688;
+    background: #e8f5f3;
+    border-radius: 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+  #agreeTherapist {
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 2px solid #009688;
+    cursor: pointer;
+  }
+  #agreeTherapist:hover  { box-shadow: 0 0 0 3px rgba(0, 150, 136, 0.15); }
+  #agreeTherapist:checked { background-color: #009688; border-color: #009688; }
+  #agreeTherapist:focus  { box-shadow: 0 0 0 3px rgba(0, 150, 136, 0.25); outline: 0; }
+  .therapist-ack label { cursor: pointer; }
+</style>
 <div class="row justify-content-center">
     <div class="col-md-10 col-lg-9 col-xl-8">
 
@@ -29,27 +48,31 @@
                     </span>
                 </div>
 
-                <div class="form-check d-flex align-items-start gap-2 mb-3">
+                <div class="therapist-ack d-flex align-items-start gap-2 mb-2">
                     <input class="form-check-input flex-shrink-0 mt-1" type="checkbox" id="agreeTherapist" required>
-                    <label class="form-check-label small text-muted mb-0" for="agreeTherapist">
-                        I am a licensed professional. The AI co-pilot is an assistive aid only — it does not
-                        diagnose, treat, or replace my clinical judgement, and I remain responsible for the session.
+                    <label class="form-check-label mb-0" for="agreeTherapist">
+                        <strong>Required:</strong> I am a licensed professional. The AI co-pilot is an assistive
+                        aid only — it does not diagnose, treat, or replace my clinical judgement, and I remain
+                        responsible for the session.
                     </label>
                 </div>
+                <p class="text-muted small mb-3" id="ackHint">
+                    <i class="bi bi-info-circle me-1"></i>Tick the box above to enable the session buttons.
+                </p>
 
                 <div class="d-grid gap-2">
                     <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
-                            data-mode="solo">
+                            data-mode="solo" disabled>
                         <i class="bi bi-person-fill me-2"></i>Start a 1:1 session
                         <span class="small fw-normal opacity-75">— you and one client</span>
                     </button>
                     <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
-                            data-mode="couple">
+                            data-mode="couple" disabled>
                         <i class="bi bi-people-fill me-2"></i>Start a Couple session
                         <span class="small fw-normal opacity-75">— you and two partners</span>
                     </button>
                     <button type="button" class="btn btn-primary-green btn-lg rounded-3 therapist-start-btn"
-                            data-mode="group">
+                            data-mode="group" disabled>
                         <i class="bi bi-person-lines-fill me-2"></i>Start a Group session
                         <span class="small fw-normal opacity-75">— you and several participants</span>
                     </button>
@@ -77,20 +100,18 @@
 <script>
     var agree   = document.getElementById("agreeTherapist");
     var buttons = document.querySelectorAll(".therapist-start-btn");
+    var ackHint = document.getElementById("ackHint");
 
-    // Buttons are always clickable. If clicked before the acknowledgment is
-    // ticked, we highlight the checkbox and ask for confirmation instead of
-    // sitting there looking disabled.
-    var agreeRow = agree.closest(".form-check");
-
-    function _clearAgreePrompt() {
-        if (agreeRow) { agreeRow.classList.remove("text-danger", "fw-semibold"); }
-        document.getElementById("therapistError").classList.add("d-none");
-    }
-    agree.addEventListener("change", _clearAgreePrompt);
+    // The session buttons are gated on the acknowledgment: they stay disabled
+    // until the "licensed professional" box is ticked.
+    agree.addEventListener("change", function () {
+        buttons.forEach(function (b) { b.disabled = !agree.checked; });
+        if (ackHint) { ackHint.classList.toggle("d-none", agree.checked); }
+    });
 
     function _showError(msg) {
         document.getElementById("therapistSpinner").classList.add("d-none");
+        buttons.forEach(function (b) { b.disabled = false; });
         var el = document.getElementById("therapistError");
         el.textContent = "Could not start session: " + (msg || "Unknown error");
         el.classList.remove("d-none");
@@ -98,17 +119,10 @@
 
     buttons.forEach(function (btn) {
         btn.addEventListener("click", function () {
-            if (!agree.checked) {
-                // Draw attention to the unticked acknowledgment.
-                if (agreeRow) { agreeRow.classList.add("text-danger", "fw-semibold"); }
-                var el = document.getElementById("therapistError");
-                el.textContent = "Please confirm you are a licensed professional first.";
-                el.classList.remove("d-none");
-                agree.focus();
-                return;
-            }
-            _clearAgreePrompt();
+            if (!agree.checked) { return; }   // disabled, but belt-and-suspenders
+            document.getElementById("therapistError").classList.add("d-none");
             document.getElementById("therapistSpinner").classList.remove("d-none");
+            buttons.forEach(function (b) { b.disabled = true; });
 
             if (!window.crypto || !window.crypto.subtle) {
                 _showError("A secure (HTTPS) connection is required to start a therapist session.");
