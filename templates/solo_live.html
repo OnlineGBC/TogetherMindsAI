@@ -1,8 +1,44 @@
 {% extends "base.html" %}
-{% block body_class %}therapy-page{% endblock %}
+{% block body_class %}therapy-page session-1to1{% endblock %}
 {% block title %}1:1 Session — TogetherMindsAI{% endblock %}
 
 {% block content %}
+<style>
+  /* Scoped to the therapist-led 1:1 page only (body.session-1to1) — leaves the
+     shared consumer couple/group/solo styling untouched. */
+  body.session-1to1 {
+    background: linear-gradient(180deg, #eef5f3 0%, #f6f4ee 100%);
+  }
+  body.session-1to1 .s1-private-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #00695c;
+    background: #d8efe9;
+    border: 1px solid #bfe3da;
+    border-radius: 999px;
+    padding: 0.1rem 0.55rem;
+  }
+  body.session-1to1 .chat-window {
+    border: 1px solid #e3ece9 !important;
+    box-shadow: 0 10px 30px rgba(15, 60, 55, 0.08) !important;
+    background: #ffffff;
+  }
+  body.session-1to1 #chatBox { min-height: 48vh; }
+  body.session-1to1 .alert-share {
+    border: 1px solid #cfe6df;
+  }
+  body.session-1to1 .input-group {
+    box-shadow: 0 8px 22px rgba(15, 60, 55, 0.10) !important;
+    border: 1px solid #e3ece9;
+  }
+  body.session-1to1 .chat-input { background: #ffffff; }
+  /* Gentle modern bubble radius — scoped, doesn't touch couple/group */
+  body.session-1to1 .bubble { border-radius: 15px; }
+</style>
 <div class="row justify-content-center">
     <div class="col-12 col-lg-10 therapy-col">
 
@@ -11,7 +47,10 @@
             <div class="d-flex align-items-center gap-2 min-w-0">
                 <i class="bi bi-person-fill text-primary-green fs-3 flex-shrink-0"></i>
                 <div class="min-w-0">
-                    <h4 class="mb-0 fw-bold text-truncate">1:1 Session</h4>
+                    <div class="d-flex align-items-center gap-2">
+                        <h4 class="mb-0 fw-bold text-truncate">1:1 Session</h4>
+                        <span class="s1-private-chip flex-shrink-0"><i class="bi bi-lock-fill"></i>Private</span>
+                    </div>
                     <small class="text-muted d-none d-md-block">
                         Real-time session &mdash;
                         <i class="bi bi-circle-fill text-success" style="font-size:0.55rem"></i>
@@ -74,7 +113,8 @@
             <div class="card-body p-3" id="chatBox">
                 <div class="text-center text-muted py-5" id="emptyState">
                     <i class="bi bi-chat-heart-fill display-4 text-primary-green opacity-50"></i>
-                    <p class="mt-3">Connecting to your session… messages will appear here.</p>
+                    <p class="mt-3 mb-1">Connecting to your private session…</p>
+                    <p class="small mb-0">Messages will appear here once you both join.</p>
                 </div>
             </div>
         </div>
