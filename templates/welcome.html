@@ -166,45 +166,70 @@
     color: #ffffff;
     text-decoration: none;
   }
+
+  /* ---- Clinician-first primary card ---- */
+  .clinician-card {
+    background: #ffffff;
+    border: 1.5px solid #bfe3da;
+    border-radius: 0.95rem;
+    padding: 1rem 1.1rem;
+    box-shadow: 0 10px 28px rgba(0, 121, 107, 0.12);
+  }
+  .clinician-card .cc-badge {
+    width: 2.3rem; height: 2.3rem;
+    border-radius: 0.6rem;
+    background: linear-gradient(135deg, var(--teal-primary), var(--green-dark));
+    color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; flex-shrink: 0;
+  }
+  .clinician-card .cc-title { font-size: 1.1rem; font-weight: 700; color: #1f2937; }
+  .clinician-card .cc-sub { font-size: 0.84rem; color: #5b6b67; line-height: 1.4; }
+  .cc-features i { font-size: 1.2rem; color: var(--teal-primary); display: block; margin-bottom: 0.15rem; }
+  .cc-feat-label { font-size: 0.72rem; color: #51635f; }
+  .cc-foot { font-size: 0.74rem; color: #8a9794; }
+  .consumer-divider {
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #6b7c78;
+    margin: 1.1rem 0 0.6rem;
+  }
 </style>
 
-<!-- Hero (centered icon above title, white-on-teal) -->
-<div class="welcome-hero text-center mb-2">
-    <span class="welcome-hero-stack">
-        <i class="bi bi-heart-fill heart-base"></i>
-        <i class="bi bi-activity pulse-line"></i>
-    </span>
-    <h1>Welcome to TogetherMindsAI</h1>
-    <p class="tagline">A reflective space to talk through what's on your mind</p>
-    <span class="pill-anon"><i class="bi bi-incognito me-1"></i>Anonymous</span>
-    <span class="pill-free"><i class="bi bi-gift-fill me-1"></i>Free</span>
+<!-- Hero — clinician-first -->
+<div class="welcome-hero text-center mb-3">
+    <i class="bi bi-clipboard2-pulse-fill d-inline-block mb-1" style="font-size:2.6rem;"></i>
+    <h1>TogetherMindsAI</h1>
+    <p class="tagline">An AI co-pilot for the sessions you lead — private suggestions, technique reminders, and risk alerts only you see.</p>
+    <span class="pill-anon"><i class="bi bi-eye-slash-fill me-1"></i>Private to you</span>
+    <span class="pill-free"><i class="bi bi-exclamation-triangle-fill me-1"></i>Live risk alerts</span>
 </div>
 
-<!-- Pillars: color-coded tiles -->
-<div class="row g-2 mb-2">
-    <div class="col-6">
-        <div class="pillar-tile anon text-center">
-            <i class="bi bi-incognito pillar-icon"></i>
-            <h3>100% Anonymous</h3>
-            <p class="d-md-none">No signup, no email.</p>
-            <p class="d-none d-md-block">
-                No signup, no email, no PII &mdash; just a long randomized private key
-                for later session retrieval.
-            </p>
-        </div>
+<!-- Primary clinician CTA -->
+<div class="clinician-card mb-2">
+    <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="cc-badge"><i class="bi bi-clipboard2-pulse-fill"></i></span>
+        <h2 class="cc-title mb-0">Lead a session with the Co-Pilot</h2>
     </div>
-    <div class="col-6">
-        <div class="pillar-tile free text-center">
-            <i class="bi bi-gift-fill pillar-icon"></i>
-            <h3>Always Free</h3>
-            <p class="d-md-none">No paywall, no subscription.</p>
-            <p class="d-none d-md-block">
-                No paywall, no subscription, no upsells &mdash; use it as much as you need,
-                whenever you need it.
-            </p>
-        </div>
+    <p class="cc-sub mb-3">
+        You run the session. As your client speaks, a private panel — visible only to you —
+        surfaces brief suggestions, technique reminders, and high-priority risk alerts.
+        Clients never see it.
+    </p>
+    <div class="row g-2 mb-3 cc-features">
+        <div class="col-4 text-center"><i class="bi bi-eye-slash-fill"></i><div class="cc-feat-label">Private to you</div></div>
+        <div class="col-4 text-center"><i class="bi bi-lightbulb-fill"></i><div class="cc-feat-label">Technique cues</div></div>
+        <div class="col-4 text-center"><i class="bi bi-exclamation-triangle-fill"></i><div class="cc-feat-label">Risk alerts</div></div>
     </div>
+    <a href="/therapist" class="btn btn-primary-green btn-lg w-100 rounded-3 fw-bold">
+        <i class="bi bi-clipboard2-pulse-fill me-2"></i>Start as a clinician<i class="bi bi-arrow-right ms-2"></i>
+    </a>
+    <p class="cc-foot text-center mb-0 mt-2">Runs 1:1, couple, or group sessions.</p>
 </div>
+
+<!-- Secondary: consumer self-reflection (demoted below the clinician CTA) -->
+<div class="consumer-divider">Not a clinician? Use it for yourself</div>
 
 <!-- Three modes — each block is a direct link to its auth page -->
 <div class="modes-card mb-2">
@@ -277,17 +302,10 @@
     always shown in the bar above.
 </div>
 
-<!-- Rejoin (primary secondary action — modes are the primary CTAs above) -->
+<!-- Join — for clients invited by a clinician, or returning users -->
 <div class="text-center">
     <a href="/session/join" class="rejoin-btn">
-        <i class="bi bi-box-arrow-in-right me-1"></i>Already have an anonymous code? Join here
-    </a>
-</div>
-
-<!-- Clinician entry — discreet; the consumer modes above are the primary CTAs -->
-<div class="text-center mt-2">
-    <a href="/therapist" class="text-decoration-none" style="font-size:0.76rem; color:#475569;">
-        <i class="bi bi-clipboard2-pulse me-1"></i>Are you a clinician? Lead a session with the Co-Pilot
+        <i class="bi bi-box-arrow-in-right me-1"></i>Invited to a session? Enter your Session ID
     </a>
 </div>
 {% endblock %}
