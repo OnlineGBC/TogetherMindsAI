@@ -445,7 +445,13 @@ def _generate_claude_response(
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=400,
-            system=system_prompt,
+            # Cache the (large, stable) system prompt so repeat turns only pay for
+            # the changing message tail. Saves input tokens across a conversation.
+            system=[{
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }],
             messages=messages,
         )
         return response.content[0].text

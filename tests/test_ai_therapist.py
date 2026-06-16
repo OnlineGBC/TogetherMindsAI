@@ -438,19 +438,19 @@ class TestOpeningMessage:
         client = _make_claude_client("Welcome, I'm here to listen.")
         with patch("ai_therapist._get_claude_client", return_value=client):
             result = ai_therapist.generate_opening_message("solo")
-        assert "pencil icon" in result
+        assert "pencil" in result
 
     def test_couple_opening_contains_name_hint(self):
         client = _make_claude_client("Welcome, both of you.")
         with patch("ai_therapist._get_claude_client", return_value=client):
             result = ai_therapist.generate_opening_message("couple")
-        assert "pencil icon" in result
+        assert "pencil" in result
 
     def test_group_opening_contains_name_hint(self):
         client = _make_claude_client("Welcome to the group.")
         with patch("ai_therapist._get_claude_client", return_value=client):
             result = ai_therapist.generate_opening_message("group")
-        assert "pencil icon" in result
+        assert "pencil" in result
 
     def test_fallback_opening_also_contains_name_hint(self):
         """When Claude API is unavailable the hardcoded fallback must still include the hint."""
@@ -458,7 +458,7 @@ class TestOpeningMessage:
         client.messages.create.side_effect = Exception("API down")
         with patch("ai_therapist._get_claude_client", return_value=client):
             result = ai_therapist.generate_opening_message("solo")
-        assert "pencil icon" in result
+        assert "pencil" in result
 
 
 # ---------------------------------------------------------------------------

@@ -58,9 +58,10 @@ class TestCharset:
     def test_contains_digits(self):
         assert "2" in SESSION_CHARSET and "9" in SESSION_CHARSET
 
-    def test_is_55_characters(self):
-        assert len(SESSION_CHARSET) == 55, (
-            f"Expected 55 chars (24 upper + 23 lower + 8 digits), got {len(SESSION_CHARSET)}"
+    def test_charset_length(self):
+        # 24 upper (A-Z minus I,O) + 23 lower (a-z minus i,l,o) + 8 digits (2-9) + 4 symbols (-_!$)
+        assert len(SESSION_CHARSET) == 59, (
+            f"Expected 59 chars (24 upper + 23 lower + 8 digits + 4 symbols), got {len(SESSION_CHARSET)}"
         )
 
     def test_no_duplicates(self):
@@ -108,8 +109,9 @@ class TestGenerateSessionId:
 
     def test_raises_if_all_candidates_collide(self, monkeypatch):
         monkeypatch.setattr("session_id.secrets.choice", lambda _: "A")
+        # Every candidate is "A" * SESSION_ID_LENGTH, which already exists → no unique id.
         with pytest.raises(RuntimeError, match="unique session ID"):
-            generate_session_id(existing_ids={"AAAAAA"})
+            generate_session_id(existing_ids={"A" * SESSION_ID_LENGTH})
 
 
 # ---------------------------------------------------------------------------

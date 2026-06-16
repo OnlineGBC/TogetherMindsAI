@@ -93,7 +93,10 @@ def test_valid_full_submission_sends_email(client):
         mock_smtp.send_message.assert_called_once()
         sent_msg = mock_smtp.send_message.call_args[0][0]
 
-        assert sent_msg["To"] == "raja@onlinegbc.com"
+        # To: tracks the configured recipient list (may be one or several).
+        from config import FEEDBACK_TO_EMAILS
+        assert sent_msg["To"] == ", ".join(FEEDBACK_TO_EMAILS)
+        assert "raja@onlinegbc.com" in sent_msg["To"]
         assert sent_msg["From"] == "test-sender@example.com"
         subject = sent_msg["Subject"]
         assert "Solo" in subject
