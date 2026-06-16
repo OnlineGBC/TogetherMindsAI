@@ -7,6 +7,7 @@ if config.ASYNC_MODE == "eventlet":
     eventlet.monkey_patch()
 
 import base64
+import re
 import secrets
 import time
 import uuid
@@ -102,6 +103,25 @@ oauth.register(
     client_kwargs={"scope": "openid"},
 )
 _OAUTH_PROVIDERS = ("google", "microsoft")
+
+# Azure multi-tenant ("common"/"organizations"/"consumers") publishes a discovery
+# issuer templated as https://login.microsoftonline.com/{tenantid}/v2.0, but the
+# real id_token substitutes the signing tenant's GUID — so Authlib's default
+# "iss must equal metadata issuer" check rejects every Microsoft sign-in. Validate
+# the way Microsoft documents instead: the issuer must equal the template with
+# {tenantid} replaced by the token's own `tid` claim.
+_MS_ISS_RE = re.compile(r"^https://login\.microsoftonline\.com/[0-9a-fA-F-]{36}/v2\.0$")
+
+
+def _validate_ms_issuer(claims, value):
+    """Return True if `value` is a valid Microsoft tenant issuer for this token."""
+    if not value:
+        return False
+    tid = claims.get("tid")
+    if tid:
+        return value == f"https://login.microsoftonline.com/{tid}/v2.0"
+    # No tid claim — fall back to accepting a well-formed tenant issuer.
+    return bool(_MS_ISS_RE.match(value))
 
 
 
@@ -482,10 +502,15 @@ def oauth_callback(provider):
     if provider not in _OAUTH_PROVIDERS:
         return _redirect_invalid_session()
     client = oauth.create_client(provider)
+    # Microsoft multi-tenant returns a tenant-substituted issuer that fails
+    # Authlib's default issuer check — validate it the way Microsoft documents.
+    kwargs = {}
+    if provider == "microsoft":
+        kwargs["claims_options"] = {"iss": {"essential": True, "validate": _validate_ms_issuer}}
     try:
-        token = client.authorize_access_token()
+        token = client.authorize_access_token(**kwargs)
     except Exception as exc:
-        app.logger.error("OAuth callback failed (%s): %s", provider, type(exc).__name__)
+        app.logger.error("OAuth callback failed (%s): %s: %s", provider, type(exc).__name__, exc)
         flash("Sign-in did not complete. Please try again.", "warning")
         return redirect(url_for("login"))
 

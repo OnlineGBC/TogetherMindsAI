@@ -137,3 +137,48 @@ def test_oauth_callback_existing_clinician_reused(client):
     assert Clinician.query.filter_by(provider="microsoft", provider_subject="ms-1").count() == 1
     with client.session_transaction() as s:
         assert s.get("clinician_id") == "existing-id"
+
+
+# ---------------------------------------------------------------------------
+# Microsoft multi-tenant issuer validation
+# ---------------------------------------------------------------------------
+
+def test_ms_issuer_accepts_tenant_substituted_issuer():
+    """Regression: Azure 'common' returns a real per-tenant issuer; the default
+    Authlib check (iss == templated metadata issuer) rejected every Microsoft
+    sign-in. The validator must accept the issuer that matches the token's tid."""
+    tid = "9188040d-6c67-4c5b-b112-36a304b66dad"
+    claims = {"tid": tid}
+    good = f"https://login.microsoftonline.com/{tid}/v2.0"
+    assert tm._validate_ms_issuer(claims, good) is True
+
+
+def test_ms_issuer_rejects_mismatched_tenant():
+    claims = {"tid": "11111111-1111-1111-1111-111111111111"}
+    wrong = "https://login.microsoftonline.com/22222222-2222-2222-2222-222222222222/v2.0"
+    assert tm._validate_ms_issuer(claims, wrong) is False
+
+
+def test_ms_issuer_without_tid_accepts_well_formed_tenant_issuer():
+    good = "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0"
+    assert tm._validate_ms_issuer({}, good) is True
+    assert tm._validate_ms_issuer({}, "https://evil.example.com/x/v2.0") is False
+    assert tm._validate_ms_issuer({}, "") is False
+
+
+def test_callback_passes_iss_validator_for_microsoft_only(client):
+    """The Microsoft callback must pass the custom iss validator to
+    authorize_access_token; the Google callback must not."""
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {"userinfo": {"sub": "subj-ms"}}
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        client.get("/auth/microsoft/callback")
+    ms_kwargs = fake_client.authorize_access_token.call_args.kwargs
+    assert "claims_options" in ms_kwargs
+    assert callable(ms_kwargs["claims_options"]["iss"]["validate"])
+
+    fake_client.reset_mock()
+    fake_client.authorize_access_token.return_value = {"userinfo": {"sub": "subj-g"}}
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        client.get("/auth/google/callback")
+    assert "claims_options" not in fake_client.authorize_access_token.call_args.kwargs
