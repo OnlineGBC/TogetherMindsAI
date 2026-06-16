@@ -227,13 +227,39 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None) -> None:
         app.logger.error("copilot error: %s", type(e).__name__)
 
 
+# ---------------------------------------------------------------------------
+# Session modes — solo / couple / group are one multi-user realtime engine that
+# differs only in presentation and the default participant-name scheme. This
+# table centralises those per-mode strings; the room route and template read
+# from it instead of branching. `mode` stays authoritative session data, so a
+# couple session is always rendered (and advised on) as a couple.
+# ---------------------------------------------------------------------------
+MODE_CONFIG = {
+    "solo": {
+        "label": "1:1 Session",
+        "icon": "person-fill",
+        "placeholder": "Type a message…",
+        "name_prefix": "Solo",
+    },
+    "couple": {
+        "label": "Couple Check-in",
+        "icon": "people-fill",
+        "placeholder": "Type a message…",
+        "name_prefix": "Partner",
+    },
+    "group": {
+        "label": "Group Circle",
+        "icon": "person-lines-fill",
+        "placeholder": "Share with the group…",
+        "name_prefix": "GroupMember",
+    },
+}
+
+
 def _default_display_name(mode: str, position: int) -> str:
     """Return the default display name for a participant given their join position."""
-    if mode == "couple":
-        return f"Partner{position}"
-    elif mode == "group":
-        return f"GroupMember{position}"
-    return f"Solo{position}"
+    prefix = MODE_CONFIG.get(mode, {}).get("name_prefix", "Participant")
+    return f"{prefix}{position}"
 
 
 def _claim_display_name(session_id: str, user_id: str, name: str) -> None:
@@ -808,56 +834,52 @@ def _redirect_invalid_session():
     return redirect(url_for("welcome"))
 
 
-@app.route("/therapy/solo/<session_id>", methods=["GET"])
-def therapy_solo(session_id):
+def _render_session_room(session_id, mode):
+    """Render the shared realtime room for any mode (solo / couple / group).
+
+    The three legacy routes are thin wrappers over this. `ts.mode` is the
+    authoritative mode — a URL pointing at the wrong one is redirected to the
+    canonical room, so a couple session is always shown as a couple.
+    """
     user_id = session.get("user_id")
     if not user_id:
-        return redirect(url_for("auth_get", therapy_mode="solo"))
+        return redirect(url_for("auth_get", therapy_mode=mode))
     if not _session_exists(session_id):
         return _redirect_invalid_session()
-
-    # Therapist-led 1:1 only — a realtime page with the co-pilot console for the
-    # therapist. There is no self-directed (AI-led) solo flow on this branch.
     ts = db.session.get(TherapySession, session_id)
-    if not (ts and ts.therapist_id):
+
+    # The stored mode wins over the URL — keeps every mode honestly labelled.
+    if ts and ts.mode in MODE_CONFIG and ts.mode != mode:
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+
+    # Solo is therapist-led only on this branch; a solo room without a therapist
+    # is a stale/invalid record (the consumer 1:1 flow was removed).
+    if mode == "solo" and not (ts and ts.therapist_id):
         return _redirect_invalid_session()
+
+    cfg = MODE_CONFIG.get(mode, MODE_CONFIG["solo"])
     return render_template(
-        "solo_live.html",
-        user_id=user_id, session_id=session_id,
-        is_therapist=(ts.therapist_id == user_id),
+        "session_live.html",
+        user_id=user_id, session_id=session_id, mode=mode,
+        mode_label=cfg["label"], mode_icon=cfg["icon"], mode_placeholder=cfg["placeholder"],
+        is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
+        is_therapist_led=bool(ts and ts.therapist_id),
     )
+
+
+@app.route("/therapy/solo/<session_id>", methods=["GET"])
+def therapy_solo(session_id):
+    return _render_session_room(session_id, "solo")
 
 
 @app.route("/therapy/couple/<session_id>")
 def therapy_couple(session_id):
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect(url_for("auth_get", therapy_mode="couple"))
-    if not _session_exists(session_id):
-        return _redirect_invalid_session()
-    ts = db.session.get(TherapySession, session_id)
-    return render_template(
-        "couple.html",
-        user_id=user_id, session_id=session_id,
-        is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
-        is_therapist_led=bool(ts and ts.therapist_id),
-    )
+    return _render_session_room(session_id, "couple")
 
 
 @app.route("/therapy/group/<session_id>")
 def therapy_group(session_id):
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect(url_for("auth_get", therapy_mode="group"))
-    if not _session_exists(session_id):
-        return _redirect_invalid_session()
-    ts = db.session.get(TherapySession, session_id)
-    return render_template(
-        "group.html",
-        user_id=user_id, session_id=session_id,
-        is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
-        is_therapist_led=bool(ts and ts.therapist_id),
-    )
+    return _render_session_room(session_id, "group")
 
 
 @app.route("/api/display-name", methods=["POST"])

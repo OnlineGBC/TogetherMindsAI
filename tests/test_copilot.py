@@ -390,7 +390,7 @@ def test_consumer_couple_page_unstyled(enc_client):
 def test_therapist_led_composer_is_enabled(enc_client):
     """Regression: therapist-led pages must NOT disable the send button — there is
     no AI opening message to unlock it, so a hard-disabled composer = unusable."""
-    # solo_live (always therapist-led)
+    # solo room (always therapist-led)
     s_sid = _insert_solo_session(therapist_id="t1", created_by="t1")
     with enc_client.session_transaction() as s:
         s["user_id"] = "t1"
@@ -413,6 +413,40 @@ def test_consumer_couple_composer_stays_gated(enc_client):
         s["user_id"] = "o1"
     body = enc_client.get("/therapy/couple/" + sid).get_data(as_text=True)
     assert 'id="sendBtn" disabled' in body
+
+
+# ---------------------------------------------------------------------------
+# Unified session room — one template/handler for solo / couple / group
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("mode,label,placeholder", [
+    ("solo",   "1:1 Session",     "Type a message"),
+    ("couple", "Couple Check-in", "Type a message"),
+    ("group",  "Group Circle",    "Share with the group"),
+])
+def test_each_mode_renders_its_config(enc_client, mode, label, placeholder):
+    """The unified room renders each mode's own label, placeholder, and MODE var —
+    so the correct mode reaches the client (and therefore the co-pilot's framing)."""
+    tid = "t-" + mode
+    sid = _insert_session(mode=mode, therapist_id=tid, created_by=tid)
+    with enc_client.session_transaction() as s:
+        s["user_id"] = tid
+    body = enc_client.get(f"/therapy/{mode}/{sid}").get_data(as_text=True)
+    assert label in body
+    assert placeholder in body
+    assert f'"{mode}"' in body                       # var MODE / window.SESSION_MODE
+    assert f"/progress/{tid}/{mode}" in body         # progress + end-session URLs
+
+
+def test_url_mode_mismatch_redirects_to_canonical(enc_client):
+    """The stored mode is authoritative: hitting the wrong mode's URL redirects to
+    the right room, so a couple session is never shown (or advised on) as a group."""
+    sid = _insert_session(mode="group", therapist_id="tg", created_by="tg")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "tg"
+    rv = enc_client.get(f"/therapy/couple/{sid}")
+    assert rv.status_code == 302
+    assert rv.headers["Location"].endswith(f"/therapy/group/{sid}")
 
 
 def test_therapist_led_solo_cards_isolated_and_no_autoreply(enc_client):
