@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
@@ -140,6 +140,33 @@ session_joined_users: dict  = {}  # session_id → ordered list of user_ids (joi
 session_therapist_id: dict    = {}  # session_id → therapist user_id (set only for therapist-led sessions)
 session_therapist_notes: dict = {}  # session_id → list[str] of the therapist's private notes (co-pilot context)
 session_recent_cards: dict    = {}  # session_id → list[str] of recently shown card texts (dedup memory)
+
+
+def _record_participation(session_id: str, user_id: str) -> None:
+    """Idempotently record that `user_id` joined `session_id`.
+
+    Lets "my sessions" surface a session for a signed-in client even if they
+    never spoke. Safe to call on every (re)join — the unique constraint plus the
+    existence check keep it to one row per (session, user). Never raises."""
+    if not session_id or not user_id:
+        return
+    try:
+        exists = (
+            db.session.query(SessionParticipant.id)
+            .filter_by(session_id=session_id, user_id=user_id)
+            .first()
+        )
+        if exists:
+            return
+        db.session.add(SessionParticipant(
+            session_id=session_id, user_id=user_id,
+            joined_at=datetime.now(timezone.utc),
+        ))
+        db.session.commit()
+    except Exception as exc:
+        # Most likely a race on the unique constraint — already recorded.
+        db.session.rollback()
+        app.logger.debug("participation record skipped (%s)", type(exc).__name__)
 
 
 def _therapist_room(session_id: str) -> str:
@@ -659,14 +686,16 @@ def my_sessions():
     account_id = _current_client_account_id()
     if not account_id:
         return redirect(url_for("client_login"))
-    # Participation is derived from the client's own messages (no extra table).
-    session_ids = [
+    # Sessions the client took part in: recorded at join time (covers silent
+    # attendees) unioned with any session they sent a message in (defensive —
+    # covers rows that predate join tracking).
+    session_ids = {
         row[0] for row in
-        db.session.query(ChatMessage.session_id)
-        .filter_by(user_id=account_id)
-        .distinct()
-        .all()
-    ]
+        db.session.query(SessionParticipant.session_id).filter_by(user_id=account_id).all()
+    } | {
+        row[0] for row in
+        db.session.query(ChatMessage.session_id).filter_by(user_id=account_id).distinct().all()
+    }
     sessions = []
     if session_ids:
         sessions = (
@@ -1693,6 +1722,10 @@ def on_join(data):
         room_participants[session_id].add(user_id)
         sid_to_user[request.sid]    = user_id
         sid_to_session[request.sid] = session_id
+
+        # Durable participation link (so "my sessions" finds it even if the
+        # participant never sends a message).
+        _record_participation(session_id, user_id)
 
         # Therapist co-pilot: if this session is therapist-led, remember who the
         # therapist is and — when the joiner IS the therapist — add them to the

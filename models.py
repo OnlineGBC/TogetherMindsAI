@@ -169,3 +169,25 @@ class TherapySession(db.Model):
     # cards to the therapist only) instead of replying to clients. Null = the
     # original AI-led consumer flow, unchanged.
     therapist_id = db.Column(db.String(36), nullable=True)
+
+
+class SessionParticipant(db.Model):
+    """Records that a user_id took part in a session, written at join time.
+
+    This is what lets a signed-in client's session appear in "my sessions" even
+    if they never sent a message (silent attendee). One row per (session, user);
+    joins are idempotent. Stores no content — only the participation link.
+    """
+    __tablename__ = "session_participants"
+
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    session_id = db.Column(db.String(36), index=True, nullable=False)
+    user_id    = db.Column(db.String(36), index=True, nullable=False)
+    joined_at  = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("session_id", "user_id", name="uq_session_participant"),
+    )
+
+    def __repr__(self):
+        return f"<SessionParticipant session={self.session_id} user={self.user_id}>"

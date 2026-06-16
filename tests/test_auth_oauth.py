@@ -28,8 +28,8 @@ os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5001")
 os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 import TogetherMindsAI as tm
-from TogetherMindsAI import app
-from models import db, Clinician, ClientAccount, ChatMessage, TherapySession, init_encryption
+from TogetherMindsAI import app, socketio
+from models import db, Clinician, ClientAccount, ChatMessage, TherapySession, SessionParticipant, init_encryption
 
 init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
@@ -283,3 +283,56 @@ def test_client_login_safe_next_honours_relative_path(client):
     with patch.object(tm.oauth, "create_client", return_value=fake_client):
         rv = client.get("/client/auth/google/callback")
     assert rv.headers["Location"].endswith("/therapy/couple/ABC123")
+
+
+# ---------------------------------------------------------------------------
+# Join-time participation tracking (silent attendees still get their session)
+# ---------------------------------------------------------------------------
+
+def test_session_participant_unique(client):
+    now = datetime.now(timezone.utc)
+    db.session.add(SessionParticipant(session_id="S1", user_id="u1", joined_at=now))
+    db.session.commit()
+    db.session.add(SessionParticipant(session_id="S1", user_id="u1", joined_at=now))
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+
+
+def _make_therapist_led_session(sid="SESS-JOIN", mode="couple"):
+    db.session.add(TherapySession(
+        id=sid, mode=mode, created_by="therapist-1",
+        created_at=datetime.now(timezone.utc), therapist_id="therapist-1",
+    ))
+    db.session.commit()
+    return sid
+
+
+def test_join_records_participation_idempotently(client):
+    sid = _make_therapist_led_session()
+    with client.session_transaction() as s:
+        s["client_account_id"] = "cli-join"; s["user_id"] = "cli-join"
+    sio = socketio.test_client(app, flask_test_client=client)
+    # Join twice (reconnects happen constantly) — must not duplicate or error.
+    sio.emit("join", {"session_id": sid, "user_id": "cli-join", "mode": "couple"})
+    sio.emit("join", {"session_id": sid, "user_id": "cli-join", "mode": "couple"})
+    sio.disconnect()
+
+    rows = SessionParticipant.query.filter_by(session_id=sid, user_id="cli-join").all()
+    assert len(rows) == 1
+
+
+def test_my_sessions_lists_silent_attendee_session(client):
+    """A client who joined but never sent a message must still see the session."""
+    sid = _make_therapist_led_session(sid="SESS-SILENT")
+    with client.session_transaction() as s:
+        s["client_account_id"] = "cli-silent"; s["user_id"] = "cli-silent"
+    sio = socketio.test_client(app, flask_test_client=client)
+    sio.emit("join", {"session_id": sid, "user_id": "cli-silent", "mode": "couple"})
+    sio.disconnect()
+
+    # No ChatMessage exists for this client — only a participation row.
+    assert ChatMessage.query.filter_by(session_id=sid, user_id="cli-silent").count() == 0
+    rv = client.get("/me/sessions")
+    assert rv.status_code == 200
+    assert b"SESS-SILENT" in rv.data
