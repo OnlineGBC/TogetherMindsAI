@@ -233,3 +233,7 @@ manifest-checksum.txt
 # Runtime server log dumps (may contain PHI)
 nohup.out
 
+# Downloaded OAuth client-secret files — credentials, never commit
+client_secret_*.json
+*client_secret*.json
+
