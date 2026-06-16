@@ -11,7 +11,6 @@ Tests for the therapist co-pilot (Phase 0):
       * the AI never auto-replies to the room
       * crisis = "Both": client still sees the resources message AND the therapist
         gets a risk card
-  - regression: non-therapist sessions still drive the AI (process_input) as before
 """
 
 import os
@@ -323,22 +322,6 @@ def test_therapist_note_rejected_from_non_therapist(enc_client):
                                       "text": "I am pretending to be the therapist"})
         gen.assert_not_called()
     assert "suggestion_cards" not in _names(t_sio.get_received())
-
-
-def test_non_therapist_session_still_drives_ai(enc_client):
-    """Regression: a normal (non-therapist) couple session is unchanged — the AI
-    still replies via process_input."""
-    user_id = str(uuid.uuid4())
-    sid = _insert_session(mode="couple", therapist_id=None, created_by=user_id)
-    c_sio = socketio.test_client(app, flask_test_client=enc_client)
-    c_sio.emit("join", {"session_id": sid, "user_id": user_id, "mode": "couple"})
-    c_sio.get_received()
-
-    assert session_therapist_id.get(sid) is None
-    with patch("TogetherMindsAI.process_input", return_value="A supportive reply.") as mock_pi:
-        c_sio.emit("send_message", {"session_id": sid, "user_id": user_id,
-                                    "text": "Just checking in", "mode": "couple"})
-    mock_pi.assert_called()
 
 
 # ---------------------------------------------------------------------------

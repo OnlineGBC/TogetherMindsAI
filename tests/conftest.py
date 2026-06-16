@@ -32,22 +32,6 @@ def reset_rate_limiter():
 
 
 # ---------------------------------------------------------------------------
-# Emotion classifier mock — returned for every test automatically
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(autouse=True)
-def mock_emotion_pipeline():
-    """Replace the HuggingFace pipeline with a lightweight mock.
-
-    Default emotion: "neutral". Individual tests that need a specific emotion
-    should apply their own patch on top (it takes precedence).
-    """
-    mock_pipe = MagicMock(return_value=[[{"label": "neutral", "score": 0.9}]])
-    with patch("ai_therapist._get_emotion_pipeline", return_value=mock_pipe):
-        yield mock_pipe
-
-
-# ---------------------------------------------------------------------------
 # Claude client mock — returned for every test automatically
 # ---------------------------------------------------------------------------
 
@@ -139,10 +123,7 @@ def live_server_url():
     mock_msg.content = [MagicMock(text=default_reply)]
     mock_client = MagicMock()
     mock_client.messages.create.return_value = mock_msg
-    mock_pipe = MagicMock(return_value=[[{"label": "neutral", "score": 0.9}]])
-
-    with patch("ai_therapist._get_emotion_pipeline", return_value=mock_pipe), \
-         patch("ai_therapist._get_claude_client", return_value=mock_client):
+    with patch("ai_therapist._get_claude_client", return_value=mock_client):
 
         def _run():
             socketio.run(
