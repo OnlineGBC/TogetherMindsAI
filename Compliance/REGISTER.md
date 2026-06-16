@@ -28,5 +28,6 @@ Index of all security/privacy policies and procedures, maintained by the **Secur
 ## Related compliance documents
 - `security-policy-management-process.md` — how these policies are developed, approved, reviewed, updated
 - `policy-template.md` — standard template for each new policy
+- `workforce-roles-ephi-access.md` (TM‑SEC‑JD‑001) — workforce job descriptions, ePHI access scope & required qualifications
 - `sra_assets.csv`, `sra_vendors.csv` — SRA asset & vendor/BAA inventories
 - `TogetherMindsAI_SRA_Tool_2026-6-16.sra` — Security Risk Assessment (in progress)
