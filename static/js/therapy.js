@@ -513,29 +513,6 @@ function initEndSessionGuard(sessionId, redirectUrl) {
         });
     }
 
-    // Delete session button — removes all server-side data then goes home
-    var deleteBtn = document.getElementById("endSessionDeleteBtn");
-    if (deleteBtn) {
-        deleteBtn.addEventListener("click", function () {
-            if (!confirm("This will permanently delete all messages in this session. Are you sure?")) {
-                return;
-            }
-            deleteBtn.disabled = true;
-            deleteBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Deleting…';
-            fetch("/session/" + sessionId + "/delete", { method: "POST" })
-                .then(function () {
-                    localStorage.removeItem(_storageKey);
-                    _sessionEnded = true;
-                    window.location.href = "/";
-                })
-                .catch(function () {
-                    deleteBtn.disabled = false;
-                    deleteBtn.innerHTML = '<i class="bi bi-trash me-1"></i>Delete session and exit';
-                    alert("Could not delete the session. Please try again.");
-                });
-        });
-    }
-
     // beforeunload warning — fires on tab close / navigation away
     window.addEventListener("beforeunload", function (e) {
         if (!_sessionEnded) {

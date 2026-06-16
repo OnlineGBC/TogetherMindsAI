@@ -94,27 +94,22 @@ def test_root_redirects_to_welcome(client):
     assert "/welcome" in rv.headers.get("Location", "")
 
 
-def test_welcome_page_returns_200_with_lead_pillars(client):
-    """The welcome page must render and surface the headline value props
-    (Anonymous, Free), the three modes as direct links, the rejoin action,
-    and the reflections-not-therapy framing — these are the reason it exists."""
+def test_welcome_page_is_clinician_first(client):
+    """The welcome page is therapist-first: it leads with the Co-Pilot CTA to
+    /therapist and the session-join action, and no longer surfaces the consumer
+    'anonymous / free' self-guided modes."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    assert "Welcome to TogetherMindsAI" in body
-    assert "Anonymous" in body
-    assert "Free" in body
-    assert "Reflections, not therapy" in body
-
-    # The three modes must be direct clickable links to their auth pages
-    # (no longer hidden behind a separate Get Started button).
-    assert 'href="/auth/solo"' in body
-    assert 'href="/auth/couple"' in body
-    assert 'href="/auth/group"' in body
-
-    # Rejoin must be present and styled as a real action, not a quiet text link.
+    assert "TogetherMindsAI" in body
+    # Clinician CTA is the primary action.
+    assert 'href="/therapist"' in body
+    assert "Start as a clinician" in body
+    # Join action for invited clients / returning users.
     assert 'href="/session/join"' in body
-    assert "Already have an anonymous code" in body
+    # The consumer 'anonymous / free / self-guided modes' framing is gone.
+    assert "100% Anonymous" not in body
+    assert 'href="/auth/solo"' not in body
 
 
 def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
@@ -125,22 +120,14 @@ def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
     a ghost circle on top of the icon, looking like a broken image. The hero
     must use page-scoped classes only.
 
-    The hero is now a stacked composition (red bi-heart-fill base + white
-    bi-activity pulse line on top) to render a red heart with a white EKG
-    line, per the user's reference image."""
+    The therapist-first hero uses a page-scoped clipboard-pulse icon."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    assert 'class="welcome-hero-stack"' in body, (
-        "Welcome hero must use the page-scoped wrapper `welcome-hero-stack`"
+    assert "bi-clipboard2-pulse-fill" in body, (
+        "Welcome hero must render the clinician clipboard-pulse icon"
     )
-    assert 'class="bi bi-heart-fill heart-base"' in body, (
-        "Welcome hero must include the red heart base (bi-heart-fill)"
-    )
-    assert 'class="bi bi-activity pulse-line"' in body, (
-        "Welcome hero must include the white pulse line (bi-activity)"
-    )
-    # Lock out the original bug — no bare hero-icon class on icons in the hero.
+    # Lock out the original bug — no bare global hero-icon class on hero icons.
     assert 'bi-heart-pulse-fill hero-icon' not in body
     assert 'bi-heart-fill hero-icon' not in body
     assert 'bi-activity hero-icon' not in body

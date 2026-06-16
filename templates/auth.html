@@ -49,17 +49,17 @@
         <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-3 p-md-4">
 
-                <!-- Slim merged status row: browser-only identity + anonymity + (mode-specific share hint) -->
+                <!-- Clinician-led status row -->
                 <div class="auth-status-row d-flex align-items-center justify-content-center flex-wrap gap-2 small mb-3">
-                    <span class="badge text-warning-emphasis bg-warning-subtle border border-warning-subtle rounded-pill px-3 py-1 fw-normal">
-                        <i class="bi bi-key-fill me-1"></i>
-                        <span class="d-none d-md-inline">Identity stored in this browser only — clearing data removes access</span>
-                        <span class="d-md-none">Identity in this browser only</span>
+                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
+                        <i class="bi bi-person-badge-fill me-1"></i>
+                        <span class="d-none d-md-inline">Clinician-led session — kept as a clinical record</span>
+                        <span class="d-md-none">Clinician-led session</span>
                     </span>
                     <span class="badge text-success-emphasis bg-success-subtle border border-success-subtle rounded-pill px-3 py-1 fw-normal">
-                        <i class="bi bi-shield-check-fill me-1"></i>
-                        <span class="d-none d-md-inline">No personal identifiers collected</span>
-                        <span class="d-md-none">No personal info</span>
+                        <i class="bi bi-shield-lock-fill me-1"></i>
+                        <span class="d-none d-md-inline">Encrypted — never sold or used to train AI</span>
+                        <span class="d-md-none">Encrypted &amp; confidential</span>
                     </span>
                     {% if therapy_mode == "couple" %}
                     <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
@@ -93,16 +93,17 @@
                     <div class="col-lg-4">
                         <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
-                                TogetherMindsAI is an <strong>AI tool, not a licensed professional</strong>,
-                                and is not a substitute for professional mental health care.
+                                This session is <strong>led by a licensed professional</strong>, who is
+                                responsible for it. An AI assists the clinician privately.
                             </span>
                         </div>
                     </div>
                     <div class="col-lg-4">
                         <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
-                                My conversations are <strong>stored on this server</strong> and
-                                deleted by default at session end unless I retain them.
+                                My conversation is kept as part of the clinician's
+                                <strong>confidential clinical record</strong> — encrypted, retained
+                                up to six years, and accessible to them.
                             </span>
                         </div>
                     </div>
@@ -188,10 +189,10 @@
                     <li><a href="https://www.befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a> — find a line in your country</li>
                 </ul>
 
-                <h6 class="fw-semibold mt-3">4. Your anonymity and your data</h6>
-                <p>TogetherMindsAI is built around anonymity. We do not collect your name, email address, phone number, or any other personally identifying information. Sessions are identified by a randomly generated code only.</p>
-                <p>Your conversation messages are stored on our servers to enable the AI to respond in context. They are <strong>not</strong> used to train AI models, sold to third parties, or shared with anyone. Messages are stored in encrypted form.</p>
-                <p>Sessions and their messages are <strong>automatically and permanently deleted after 30 days</strong>. You may also delete your data at any time from the Progress screen.</p>
+                <h6 class="fw-semibold mt-3">4. Your data in clinician-led sessions</h6>
+                <p>When a licensed professional leads a session, the conversation is treated as part of that clinician's <strong>clinical record</strong>. We do not collect your name, email, or phone number; the session is identified by a randomly generated code.</p>
+                <p>Messages are stored <strong>encrypted</strong> and are <strong>never</strong> used to train AI models, sold, or shared. They are accessible to and downloadable by the clinician who led the session.</p>
+                <p>Such sessions are <strong>retained for up to six (6) years</strong>, consistent with clinical-record retention practices. The clinician is responsible for the record.</p>
 
                 <h6 class="fw-semibold mt-3">5. No guarantee of availability or accuracy</h6>
                 <p>TogetherMindsAI is provided <strong>as-is</strong>. We do not guarantee that the service will be available at any particular time, that the AI's responses will be accurate, appropriate, or complete, or that the service is suitable for your specific situation.</p>
