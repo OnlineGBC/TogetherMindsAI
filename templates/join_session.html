@@ -49,6 +49,18 @@
         </div>
 
         <div class="text-center mt-3">
+            {% if current_client_account_id %}
+            <a href="{{ url_for('my_sessions') }}" class="text-muted small text-decoration-none">
+                <i class="bi bi-clock-history me-1"></i>See your sessions
+            </a>
+            {% else %}
+            <a href="{{ url_for('client_login') }}" class="text-muted small text-decoration-none">
+                <i class="bi bi-clock-history me-1"></i>Sign in to save your history (optional)
+            </a>
+            {% endif %}
+        </div>
+
+        <div class="text-center mt-2">
             <a href="/" class="text-muted small">
                 <i class="bi bi-arrow-left me-1"></i>Back to home
             </a>

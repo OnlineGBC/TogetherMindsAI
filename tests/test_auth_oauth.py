@@ -29,7 +29,7 @@ os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 import TogetherMindsAI as tm
 from TogetherMindsAI import app
-from models import db, Clinician, TherapySession, init_encryption
+from models import db, Clinician, ClientAccount, ChatMessage, TherapySession, init_encryption
 
 init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
@@ -182,3 +182,104 @@ def test_callback_passes_iss_validator_for_microsoft_only(client):
     with patch.object(tm.oauth, "create_client", return_value=fake_client):
         client.get("/auth/google/callback")
     assert "claims_options" not in fake_client.authorize_access_token.call_args.kwargs
+
+
+# ---------------------------------------------------------------------------
+# Optional client login — separate account type, find your own past sessions
+# ---------------------------------------------------------------------------
+
+def test_client_account_unique_provider_subject(client):
+    db.session.add(ClientAccount(id="a", provider="google", provider_subject="csub1",
+                                 created_at=datetime.now(timezone.utc)))
+    db.session.commit()
+    db.session.add(ClientAccount(id="b", provider="google", provider_subject="csub1",
+                                 created_at=datetime.now(timezone.utc)))
+    with pytest.raises(IntegrityError):
+        db.session.commit()
+    db.session.rollback()
+
+
+def test_client_callback_creates_client_account_not_clinician(client):
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {"userinfo": {"sub": "csub-xyz"}}
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        rv = client.get("/client/auth/google/callback")
+
+    assert rv.status_code == 302
+    assert "/me/sessions" in rv.headers["Location"]
+
+    acct = ClientAccount.query.filter_by(provider="google", provider_subject="csub-xyz").first()
+    assert acct is not None
+    # A client sign-in must NOT mint a clinician account.
+    assert Clinician.query.filter_by(provider="google", provider_subject="csub-xyz").first() is None
+    with client.session_transaction() as s:
+        assert s.get("client_account_id") == acct.id
+        assert s.get("user_id") == acct.id
+        assert s.get("clinician_id") is None
+
+
+def test_client_callback_existing_account_reused(client):
+    existing = ClientAccount(id="existing-client", provider="microsoft", provider_subject="cms-1",
+                             created_at=datetime.now(timezone.utc))
+    db.session.add(existing)
+    db.session.commit()
+
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {"userinfo": {"sub": "cms-1"}}
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        client.get("/client/auth/microsoft/callback")
+
+    assert ClientAccount.query.filter_by(provider="microsoft", provider_subject="cms-1").count() == 1
+    with client.session_transaction() as s:
+        assert s.get("client_account_id") == "existing-client"
+
+
+def test_my_sessions_requires_login(client):
+    rv = client.get("/me/sessions")
+    assert rv.status_code == 302
+    assert "/client/login" in rv.headers["Location"]
+
+
+def test_my_sessions_lists_only_own_participated_sessions(client):
+    account_id = "client-77"
+    # A session the client took part in (has a message), and one they did not.
+    mine = TherapySession(id="SESS-MINE", mode="couple", created_by="therapist-1",
+                          created_at=datetime.now(timezone.utc), therapist_id="therapist-1")
+    other = TherapySession(id="SESS-OTHER", mode="couple", created_by="therapist-1",
+                           created_at=datetime.now(timezone.utc), therapist_id="therapist-1")
+    db.session.add_all([mine, other])
+    db.session.add(ChatMessage(session_id="SESS-MINE", user_id=account_id,
+                               display_name="Partner1", text="hello"))
+    db.session.add(ChatMessage(session_id="SESS-OTHER", user_id="someone-else",
+                               display_name="Partner2", text="not mine"))
+    db.session.commit()
+
+    with client.session_transaction() as s:
+        s["client_account_id"] = account_id
+        s["user_id"] = account_id
+
+    rv = client.get("/me/sessions")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    assert "SESS-MINE" in body
+    assert "SESS-OTHER" not in body
+
+
+def test_client_login_safe_next_rejects_open_redirect(client):
+    # An absolute off-site "next" must not be stored / honoured.
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {"userinfo": {"sub": "csub-redir"}}
+    client.get("/client/login?next=https://evil.example.com/phish")
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        rv = client.get("/client/auth/google/callback")
+    # Falls back to the safe default, never the off-site URL.
+    assert rv.headers["Location"].endswith("/me/sessions")
+
+
+def test_client_login_safe_next_honours_relative_path(client):
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {"userinfo": {"sub": "csub-rel"}}
+    client.get("/client/login?next=/therapy/couple/ABC123")
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        rv = client.get("/client/auth/google/callback")
+    assert rv.headers["Location"].endswith("/therapy/couple/ABC123")

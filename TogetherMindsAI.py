@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
@@ -474,10 +474,18 @@ def _current_clinician_id():
     return session.get("clinician_id")
 
 
+def _current_client_account_id():
+    """Return the logged-in client's account id, or None."""
+    return session.get("client_account_id")
+
+
 @app.context_processor
 def _inject_auth_state():
     """Expose login state to every template (drives the navbar)."""
-    return {"current_clinician_id": session.get("clinician_id")}
+    return {
+        "current_clinician_id": session.get("clinician_id"),
+        "current_client_account_id": session.get("client_account_id"),
+    }
 
 
 @app.route("/login")
@@ -488,19 +496,25 @@ def login():
     return render_template("login.html")
 
 
-@app.route("/auth/<provider>/login")
-def oauth_login(provider):
+# ---------------------------------------------------------------------------
+# Shared OAuth plumbing — used by BOTH the clinician routes (/auth/...) and the
+# client routes (/client/auth/...). The network/OIDC exchange lives here once;
+# each role's route owns only "which account to create and where to send them".
+# ---------------------------------------------------------------------------
+
+def _oauth_start(provider, callback_endpoint):
+    """Redirect the user to the provider's consent screen, returning to
+    `callback_endpoint`. Returns a Flask response (redirect or error)."""
     if provider not in _OAUTH_PROVIDERS:
         return _redirect_invalid_session()
     client = oauth.create_client(provider)
-    redirect_uri = url_for("oauth_callback", provider=provider, _external=True, _scheme="https")
+    redirect_uri = url_for(callback_endpoint, provider=provider, _external=True, _scheme="https")
     return client.authorize_redirect(redirect_uri)
 
 
-@app.route("/auth/<provider>/callback")
-def oauth_callback(provider):
-    if provider not in _OAUTH_PROVIDERS:
-        return _redirect_invalid_session()
+def _oauth_subject(provider):
+    """Complete the OAuth exchange and return the provider's stable subject id,
+    or None on failure (the caller decides where to redirect). Never raises."""
     client = oauth.create_client(provider)
     # Microsoft multi-tenant returns a tenant-substituted issuer that fails
     # Authlib's default issuer check — validate it the way Microsoft documents.
@@ -511,13 +525,35 @@ def oauth_callback(provider):
         token = client.authorize_access_token(**kwargs)
     except Exception as exc:
         app.logger.error("OAuth callback failed (%s): %s: %s", provider, type(exc).__name__, exc)
-        flash("Sign-in did not complete. Please try again.", "warning")
-        return redirect(url_for("login"))
-
+        return None
     userinfo = token.get("userinfo") or {}
-    subject = userinfo.get("sub")
+    return userinfo.get("sub")
+
+
+def _safe_next(target):
+    """Return `target` only if it's a safe same-site relative path, else None.
+    Guards the post-login redirect against open-redirect abuse."""
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Clinician OAuth routes
+# ---------------------------------------------------------------------------
+
+@app.route("/auth/<provider>/login")
+def oauth_login(provider):
+    return _oauth_start(provider, "oauth_callback")
+
+
+@app.route("/auth/<provider>/callback")
+def oauth_callback(provider):
+    if provider not in _OAUTH_PROVIDERS:
+        return _redirect_invalid_session()
+    subject = _oauth_subject(provider)
     if not subject:
-        flash("Sign-in did not return an account id. Please try again.", "warning")
+        flash("Sign-in did not complete. Please try again.", "warning")
         return redirect(url_for("login"))
 
     now = datetime.now(timezone.utc)
@@ -550,8 +586,96 @@ def logout():
     cid = _current_clinician_id()
     if cid:
         log_event("clinician_logout", user_id=cid)
+    client_id = _current_client_account_id()
+    if client_id:
+        log_event("client_logout", user_id=client_id)
     session.clear()
     return redirect(url_for("welcome"))
+
+
+# ---------------------------------------------------------------------------
+# Client OAuth routes — optional login so a client can find their past sessions
+# across devices. Separate from the clinician routes so a client sign-in can
+# never create a Clinician account; both share the _oauth_* helpers above.
+# ---------------------------------------------------------------------------
+
+@app.route("/client/login")
+def client_login():
+    """Optional client sign-in page — Google / Microsoft."""
+    if _current_client_account_id():
+        return redirect(url_for("my_sessions"))
+    # Optionally remember where to return after login (e.g. a session URL).
+    nxt = _safe_next(request.args.get("next"))
+    if nxt:
+        session["client_login_next"] = nxt
+    return render_template("client_login.html")
+
+
+@app.route("/client/auth/<provider>/login")
+def client_oauth_login(provider):
+    return _oauth_start(provider, "client_oauth_callback")
+
+
+@app.route("/client/auth/<provider>/callback")
+def client_oauth_callback(provider):
+    if provider not in _OAUTH_PROVIDERS:
+        return _redirect_invalid_session()
+    subject = _oauth_subject(provider)
+    if not subject:
+        flash("Sign-in did not complete. Please try again.", "warning")
+        return redirect(url_for("client_login"))
+
+    now = datetime.now(timezone.utc)
+    account = (
+        ClientAccount.query
+        .filter_by(provider=provider, provider_subject=subject)
+        .first()
+    )
+    if account is None:
+        account = ClientAccount(
+            id=str(uuid.uuid4()), provider=provider, provider_subject=subject,
+            created_at=now, last_login_at=now,
+        )
+        db.session.add(account)
+        log_event("client_registered", user_id=account.id, provider=provider)
+    else:
+        account.last_login_at = now
+    db.session.commit()
+
+    # The account id becomes the client's stable user_id, so their messages link
+    # across devices and "my sessions" can find the sessions they took part in.
+    session["user_id"]           = account.id
+    session["client_account_id"] = account.id
+    session.permanent = True
+    log_event("client_login", user_id=account.id, provider=provider)
+
+    nxt = _safe_next(session.pop("client_login_next", None))
+    return redirect(nxt or url_for("my_sessions"))
+
+
+@app.route("/me/sessions")
+def my_sessions():
+    """A logged-in client's list of therapist-led sessions they took part in."""
+    account_id = _current_client_account_id()
+    if not account_id:
+        return redirect(url_for("client_login"))
+    # Participation is derived from the client's own messages (no extra table).
+    session_ids = [
+        row[0] for row in
+        db.session.query(ChatMessage.session_id)
+        .filter_by(user_id=account_id)
+        .distinct()
+        .all()
+    ]
+    sessions = []
+    if session_ids:
+        sessions = (
+            TherapySession.query
+            .filter(TherapySession.id.in_(session_ids))
+            .order_by(TherapySession.created_at.desc())
+            .all()
+        )
+    return render_template("my_sessions.html", my_sessions=sessions)
 
 
 @app.route("/therapist")

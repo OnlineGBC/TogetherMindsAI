@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Your sessions — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<style>
+  .resume-item {
+    border: 1px solid var(--border-soft, #e3e8e6);
+    border-radius: 0.75rem;
+    padding: 0.65rem 0.85rem;
+    background: #fff;
+  }
+  .min-w-0 { min-width: 0; }
+</style>
+<div class="row justify-content-center">
+    <div class="col-md-10 col-lg-8 col-xl-7">
+
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-clock-history text-primary-green fs-5"></i>
+                <h4 class="fw-bold mb-0">Your sessions</h4>
+            </div>
+            <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary rounded-pill">Sign out</a>
+        </div>
+
+        {% if my_sessions %}
+        <p class="text-muted small mb-3">Rejoin a session to read what was said. Only sessions you took part in are shown.</p>
+        {% set labels = {'solo': '1:1 Session', 'couple': 'Couple Session', 'group': 'Group Session'} %}
+        {% set icons  = {'solo': 'person-fill', 'couple': 'people-fill', 'group': 'person-lines-fill'} %}
+        <div class="d-grid gap-2">
+            {% for s in my_sessions %}
+            <div class="resume-item d-flex align-items-center gap-2">
+                <i class="bi bi-{{ icons.get(s.mode, 'person-fill') }} text-primary-green flex-shrink-0"></i>
+                <span class="flex-grow-1 min-w-0">
+                    <span class="fw-semibold">{{ labels.get(s.mode, s.mode) }}</span>
+                    <span class="font-monospace small text-muted d-block text-truncate">{{ s.id }}</span>
+                </span>
+                <span class="small text-muted d-none d-md-inline flex-shrink-0">{{ s.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                <a href="{{ url_for('therapy_' + s.mode, session_id=s.id) }}" class="btn btn-sm btn-outline-green rounded-pill flex-shrink-0">Rejoin</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm rounded-4">
+            <div class="card-body p-4 text-center text-muted">
+                <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                You don't have any sessions yet. When you take part in a session while signed in, it will appear here.
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="text-center mt-3">
+            <a href="{{ url_for('session_join_get') }}" class="text-muted small text-decoration-none">
+                <i class="bi bi-box-arrow-in-right me-1"></i>Join another session with its ID
+            </a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

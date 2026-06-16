@@ -131,6 +131,31 @@ class Clinician(db.Model):
         return f"<Clinician {self.id} provider={self.provider}>"
 
 
+class ClientAccount(db.Model):
+    """An optional logged-in client account, authenticated via Google or Microsoft.
+
+    Lets a client find the therapist-led sessions they took part in across devices,
+    instead of relying on a browser-cookie UUID. Like Clinician, it deliberately
+    stores NO email / PII — only the provider's opaque, stable subject id. It is a
+    SEPARATE account type from Clinician (a client login can never become a
+    clinician), and login is always optional — anonymous join still works.
+    """
+    __tablename__ = "client_accounts"
+
+    id               = db.Column(db.String(36), primary_key=True)            # our UUID (used as the client's user_id)
+    provider         = db.Column(db.String(20),  nullable=False)             # "google" | "microsoft"
+    provider_subject = db.Column(db.String(255), nullable=False)             # provider's stable user id ("sub")
+    created_at       = db.Column(db.DateTime, nullable=False)
+    last_login_at    = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("provider", "provider_subject", name="uq_client_provider_subject"),
+    )
+
+    def __repr__(self):
+        return f"<ClientAccount {self.id} provider={self.provider}>"
+
+
 class TherapySession(db.Model):
     __tablename__ = "therapy_sessions"
 
