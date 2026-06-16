@@ -10,7 +10,7 @@ Index of all security/privacy policies and procedures, maintained by the **Secur
 | TM‑SEC‑PROC‑001 | Security Policy & Procedure Management Process | _[Security Officer]_ | 1.0 | _[date]_ | _[date]_ | Draft |
 | TM‑SEC‑POL‑001 | Security Management & Risk Management Policy | _[ ]_ | — | — | — | Not started |
 | TM‑SEC‑POL‑002 | Assigned Security Responsibility (Security Officer) | _[ ]_ | — | — | — | Not started |
-| TM‑SEC‑POL‑003 | Workforce Security & Sanction Policy | _[ ]_ | — | — | — | Not started |
+| TM‑SEC‑POL‑003 | Workforce Security & Sanction Policy | _[Security Officer]_ | 0.1 | _[date]_ | _[date]_ | Draft |
 | TM‑SEC‑POL‑004 | Information Access Management & Access Control | _[ ]_ | — | — | — | Not started |
 | TM‑SEC‑POL‑005 | Security Awareness & Training Policy | _[ ]_ | — | — | — | Not started |
 | TM‑SEC‑POL‑006 | Security Incident Response Policy | _[ ]_ | — | — | — | Not started |
