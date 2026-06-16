@@ -75,10 +75,9 @@ socketio = SocketIO(
 _RATE_WINDOW     = config.RATE_WINDOW_SECONDS
 _RATE_MAX_MSGS   = config.RATE_MAX_MESSAGES
 _MAX_MSG_LEN     = config.MAX_MESSAGE_LENGTH
-_RETENTION_DAYS  = 30
-_RETENTION_DELTA = timedelta(days=_RETENTION_DAYS)
-# Therapist-led sessions are clinical records, retained ~6 years (HIPAA § 164.312(b)),
-# not auto-purged at 30 days like anonymous consumer sessions.
+# Therapist-led sessions are clinical records, retained ~6 years (HIPAA § 164.312(b)).
+# The expired-session purge job sweeps any row whose retention_expires_at has passed
+# (e.g. legacy AI-led sessions expired by the one-time migration below).
 _CLINICAL_RETENTION_DELTA = timedelta(days=2192)   # ~6 years
 
 # ---------------------------------------------------------------------------
@@ -1152,16 +1151,16 @@ def session_join_post():
     session_id = ts.id  # always use the real ID from DB
 
     if ts.mode == "solo":
-        if ts.therapist_id:
-            # Therapist-led 1:1 — the joiner is a CLIENT and must get their OWN
-            # identity (never the therapist's). Mirror the couple/group join flow.
-            user_id = session.get("user_id")
-            if not user_id:
-                session["pending_solo_session"] = session_id
-                return redirect(url_for("auth_get", therapy_mode="solo"))
-            return redirect(url_for("therapy_solo", session_id=session_id))
-        # Consumer solo journaling — joiner resumes the creator's identity (unchanged).
-        session["user_id"] = ts.created_by
+        # Solo sessions are therapist-led only on this branch; a solo row without a
+        # therapist_id is a stale/invalid record and is treated as not found.
+        if not ts.therapist_id:
+            return _join_template(error="Session not found. Check the ID and try again.")
+        # Therapist-led 1:1 — the joiner is a CLIENT and must get their OWN identity
+        # (never the therapist's). Mirror the couple/group join flow.
+        user_id = session.get("user_id")
+        if not user_id:
+            session["pending_solo_session"] = session_id
+            return redirect(url_for("auth_get", therapy_mode="solo"))
         return redirect(url_for("therapy_solo", session_id=session_id))
 
     user_id = session.get("user_id")

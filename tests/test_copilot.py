@@ -341,16 +341,17 @@ def test_therapist_led_solo_join_gives_client_own_identity(enc_client):
         assert sess.get("user_id") != "therapist-xyz"
 
 
-def test_consumer_solo_join_unchanged(enc_client):
-    """Regression: joining a normal (AI-led) solo session still resumes the
-    creator's identity, exactly as before."""
+def test_consumer_solo_join_rejected(enc_client):
+    """Solo is therapist-led only: a solo session with no therapist_id can no
+    longer be created, so joining one is rejected (no creator-identity resume)."""
     sid = _insert_solo_session(therapist_id=None, created_by="owner-abc")
 
     rv = enc_client.post("/session/join", data={"session_id": sid})
-    assert rv.status_code == 302
-    assert f"/therapy/solo/{sid}" in rv.headers["Location"]
+    # Rendered "Session not found" page, not a redirect into the room.
+    assert rv.status_code == 200
+    assert b"Session not found" in rv.data
     with enc_client.session_transaction() as sess:
-        assert sess.get("user_id") == "owner-abc"
+        assert sess.get("user_id") != "owner-abc"
 
 
 def _insert_couple_session(therapist_id=None, created_by="owner-xyz"):
