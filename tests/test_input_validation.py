@@ -1,3 +1,10 @@
+"""
+tests/test_input_validation.py
+------------------------------
+Message validation now lives in the realtime SocketIO handler (on_send_message),
+since the form-based consumer solo flow was removed. These tests exercise the
+length / empty-message guards over a socket.
+"""
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -10,64 +17,72 @@ os.environ["TESTING"] = "1"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-input")
 os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:5001")
 
-from TogetherMindsAI import app, _MAX_MSG_LEN
-from models import db, User
+from cryptography.fernet import Fernet
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+
+os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+
+from TogetherMindsAI import app, socketio, _MAX_MSG_LEN
+from models import db, User, TherapySession, init_encryption
 from session_id import generate_session_id
+
+init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
 
 @pytest.fixture
-def client():
+def session():
+    """In-memory DB + a (consumer) couple session + a connected socket client.
+    Returns (sio_client, session_id, user_id)."""
+    test_engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    db._app_engines[app] = {None: test_engine}
     app.config["TESTING"] = True
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
     with app.app_context():
-        from models import TherapySession
         db.create_all()
         user_id = str(uuid.uuid4())
-        session_id = generate_session_id()
-        db.session.add(User(id=user_id, therapy_mode="solo"))
+        sid = generate_session_id()
+        db.session.add(User(id=user_id, therapy_mode="couple"))
         db.session.add(TherapySession(
-            id=session_id, mode="solo", created_by=user_id,
+            id=sid, mode="couple", created_by=user_id,
             created_at=datetime.now(timezone.utc),
         ))
         db.session.commit()
         with app.test_client() as c:
-            with c.session_transaction() as sess:
-                sess["user_id"] = user_id
-            yield c, user_id, session_id
+            sio = socketio.test_client(app, flask_test_client=c)
+            sio.emit("join", {"session_id": sid, "user_id": user_id, "mode": "couple"})
+            sio.get_received()   # drain join noise
+            yield sio, sid, user_id
         db.session.remove()
         db.drop_all()
 
 
-def test_message_too_long_shows_error(client):
-    c, uid, sid = client
-    long_msg = "a" * (_MAX_MSG_LEN + 1)
-    rv = c.post(f"/therapy/solo/{sid}", data={"message": long_msg})
-    assert rv.status_code == 422
-    assert b"too long" in rv.data.lower()
-    # Draft text must be preserved in the input so the user doesn't lose it
-    assert long_msg[:100].encode() in rv.data
+def _names(received):
+    return [e["name"] for e in received]
 
 
-def test_message_empty_returns_redirect(client):
-    c, uid, sid = client
-    rv = c.post(f"/therapy/solo/{sid}", data={"message": ""})
-    assert rv.status_code == 302
+def test_oversized_message_emits_error(session):
+    sio, sid, uid = session
+    sio.emit("send_message", {
+        "session_id": sid, "user_id": uid,
+        "text": "a" * (_MAX_MSG_LEN + 1), "mode": "couple",
+    })
+    received = sio.get_received()
+    assert "error" in _names(received)
+    err = next(e for e in received if e["name"] == "error")
+    assert "too long" in err["args"][0]["message"].lower()
 
 
-def test_message_whitespace_only_returns_redirect(client):
-    c, uid, sid = client
-    rv = c.post(f"/therapy/solo/{sid}", data={"message": "   "})
-    assert rv.status_code == 302
+def test_empty_message_is_ignored(session):
+    sio, sid, uid = session
+    sio.emit("send_message", {"session_id": sid, "user_id": uid, "text": "", "mode": "couple"})
+    assert "new_message" not in _names(sio.get_received())
 
 
-def test_message_at_max_length_is_accepted(client):
-    c, uid, sid = client
-    max_msg = "a" * _MAX_MSG_LEN
-    rv = c.post(f"/therapy/solo/{sid}", data={"message": max_msg})
-    assert rv.status_code == 302   # redirect back to solo page after save
-
-
-def test_message_valid_saves_and_redirects(client):
-    c, uid, sid = client
-    rv = c.post(f"/therapy/solo/{sid}", data={"message": "Hello, I need some support today."})
-    assert rv.status_code == 302
+def test_whitespace_only_message_is_ignored(session):
+    sio, sid, uid = session
+    sio.emit("send_message", {"session_id": sid, "user_id": uid, "text": "   ", "mode": "couple"})
+    assert "new_message" not in _names(sio.get_received())

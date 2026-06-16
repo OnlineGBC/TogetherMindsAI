@@ -84,14 +84,18 @@ def _pub():
     return base64.b64encode(uuid.uuid4().bytes).decode()
 
 
-def _register(client, mode="couple", as_therapist=False):
-    body = {"public_key": _pub(), "therapy_mode": mode}
-    if as_therapist:
-        body["as_therapist"] = True
-    rv = client.post("/api/auth/register", json=body)
-    assert rv.status_code == 201, rv.get_data(as_text=True)
-    data = rv.get_json()
-    return data["user_id"], data["session_id"]
+def _insert_session(mode="couple", therapist_id=None, created_by="owner-xyz"):
+    """Insert a TherapySession directly. Sessions are created server-side only by a
+    logged-in clinician (POST /therapist/start/<mode>); tests build them here."""
+    sid = generate_session_id()
+    db.session.add(TherapySession(
+        id=sid, mode=mode, created_by=created_by,
+        created_at=datetime.now(timezone.utc),
+        retention_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        therapist_id=therapist_id,
+    ))
+    db.session.commit()
+    return sid
 
 
 def _claude_returning(text):
@@ -214,7 +218,8 @@ def _join_pair(client, mode="couple"):
 
     Returns (therapist_sio, client_sio, session_id, client_user_id).
     """
-    therapist_id, sid = _register(client, mode=mode, as_therapist=True)
+    therapist_id = str(uuid.uuid4())
+    sid = _insert_session(mode=mode, therapist_id=therapist_id, created_by=therapist_id)
     client_user = str(uuid.uuid4())
 
     t_sio = socketio.test_client(app, flask_test_client=client)
@@ -323,7 +328,8 @@ def test_therapist_note_rejected_from_non_therapist(enc_client):
 def test_non_therapist_session_still_drives_ai(enc_client):
     """Regression: a normal (non-therapist) couple session is unchanged — the AI
     still replies via process_input."""
-    user_id, sid = _register(enc_client, mode="couple", as_therapist=False)
+    user_id = str(uuid.uuid4())
+    sid = _insert_session(mode="couple", therapist_id=None, created_by=user_id)
     c_sio = socketio.test_client(app, flask_test_client=enc_client)
     c_sio.emit("join", {"session_id": sid, "user_id": user_id, "mode": "couple"})
     c_sio.get_received()

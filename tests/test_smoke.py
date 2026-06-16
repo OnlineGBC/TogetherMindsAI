@@ -24,8 +24,9 @@ from cryptography.hazmat.primitives.asymmetric.ec import generate_private_key, E
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from datetime import datetime, timezone
 from TogetherMindsAI import app
-from models import db, User
+from models import db, User, TherapySession
 from session_id import generate_session_id, is_valid_session_id
 
 
@@ -46,13 +47,29 @@ def _sign(priv, message: str) -> str:
 
 
 def _register(client, mode="solo"):
-    """Register a new user and return (priv_key, user_id, session_id)."""
+    """Create a non-therapist-led (AI-led) session and register an anonymous client
+    joining it — registration is join-only now, so the session is built here. The
+    smoke tests exercise the AI-led path, so therapist_id stays None.
+    Returns (priv_key, user_id, session_id)."""
     priv, pub_b64 = _make_keypair()
+    sid = generate_session_id()
+    db.session.add(TherapySession(
+        id=sid, mode=mode, created_by="pending",
+        created_at=datetime.now(timezone.utc),
+    ))
+    db.session.commit()
+    with client.session_transaction() as s:
+        s[f"pending_{mode}_session"] = sid
     rv = client.post("/api/auth/register",
                      json={"public_key": pub_b64, "therapy_mode": mode})
-    assert rv.status_code == 201
+    assert rv.status_code == 201, rv.get_data(as_text=True)
     data = rv.get_json()
-    return priv, data["user_id"], data.get("session_id")
+    user_id = data["user_id"]
+    # Match the old behaviour where the registering user created the session.
+    ts = db.session.get(TherapySession, sid)
+    ts.created_by = user_id
+    db.session.commit()
+    return priv, user_id, sid
 
 
 # ---------------------------------------------------------------------------
@@ -165,16 +182,13 @@ def test_tos_page_returns_200(client):
     assert b"findahelpline.com" in rv.data
 
 
-def test_auth_solo_page_returns_200(client):
-    assert client.get("/auth/solo").status_code == 200
-
-
-def test_auth_couple_page_returns_200(client):
-    assert client.get("/auth/couple").status_code == 200
-
-
-def test_auth_group_page_returns_200(client):
-    assert client.get("/auth/group").status_code == 200
+def test_auth_page_redirects_to_join_without_pending(client):
+    # /auth/<mode> is only reachable mid-join now; without a pending session it
+    # bounces to the join page (there is no self-directed start).
+    for mode in ("solo", "couple", "group"):
+        rv = client.get(f"/auth/{mode}")
+        assert rv.status_code == 302
+        assert "/session/join" in rv.headers["Location"]
 
 
 def test_session_join_page_returns_200(client):
@@ -187,13 +201,6 @@ def test_progress_page_returns_200(client):
         db.session.add(User(id=user_id, therapy_mode="solo"))
         db.session.commit()
     assert client.get(f"/progress/{user_id}/solo").status_code == 200
-
-
-def test_therapy_solo_page_returns_200(client):
-    priv, user_id, session_id = _register(client, "solo")
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    assert client.get(f"/therapy/solo/{session_id}").status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -231,71 +238,6 @@ def test_exercises_table_has_mode_column(client):
 
 
 # ---------------------------------------------------------------------------
-# Golden path — register → challenge → verify → load therapy → send message
-# ---------------------------------------------------------------------------
-
-def test_golden_path_solo(client):
-    priv, pub_b64 = _make_keypair()
-
-    # 1. Register
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    assert rv.status_code == 201
-    data = rv.get_json()
-    user_id = data["user_id"]
-    session_id = data["session_id"]
-
-    # 2. Challenge
-    rv = client.post("/api/auth/challenge", json={"user_id": user_id})
-    assert rv.status_code == 200
-    challenge = rv.get_json()["challenge"]
-
-    # 3. Verify
-    rv = client.post("/api/auth/verify",
-                     json={"user_id": user_id, "signature": _sign(priv, challenge)})
-    assert rv.status_code == 200
-    assert rv.get_json()["ok"] is True
-
-    # 4. Load therapy page
-    rv = client.get(f"/therapy/solo/{session_id}")
-    assert rv.status_code == 200
-
-    # 5. Send a message — should redirect back to therapy page
-    rv = client.post(f"/therapy/solo/{session_id}",
-                     data={"message": "I feel anxious today"},
-                     follow_redirects=True)
-    assert rv.status_code == 200
-    # AI response should be present in the rendered page
-    assert b"therapist" in rv.data or b"hear" in rv.data or b"feel" in rv.data
-
-
-def test_golden_path_message_creates_exercise(client):
-    """A sent message must be persisted as an Exercise record."""
-    priv, user_id, session_id = _register(client, "solo")
-
-    client.post(f"/therapy/solo/{session_id}",
-                data={"message": "I feel very sad"})
-
-    with app.app_context():
-        from models import Exercise
-        exercises = Exercise.query.filter_by(user_id=user_id).all()
-    assert len(exercises) == 1
-    assert exercises[0].mode == "solo"
-    assert exercises[0].type == "solo_chat"
-
-
-def test_progress_page_shows_data_after_messages(client):
-    priv, user_id, session_id = _register(client, "solo")
-
-    client.post(f"/therapy/solo/{session_id}", data={"message": "Hello there"})
-
-    rv = client.get(f"/progress/{user_id}/solo")
-    assert rv.status_code == 200
-    # Chart data should be rendered (not the empty state)
-    assert b"No exercises recorded" not in rv.data
-
-
-# ---------------------------------------------------------------------------
 # GDPR delete
 # ---------------------------------------------------------------------------
 
@@ -327,15 +269,6 @@ def test_delete_user_forbidden_for_wrong_session(client):
 # Input validation — boundary conditions
 # ---------------------------------------------------------------------------
 
-def test_oversized_message_does_not_crash_server(client):
-    priv, user_id, session_id = _register(client, "solo")
-    huge = "x" * 100_000
-    rv = client.post(f"/therapy/solo/{session_id}", data={"message": huge})
-    assert rv.status_code in (302, 422)   # redirect or error page, not 500
-    if rv.status_code == 422:
-        assert b"too long" in rv.data.lower()
-
-
 def test_nickname_route_removed(client):
     """The server-side nickname route must no longer exist (friendly names are local-only)."""
     priv, user_id, session_id = _register(client, "solo")
@@ -356,14 +289,6 @@ def test_session_join_unknown_id_shows_error(client):
 # ---------------------------------------------------------------------------
 # End Session guard — modal and beforeunload wiring
 # ---------------------------------------------------------------------------
-
-def test_solo_page_has_end_session_button(client):
-    priv, user_id, session_id = _register(client, "solo")
-    rv = client.get(f"/therapy/solo/{session_id}")
-    assert rv.status_code == 200
-    assert b"endSessionModal" in rv.data
-    assert b"End Session" in rv.data
-
 
 def test_couple_page_has_end_session_button(client):
     from datetime import datetime, timezone
@@ -460,13 +385,6 @@ def _assert_privacy_banner_dismissable(html: bytes):
     assert 'localStorage.getItem("privacyBannerDismissed_' not in body, (
         "privacy banner must not read dismissal from localStorage (long-lived) — sessionStorage only"
     )
-
-
-def test_solo_privacy_banner_dismiss_button_wired(client):
-    priv, user_id, session_id = _register(client, "solo")
-    rv = client.get(f"/therapy/solo/{session_id}")
-    assert rv.status_code == 200
-    _assert_privacy_banner_dismissable(rv.data)
 
 
 def test_couple_privacy_banner_dismiss_button_wired(client):
@@ -569,8 +487,18 @@ def test_transcript_pdf_empty_session(client):
 
 def test_end_session_modal_present_in_base(client):
     """The modal container must be in the base layout (rendered on every therapy page)."""
-    priv, user_id, session_id = _register(client, "solo")
-    rv = client.get(f"/therapy/solo/{session_id}")
+    from datetime import datetime, timezone
+    user_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    db.session.add(User(id=user_id, therapy_mode="couple"))
+    db.session.add(TherapySession(
+        id=session_id, mode="couple", created_by=user_id,
+        created_at=datetime.now(timezone.utc),
+    ))
+    db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    rv = client.get(f"/therapy/couple/{session_id}")
     assert b"endSessionIdDisplay" in rv.data
     assert b"endSessionConfirmBtn" in rv.data
     assert b"endSessionCopyBtn" in rv.data
@@ -580,48 +508,16 @@ def test_end_session_modal_present_in_base(client):
 # Session ID centralisation — integration tests
 # ---------------------------------------------------------------------------
 
-def test_solo_register_returns_valid_session_id(client):
-    """Solo registration must return a valid randomized-private-key session_id, not a UUID."""
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "solo"})
-    assert rv.status_code == 201
-    data = rv.get_json()
-    assert "session_id" in data, "solo registration must include session_id in response"
-    assert is_valid_session_id(data["session_id"]), (
-        f"solo session_id {data['session_id']!r} is not a valid randomized-private-key session ID"
-    )
-    assert data["session_id"] != data["user_id"], (
-        "session_id must be independent of user_id (no longer UUID-based)"
-    )
-
-
-def test_couple_register_returns_valid_session_id(client):
-    """Couple registration must return a valid randomized-private-key session_id."""
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "couple"})
-    assert rv.status_code == 201
-    data = rv.get_json()
-    assert "session_id" in data, (
-        "couple registration must include session_id in response — "
-        "JS redirect uses data.session_id to build the URL"
-    )
-    assert is_valid_session_id(data["session_id"]), (
-        f"couple session_id {data['session_id']!r} is not a valid randomized-private-key session ID"
-    )
-
-
-def test_group_register_returns_valid_session_id(client):
-    """Group session ID from /api/auth/register must pass is_valid_session_id."""
-    priv, pub_b64 = _make_keypair()
-    rv = client.post("/api/auth/register",
-                     json={"public_key": pub_b64, "therapy_mode": "group"})
-    assert rv.status_code == 201
-    session_id = rv.get_json().get("session_id")
-    assert session_id is not None, "group registration must return a session_id"
-    assert is_valid_session_id(session_id), (
-        f"session_id {session_id!r} from /api/auth/register is not a valid session ID"
+def test_register_returns_joined_valid_session_id(client):
+    """Joining via registration returns the (valid) session_id of the joined session,
+    distinct from the new user_id."""
+    for mode in ("solo", "couple", "group"):
+        priv, user_id, session_id = _register(client, mode)
+        assert is_valid_session_id(session_id), (
+            f"{mode} session_id {session_id!r} is not a valid randomized session ID"
+        )
+        assert session_id != user_id, (
+            f"{mode} session_id must be independent of user_id"
     )
 
 
@@ -660,32 +556,6 @@ def test_join_page_does_not_say_1234(client):
     rv = client.get("/session/join")
     assert rv.status_code == 200
     assert b"1234" not in rv.data
-
-
-def test_solo_page_shows_session_id_in_banner(client):
-    """The solo therapy page must show the randomized-private-key session ID, not a UUID."""
-    priv, user_id, session_id = _register(client, "solo")
-
-    rv = client.get(f"/therapy/solo/{session_id}")
-    assert rv.status_code == 200
-    body = rv.data.decode()
-
-    # The randomized-private-key session ID must appear in the page
-    assert session_id in body, f"session_id {session_id!r} not found in solo page"
-
-    # No raw UUID (with hyphens) should appear in the session banner area
-    import re
-    uuid_pattern = re.compile(
-        r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
-        re.IGNORECASE
-    )
-    banner_start = body.find("Session ID:")
-    banner_section = body[banner_start:banner_start + 200] if banner_start != -1 else ""
-    assert not uuid_pattern.search(banner_section), (
-        f"Raw UUID found in session banner — randomized private keys must not "
-        f"match the UUID hyphen-segmented pattern.\n"
-        f"Banner section: {banner_section!r}"
-    )
 
 
 def test_couple_page_shows_session_id_in_banner(client):
@@ -941,36 +811,6 @@ def test_api_display_name_user_can_reconfirm_own_name(client):
                      content_type="application/json")
     assert rv.status_code == 200
 
-def test_api_display_name_stored_in_chat_message(client):
-    """display_name is stored in ChatMessage after being set via the API."""
-    from TogetherMindsAI import session_display_names
-    from models import ChatMessage
-    _priv, user_id, session_id = _register(client, "solo")
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-
-    # Set display name
-    client.post("/api/display-name",
-                json={"session_id": session_id, "display_name": "Bob"},
-                content_type="application/json")
-
-    # Send a message via the solo form
-    client.post(f"/therapy/solo/{session_id}", data={"message": "Hello world"})
-    with app.app_context():
-        msg = ChatMessage.query.filter_by(session_id=session_id, user_id=user_id).first()
-        assert msg is not None
-        assert msg.display_name == "Bob"
-
-def test_solo_therapy_page_passes_default_name(client):
-    """The solo therapy page must render with a default_name template variable."""
-    _priv, user_id, session_id = _register(client, "solo")
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    rv = client.get(f"/therapy/solo/{session_id}")
-    assert rv.status_code == 200
-    # Default name for solo position 1 should appear in the rendered HTML
-    assert b"Solo1" in rv.data
-
 def test_name_permanently_claimed_after_disconnect():
     """Once a user leaves, their name stays in taken_names and cannot be reclaimed."""
     from TogetherMindsAI import (
@@ -997,16 +837,24 @@ def test_name_permanently_claimed_after_disconnect():
 def test_history_includes_current_display_name_when_already_set(client):
     """on_join history emit includes current_display_name when user already has one set,
     so the client can skip the name-prompt modal on page reload."""
+    from datetime import datetime, timezone
     from TogetherMindsAI import _claim_display_name, session_display_names, session_taken_names
-    _priv, user_id, session_id = _register(client, "solo")
+    user_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    db.session.add(User(id=user_id, therapy_mode="couple"))
+    db.session.add(TherapySession(
+        id=session_id, mode="couple", created_by=user_id,
+        created_at=datetime.now(timezone.utc),
+    ))
+    db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
 
     # Simulate name already claimed (e.g. from first page load)
     _claim_display_name(session_id, user_id, "Riku")
 
-    # Hitting the solo page again (simulates page reload after message send)
-    rv = client.get(f"/therapy/solo/{session_id}")
+    # Hitting the page again (simulates page reload after message send)
+    rv = client.get(f"/therapy/couple/{session_id}")
     assert rv.status_code == 200
 
     # The server-side name is still set
@@ -1106,27 +954,6 @@ def test_opening_message_does_not_block_users_first_reply(client):
     session_opening_sent.discard(session_id)
     room_mode.pop(session_id, None)
     room_participants.pop(session_id, None)
-
-
-def test_ai_cooldown_not_applied_to_solo_mode(client):
-    """The AI cooldown must never suppress responses in solo mode."""
-    from datetime import timezone
-    from unittest.mock import patch
-    import datetime as dt
-
-    _priv, user_id, session_id = _register(client, "solo")
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-
-    from TogetherMindsAI import session_ai_last_response
-    session_ai_last_response[session_id] = dt.datetime.now(timezone.utc)
-
-    rv = client.post(f"/therapy/solo/{session_id}",
-                     data={"message": "I feel anxious today"})
-    # Solo uses HTTP form — AI response is always generated; page should reload fine
-    assert rv.status_code in (200, 302)
-
-    session_ai_last_response.pop(session_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -1387,55 +1214,6 @@ def test_group_page_renders_silence_countdown_ui(client):
     assert 'id="silenceCountdown"' in body
     assert 'id="silenceCountdownValue"' in body
     assert "unless someone speaks first" in body
-
-
-def test_solo_page_does_not_render_silence_countdown_ui(client):
-    """Solo mode does not get the silence-nudge feature, so the countdown
-    elements must not appear."""
-    _priv, user_id, session_id = _register(client, "solo")
-    rv = client.get(f"/therapy/solo/{session_id}")
-    assert rv.status_code == 200
-    body = rv.data.decode()
-    assert 'id="silenceCountdown"' not in body
-    assert "unless someone speaks first" not in body
-
-
-# ---------------------------------------------------------------------------
-# Escalation hint gate — referral invitation sent at most once per session
-# ---------------------------------------------------------------------------
-
-def test_escalation_hint_sent_only_once_in_solo(client):
-    """process_input must receive referral_already_made=False on the first
-    escalation-triggering message and True on every subsequent one."""
-    from unittest.mock import patch
-
-    priv, user_id, session_id = _register(client, "solo")
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-
-    # Reset the gate so this test is self-contained
-    from TogetherMindsAI import session_escalation_hint_sent
-    session_escalation_hint_sent.discard(session_id)
-
-    with patch("TogetherMindsAI.process_input", return_value="I hear you.") as mock_pi:
-        # First message with escalation keyword — hint not yet sent
-        client.post(f"/therapy/solo/{session_id}",
-                    data={"message": "I really need a therapist"})
-        first_kwargs = mock_pi.call_args_list[0].kwargs
-        assert first_kwargs.get("referral_already_made") is False, (
-            "First escalation message must pass referral_already_made=False"
-        )
-
-        # Second message — gate already set
-        client.post(f"/therapy/solo/{session_id}",
-                    data={"message": "I still need a therapist"})
-        second_kwargs = mock_pi.call_args_list[1].kwargs
-        assert second_kwargs.get("referral_already_made") is True, (
-            "Second message must pass referral_already_made=True once gate is set"
-        )
-
-    # Cleanup
-    session_escalation_hint_sent.discard(session_id)
 
 
 # ---------------------------------------------------------------------------

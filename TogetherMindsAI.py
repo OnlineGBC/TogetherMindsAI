@@ -606,61 +606,37 @@ def tos():
 
 @app.route("/auth/<therapy_mode>", methods=["GET"])
 def auth_get(therapy_mode):
+    # This page only exists to take a client into a clinician-led session they are
+    # joining. Without a pending join there is nothing self-directed to start here.
+    if not (session.get("pending_solo_session")
+            or session.get("pending_couple_session")
+            or session.get("pending_group_session")):
+        return redirect(url_for("session_join_get"))
     return render_template("auth.html", therapy_mode=therapy_mode)
 
 
 @app.route("/auth/<therapy_mode>", methods=["POST"])
 @limiter.limit("10 per hour")
 def auth_post(therapy_mode):
-    """Legacy form-based auth kept as fallback. New users go through /api/auth/register."""
-    user_id = str(uuid.uuid4())
-    user = User(id=user_id, therapy_mode=therapy_mode)
-    db.session.add(user)
-
-    # Check if this auth is for joining an existing session (not creating a new one)
+    """Legacy form-based auth fallback. Only JOINS an existing clinician-led session
+    (stashed by /session/join); it never creates a new self-directed session."""
     pending_couple = session.pop("pending_couple_session", None)
     pending_group  = session.pop("pending_group_session",  None)
     pending_solo   = session.pop("pending_solo_session",   None)
+    if not (pending_solo or pending_couple or pending_group):
+        return redirect(url_for("session_join_get"))
 
-    new_session_id = None
-    if therapy_mode == "solo" and not pending_solo and not pending_couple and not pending_group:
-        new_session_id = generate_session_id()
-        db.session.add(TherapySession(
-            id=new_session_id, mode="solo", created_by=user_id,
-            created_at=datetime.now(timezone.utc),
-            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
-        ))
-    elif therapy_mode == "couple" and not pending_couple:
-        new_session_id = generate_session_id()
-        db.session.add(TherapySession(
-            id=new_session_id, mode="couple", created_by=user_id,
-            created_at=datetime.now(timezone.utc),
-            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
-        ))
-    elif therapy_mode == "group" and not pending_group:
-        new_session_id = generate_session_id()
-        db.session.add(TherapySession(
-            id=new_session_id, mode="group", created_by=user_id,
-            created_at=datetime.now(timezone.utc),
-            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
-        ))
-
+    user_id = str(uuid.uuid4())
+    db.session.add(User(id=user_id, therapy_mode=therapy_mode))
     db.session.commit()
     session["user_id"] = user_id
 
-    if new_session_id:
-        log_event("session_created", session_id=new_session_id, user_id=user_id,
-                  mode=therapy_mode)
-
-    if therapy_mode == "solo":
-        sid = pending_solo or new_session_id
-        return redirect(url_for("therapy_solo", session_id=sid))
-    elif therapy_mode == "couple":
-        sid = pending_couple or new_session_id
-        return redirect(url_for("therapy_couple", session_id=sid))
+    if pending_solo:
+        return redirect(url_for("therapy_solo", session_id=pending_solo))
+    elif pending_couple:
+        return redirect(url_for("therapy_couple", session_id=pending_couple))
     else:
-        sid = pending_group or new_session_id
-        return redirect(url_for("therapy_group", session_id=sid))
+        return redirect(url_for("therapy_group", session_id=pending_group))
 
 
 def _session_exists(session_id: str) -> bool:
@@ -687,130 +663,16 @@ def therapy_solo(session_id):
     if not _session_exists(session_id):
         return _redirect_invalid_session()
 
-    # Therapist-led 1:1 — a realtime page with the co-pilot console for the
-    # therapist. The therapist + their one client are distinct participants over
-    # SocketIO. The consumer (AI-led) solo journaling flow below is unchanged.
+    # Therapist-led 1:1 only — a realtime page with the co-pilot console for the
+    # therapist. There is no self-directed (AI-led) solo flow on this branch.
     ts = db.session.get(TherapySession, session_id)
-    if ts and ts.therapist_id:
-        return render_template(
-            "solo_live.html",
-            user_id=user_id, session_id=session_id,
-            is_therapist=(ts.therapist_id == user_id),
-        )
-
-    # Assign join position for solo (always position 1 — only one participant)
-    joined = session_joined_users.setdefault(session_id, [])
-    if user_id not in joined:
-        joined.append(user_id)
-    join_position = joined.index(user_id) + 1
-    default_name = _default_display_name("solo", join_position)
-
-    messages = (
-        ChatMessage.query
-        .filter_by(session_id=session_id)
-        .order_by(ChatMessage.timestamp.asc())
-        .all()
-    )
-    if not messages and not config.IS_TESTING:
-        opening = generate_opening_message("solo")
-        msg = ChatMessage(
-            session_id=session_id, user_id="AI", text=opening,
-            timestamp=datetime.now(timezone.utc),
-        )
-        db.session.add(msg)
-        db.session.commit()
-        messages = [msg]
-    return render_template("solo.html", messages=messages, user_id=user_id,
-                           session_id=session_id, default_name=default_name)
-
-
-@app.route("/therapy/solo/<session_id>", methods=["POST"])
-def therapy_solo_post(session_id):
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect(url_for("auth_get", therapy_mode="solo"))
-    if not _session_exists(session_id):
+    if not (ts and ts.therapist_id):
         return _redirect_invalid_session()
-    text = request.form.get("message", "").strip()
-    if not text:
-        return redirect(url_for("therapy_solo", session_id=session_id))
-
-    def _solo_error(msg, draft=None):
-        messages = (
-            ChatMessage.query
-            .filter_by(session_id=session_id)
-            .order_by(ChatMessage.timestamp.asc())
-            .all()
-        )
-        return render_template("solo.html", messages=messages, user_id=user_id,
-                               session_id=session_id, error=msg, draft=draft), 422
-
-    if len(text) > _MAX_MSG_LEN:
-        return _solo_error(
-            f"Your message is too long ({len(text):,} characters). "
-            f"Please keep it under {_MAX_MSG_LEN:,} characters.",
-            draft=text,
-        )
-    if not _check_rate_limit(user_id):
-        return _solo_error("You're sending messages too quickly — please wait a moment.")
-
-    now = datetime.now(timezone.utc)
-
-    # Fetch conversation history before adding the new message
-    prior_msgs = (
-        ChatMessage.query
-        .filter_by(session_id=session_id)
-        .order_by(ChatMessage.timestamp.asc())
-        .all()
+    return render_template(
+        "solo_live.html",
+        user_id=user_id, session_id=session_id,
+        is_therapist=(ts.therapist_id == user_id),
     )
-    history = [
-        {"role": "assistant" if m.user_id == "AI" else "user", "content": m.text}
-        for m in prior_msgs
-    ]
-
-    display_name = session_display_names.get(session_id, {}).get(user_id)
-    user_msg = ChatMessage(
-        session_id=session_id, user_id=user_id, text=text,
-        timestamp=now, display_name=display_name,
-    )
-    db.session.add(user_msg)
-
-    session_message_count = len(prior_msgs) + 1
-    hint_already_sent = session_id in session_escalation_hint_sent
-    if not hint_already_sent and (detect_escalation(text) or session_message_count >= 10):
-        session_escalation_hint_sent.add(session_id)
-
-    ai_text = process_input(
-        text, mode="solo",
-        session_message_count=session_message_count,
-        history=history,
-        referral_already_made=hint_already_sent,
-    )
-    if hint_already_sent:
-        ai_text = strip_referral_sentences(ai_text)
-
-    ai_msg = ChatMessage(
-        session_id=session_id, user_id="AI", text=ai_text,
-        timestamp=datetime.now(timezone.utc),
-    )
-    db.session.add(ai_msg)
-
-    exercise = Exercise(
-        user_id=user_id, type="solo_chat", mode="solo", timestamp=now,
-    )
-    db.session.add(exercise)
-    db.session.commit()
-
-    log_event("message_sent", session_id=session_id, user_id=user_id,
-              mode="solo", message_length=len(text))
-    if ai_text == CRISIS_RESPONSE:
-        log_event("crisis_detected", session_id=session_id, user_id=user_id, layer="keyword_or_claude")
-    elif ai_text == MEDICAL_GUARD_SAFE_RESPONSE:
-        log_event("medical_guard_fired", session_id=session_id, user_id=user_id)
-    elif ai_text == OFFTOPIC_SAFE_RESPONSE:
-        log_event("offtopic_deflected", session_id=session_id, user_id=user_id, mode="solo")
-
-    return redirect(url_for("therapy_solo", session_id=session_id))
 
 
 @app.route("/therapy/couple/<session_id>")
@@ -1601,66 +1463,26 @@ def api_auth_register():
     except Exception:
         return jsonify({"error": "Invalid public_key encoding"}), 400
 
-    # Check if this auth is for joining an existing session (not creating a new one)
+    # Registration only JOINS a clinician-led session that /session/join stashed as
+    # pending_*. It never creates a new self-directed session (the sole creator is a
+    # logged-in clinician via POST /therapist/start/<mode>).
     pending_couple = session.pop("pending_couple_session", None)
     pending_group  = session.pop("pending_group_session",  None)
-    pending_solo   = session.pop("pending_solo_session",   None)   # joining a therapist-led 1:1
-
-    # When true, the new session is therapist-led: this user is the professional
-    # leading it, and the AI becomes a private co-pilot instead of replying to clients.
-    as_therapist = bool(data.get("as_therapist"))
+    pending_solo   = session.pop("pending_solo_session",   None)
+    joined_sid = pending_solo or pending_couple or pending_group
+    if not joined_sid:
+        return jsonify({"error": "No session to join"}), 400
 
     user_id = str(uuid.uuid4())
-    user = User(id=user_id, therapy_mode=therapy_mode, public_key=public_key_b64)
-    db.session.add(user)
-
-    response_data = {"user_id": user_id, "therapy_mode": therapy_mode}
-    _therapist_id = user_id if as_therapist else None
-
-    if therapy_mode == "solo" and not pending_solo and not pending_couple and not pending_group:
-        new_sid = generate_session_id()
-        db.session.add(TherapySession(
-            id=new_sid, mode="solo", created_by=user_id,
-            created_at=datetime.now(timezone.utc),
-            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
-            therapist_id=_therapist_id,
-        ))
-        response_data["session_id"] = new_sid
-    elif therapy_mode == "couple" and not pending_couple:
-        new_sid = generate_session_id()
-        db.session.add(TherapySession(
-            id=new_sid, mode="couple", created_by=user_id,
-            created_at=datetime.now(timezone.utc),
-            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
-            therapist_id=_therapist_id,
-        ))
-        response_data["session_id"] = new_sid
-    elif therapy_mode == "group" and not pending_group:
-        new_sid = generate_session_id()
-        db.session.add(TherapySession(
-            id=new_sid, mode="group", created_by=user_id,
-            created_at=datetime.now(timezone.utc),
-            retention_expires_at=datetime.now(timezone.utc) + _RETENTION_DELTA,
-            therapist_id=_therapist_id,
-        ))
-        response_data["session_id"] = new_sid
-
-    if pending_couple:
-        response_data["session_id"] = pending_couple
-    if pending_group:
-        response_data["session_id"] = pending_group
-    if pending_solo:
-        response_data["session_id"] = pending_solo
-
+    db.session.add(User(id=user_id, therapy_mode=therapy_mode, public_key=public_key_b64))
     db.session.commit()
     session["user_id"] = user_id
 
-    created_sid = response_data.get("session_id")
-    if created_sid and not pending_couple and not pending_group and not pending_solo:
-        log_event("session_created", session_id=created_sid, user_id=user_id,
-                  mode=therapy_mode)
-
-    return jsonify(response_data), 201
+    return jsonify({
+        "user_id": user_id,
+        "therapy_mode": therapy_mode,
+        "session_id": joined_sid,
+    }), 201
 
 
 @app.route("/api/auth/challenge", methods=["POST"])

@@ -23,7 +23,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pytest
 
 
-pytestmark = pytest.mark.browser
+pytestmark = [
+    pytest.mark.browser,
+    # These end-to-end tests exercise the retired consumer self-directed flow
+    # (browser keypair auth → AI-led session). On this therapist-led branch a
+    # session is started by a logged-in clinician via OAuth, which can't be
+    # browser-tested without mocking the provider. Skipped pending a rewrite.
+    pytest.mark.skip(reason="Covers the retired consumer self-directed flow; clinician flow is OAuth-based"),
+]
 
 
 # ---------------------------------------------------------------------------

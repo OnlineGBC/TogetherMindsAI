@@ -195,9 +195,11 @@ class TestRegistrationRateLimit:
             return enc_client.post("/api/auth/register",
                                    json={"therapy_mode": "solo", "public_key": pub_b64})
 
+        # Registration is join-only now, so with no pending session each call
+        # returns 400 — but the per-IP rate limit still counts every request.
         for _ in range(10):
             resp = _register()
-            assert resp.status_code == 201
+            assert resp.status_code == 400
 
         resp = _register()
         assert resp.status_code == 429
@@ -229,8 +231,21 @@ class TestSessionCookieConfig:
 
     def test_response_cookie_has_httponly_and_samesite(self, enc_client):
         """Actual Set-Cookie header must carry HttpOnly and SameSite=Lax."""
-        # /auth/solo POST sets session["user_id"] with no required fields
-        resp = enc_client.post("/auth/solo")
+        import base64
+        from datetime import datetime, timezone
+        # Joining a session via registration writes session["user_id"], which
+        # produces a Set-Cookie carrying the configured flags.
+        sid = generate_session_id()
+        db.session.add(TherapySession(
+            id=sid, mode="solo", created_by="clin", therapist_id="clin",
+            created_at=datetime.now(timezone.utc),
+        ))
+        db.session.commit()
+        with enc_client.session_transaction() as s:
+            s["pending_solo_session"] = sid
+        resp = enc_client.post("/api/auth/register",
+                               json={"therapy_mode": "solo",
+                                     "public_key": base64.b64encode(b"x").decode()})
         set_cookie = resp.headers.get("Set-Cookie", "")
         assert "HttpOnly" in set_cookie
         assert "SameSite=Lax" in set_cookie
