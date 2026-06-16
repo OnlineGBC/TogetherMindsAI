@@ -1,0 +1,10 @@
+Type,Assignment,ID,Asset Status,ePHI,Encryption,Comments,Disposal Status,Disposal Date,Location
+Software,Org/Dev Lead,TogetherMindsAI Web App,Active,Yes,Yes,Flask/SocketIO app; processes & transmits session transcripts; TLS in transit,,,GCP Cloud Run (us-central1)
+Server,Org/Dev Lead,PostgreSQL Database,Active,Yes,Yes,Stores encrypted transcripts & clinical records; GCP at-rest + Fernet field encryption,,,GCP Cloud SQL
+Electronic Media,Org/Dev Lead,Database Backups,Active,Yes,Yes,Automated DB backups; encrypted at rest,,,GCP
+Software,Org/Dev Lead,Secret Manager,Active,No,Yes,Stores encryption keys / API keys / OAuth secrets; protects ePHI,,,GCP
+Software,Org/Dev Lead,Audit Logs,Active,No,Yes,Append-only SHA-256 audit log; metadata only; no message content,,,GCP Cloud SQL
+Mobile Device,Each Clinician,Clinician Devices,Active,Yes,Yes,Laptops/phones used to lead sessions; recommend full-disk encryption,,,Clinician sites
+Mobile Device,Client,Client Devices,Active,Yes,No,Devices clients use to join their own session; encryption not enforced; limited org control,,,Client homes
+Workstation,Org/Dev Lead,Dev/Admin Workstation,Active,Yes,Yes,Developer machine with access to prod data/DB; enable full-disk encryption,,,Office/Home
+Software,Org/Dev Lead,A/V + STT Pipeline (Planned),Inactive,Yes,Yes,Planned WebRTC audio/video + speech-to-text; SRTP/TLS; not yet deployed,,,TBD
