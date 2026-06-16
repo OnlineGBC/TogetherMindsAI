@@ -42,7 +42,7 @@ All security and privacy policies/procedures that govern the creation, receipt, 
 
 ### 5.1 Develop
 **Triggers:** risk‑assessment (SRA) findings, new/changed systems or vendors, incidents, regulatory changes, audit results.
-**Steps:** identify the need → assign a Policy Owner → draft from the standard template → map each control to the relevant HIPAA safeguard → circulate for review.
+**Steps:** identify the need → assign a Policy Owner → draft from the standard template (`Compliance/policy-template.md`) → map each control to the relevant HIPAA safeguard → circulate for review.
 
 ### 5.2 Review & approve
 - Security Officer (and Privacy Officer where relevant) reviews for completeness, accuracy, and regulatory alignment.
@@ -68,7 +68,7 @@ All security and privacy policies/procedures that govern the creation, receipt, 
 - Mark superseded policies **Retired**; retain them (see §7). Never hard‑delete.
 
 ## 6. Version control & documentation
-- All policies/procedures live as version‑controlled Markdown under **`Compliance/policies/`**. **The git history is the authoritative change record** (who changed what, when) — it satisfies the documentation requirement without a separate change log.
+- All policies/procedures live as version‑controlled Markdown under **`Compliance/`**. **The git history is the authoritative change record** (who changed what, when) — it satisfies the documentation requirement without a separate change log.
 - Every document carries the header block shown at the top of this file.
 - Approvals are evidenced by the approving commit (and/or the Review Log entry).
 
@@ -76,7 +76,7 @@ All security and privacy policies/procedures that govern the creation, receipt, 
 - Retain each policy/procedure (and superseded versions) for **6 years** from the later of its creation date or the date it was last in effect — **45 CFR §164.316(b)(2)(i)**. Retired versions remain in git history.
 
 ## 8. Records to maintain
-- **Policy Register** — `Compliance/policies/REGISTER.md`: index of every policy (ID, title, owner, version, last reviewed, next review due, status).
+- **Policy Register** — `Compliance/REGISTER.md`: index of every policy (ID, title, owner, version, last reviewed, next review due, status).
 - **Review/Approval Log** — per policy: review date, reviewer, approver, and outcome (new / revised / reviewed‑no‑change / retired).
 
 ## 9. Annual calendar
