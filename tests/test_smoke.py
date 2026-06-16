@@ -589,6 +589,18 @@ def test_group_page_shows_session_id_in_banner(client):
     assert session_id.encode() in rv.data
 
 
+def _make_therapist_led_solo(client):
+    """Create a therapist-led 1:1 session (the only kind of solo session that
+    exists now) and return its id."""
+    sid = generate_session_id()
+    db.session.add(TherapySession(
+        id=sid, mode="solo", created_by="therapist-x",
+        created_at=datetime.now(timezone.utc), therapist_id="therapist-x",
+    ))
+    db.session.commit()
+    return sid
+
+
 def test_join_post_session_id_is_case_insensitive(client):
     """Session IDs are case-insensitive: submitting a wrong-case version of a
     valid ID must still find the session and redirect successfully.
@@ -596,16 +608,14 @@ def test_join_post_session_id_is_case_insensitive(client):
     Architecture: both the stored ID and the submitted input are uppercased
     before comparison, so 'aB3k7M' and 'AB3K7M' resolve to the same session.
     """
-    priv, user_id, session_id = _register(client, "solo")
+    session_id = _make_therapist_led_solo(client)
 
     # Submit the ID in all-lowercase to guarantee a case mismatch with stored form
     lowered = session_id.lower()
 
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-
     rv = client.post("/session/join", data={"session_id": lowered},
                      follow_redirects=False)
+    # A redirect (not the 200 "not found" page) proves the lowercased ID matched.
     assert rv.status_code in (301, 302), (
         f"Expected redirect for wrong-case ID '{lowered}' (stored as '{session_id}'), "
         f"got {rv.status_code}. Session ID lookup must be case-insensitive."
@@ -613,8 +623,8 @@ def test_join_post_session_id_is_case_insensitive(client):
 
 
 def test_solo_rejoin_by_session_id(client):
-    """Solo sessions must be rejoinable by the exact randomized-private-key session ID."""
-    priv, user_id, session_id = _register(client, "solo")
+    """Therapist-led 1:1 sessions must be rejoinable by the exact session ID."""
+    session_id = _make_therapist_led_solo(client)
 
     rv = client.post("/session/join", data={"session_id": session_id},
                      follow_redirects=False)
