@@ -379,6 +379,15 @@ body.therapy-page .chat-window {
     height: auto !important;
     min-height: 150px;
 }
+/* Composer pinned to the bottom of the room so it stays reachable even when the
+   audio/video panel is open and the page scrolls. */
+body.therapy-page .input-group {
+    position: sticky;
+    bottom: 0;
+    z-index: 6;
+    flex: 0 0 auto;
+    margin-top: 0.5rem;
+}
 
 /* ---- Responsive tweaks ---- */
 @media (max-width: 991px) {

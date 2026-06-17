@@ -19,6 +19,11 @@ function initTherapistConsole(sessionId, userId) {
     document.body.appendChild(panel);
     // Shift the page so the fixed panel doesn't cover the chat (desktop CSS).
     document.body.classList.add("tcp-console-open");
+    // On phones/tablets the open panel would cover the chat — start collapsed.
+    if (window.innerWidth < 992) {
+        panel.classList.add("collapsed");
+        document.body.classList.add("tcp-collapsed");
+    }
 
     var sock = window.socket;
     if (!sock) {

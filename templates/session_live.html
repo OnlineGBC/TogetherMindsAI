@@ -82,20 +82,6 @@
             </div>
         </div>
 
-        <!-- Input row -->
-        <div class="input-group shadow-sm rounded-4 overflow-hidden">
-            <textarea
-                id="messageInput"
-                rows="1"
-                class="form-control form-control-lg border-0 ps-3 chat-input"
-                placeholder="{{ mode_placeholder }}"
-                autocomplete="off"
-            ></textarea>
-            <button class="btn btn-primary-green btn-lg px-4" id="sendBtn"{% if not is_therapist_led %} disabled{% endif %}>
-                <i class="bi bi-send-fill"></i>
-            </button>
-        </div>
-
         {% if rtc_enabled %}
         <!-- Audio + live transcription (Phase 1) -->
         <div class="card border-0 shadow-sm rounded-4 mt-3" id="rtcPanel">
@@ -142,6 +128,20 @@
         </div>
         <div id="rtcRemoteAudio" class="d-none"></div>
         {% endif %}
+
+        <!-- Composer — pinned to the bottom, always visible -->
+        <div class="input-group shadow-sm rounded-4 overflow-hidden">
+            <textarea
+                id="messageInput"
+                rows="1"
+                class="form-control form-control-lg border-0 ps-3 chat-input"
+                placeholder="{{ mode_placeholder }}"
+                autocomplete="off"
+            ></textarea>
+            <button class="btn btn-primary-green btn-lg px-4" id="sendBtn"{% if not is_therapist_led %} disabled{% endif %}>
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
 
     </div>
 </div>
