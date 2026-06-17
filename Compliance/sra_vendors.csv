@@ -1,5 +1,5 @@
 Vendor Name,Service Type,Address,City,State,Zipcode,Phone,Fax,Contact Name 1,Contact Title 1,Contact Email 1,Contact Name 2,Contact Title 2,Contact Email 2,Assured,Risk Assessed,Comments
-Google Cloud Platform,Cloud Hosting/Infrastructure,1600 Amphitheatre Parkway,Mountain View,CA,94043,650-253-0000,,,,,,,,No,No,Hosts app/database/secrets (ePHI); HIPAA-eligible — must sign GCP BAA before go-live
+Google Cloud Platform,Cloud Hosting/Infrastructure,1600 Amphitheatre Parkway,Mountain View,CA,94043,650-253-0000,,,,,,,,Yes,No,Hosts app/database/secrets (ePHI); HIPAA BAA accepted 2026-06-17 via Workspace org onlinegbc.com (Customer ID C011gybk6); GCP project confirmed under this org; use only HIPAA-eligible services
 Anthropic,AI / LLM API,,San Francisco,CA,,,,,,,,,,No,No,Co-pilot sends session transcripts (ePHI) to Claude API; BAA REQUIRED; enable zero-data-retention
 Microsoft,Identity / OAuth,One Microsoft Way,Redmond,WA,98052,425-882-8080,,,,,,,,No,No,Clinician/client OAuth login only; no ePHI/PII stored (opaque subject); BAA not required for auth-only
 Google Identity (OAuth),Identity / OAuth,1600 Amphitheatre Parkway,Mountain View,CA,94043,650-253-0000,,,,,,,,No,No,Clinician/client OAuth login only; no ePHI/PII stored (opaque subject); BAA not required for auth-only
