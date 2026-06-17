@@ -89,6 +89,33 @@ function initTherapistConsole(sessionId, userId) {
     document.getElementById("tcExpandBtn").addEventListener("click", function () {
         _tcSetCollapsed(false);
     });
+
+    // Resize handle — drag the panel's left edge to grow/shrink it; the chat
+    // reclaims the freed space (linked, no overlap). Desktop only.
+    var rh = document.getElementById("tcResize");
+    if (rh) {
+        var dragging = false;
+        rh.addEventListener("pointerdown", function (e) {
+            if (window.innerWidth < 992 || panel.classList.contains("collapsed")) { return; }
+            dragging = true;
+            document.body.classList.add("tc-resizing");
+            try { rh.setPointerCapture(e.pointerId); } catch (err) {}
+            e.preventDefault();
+        });
+        rh.addEventListener("pointermove", function (e) {
+            if (!dragging) { return; }
+            var w = Math.max(280, Math.min(600, window.innerWidth - e.clientX));
+            document.documentElement.style.setProperty("--tc-width", w + "px");
+        });
+        function _tcEndResize(e) {
+            if (!dragging) { return; }
+            dragging = false;
+            document.body.classList.remove("tc-resizing");
+            try { rh.releasePointerCapture(e.pointerId); } catch (err) {}
+        }
+        rh.addEventListener("pointerup", _tcEndResize);
+        rh.addEventListener("pointercancel", _tcEndResize);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +127,7 @@ function _tcBuildPanel() {
     panel.id = "therapistConsole";
     panel.className = "therapist-console";
     panel.innerHTML =
+        '<div class="tc-resize-handle" id="tcResize" title="Drag to resize"></div>' +
         '<button type="button" id="tcExpandBtn" class="tc-expand-handle" title="Open Co-Pilot">' +
         '  <i class="bi bi-chevron-bar-left"></i>Co-Pilot</button>' +
         '<div class="tc-header">' +
