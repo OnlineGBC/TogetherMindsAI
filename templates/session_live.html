@@ -119,8 +119,22 @@
                     <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
                         <span class="badge bg-secondary" id="rtcStatus">connecting…</span>
                         <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcMuteBtn"><i class="bi bi-mic-fill"></i> Mute</button>
-                        <button class="btn btn-sm btn-outline-danger rounded-pill" id="rtcLeaveBtn"><i class="bi bi-mic-mute-fill"></i> Leave audio</button>
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn"><i class="bi bi-camera-video-fill"></i> Camera on</button>
+                        <span class="d-inline-flex align-items-center gap-1">
+                            <span class="small text-muted">Background:</span>
+                            <select class="form-select form-select-sm rounded-pill" id="rtcBgSelect" style="width:auto">
+                                <option value="none">None</option>
+                                <option value="blur">Blur</option>
+                                <option value="preset:1">Calm</option>
+                                <option value="preset:2">Slate</option>
+                                <option value="preset:3">Warm</option>
+                                <option value="upload">Upload…</option>
+                            </select>
+                            <input type="file" id="rtcBgUpload" accept="image/*" class="d-none">
+                        </span>
+                        <button class="btn btn-sm btn-outline-danger rounded-pill" id="rtcLeaveBtn"><i class="bi bi-box-arrow-right"></i> Leave</button>
                     </div>
+                    <div id="rtcVideoGrid" class="d-flex flex-wrap gap-2 mb-2"></div>
                     <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
                     <div id="rtcCaptions" class="border rounded-3 p-2 small bg-light" style="min-height:2.5rem">…</div>
                 </div>
@@ -263,11 +277,20 @@
         if (!r.ok) { setStatus("audio unavailable", "bg-danger"); return; }
         var lk = await r.json();
         lkRoom = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
-        lkRoom.on(LivekitClient.RoomEvent.TrackSubscribed, function (track) {
+        lkRoom.on(LivekitClient.RoomEvent.TrackSubscribed, function (track, pub, participant) {
             if (track.kind === "audio") {
                 document.getElementById("rtcRemoteAudio").appendChild(track.attach());
+            } else if (track.kind === "video") {
+                addTile(participant.identity, participant.name || participant.identity, track.attach());
             }
         });
+        lkRoom.on(LivekitClient.RoomEvent.TrackUnsubscribed, function (track, pub, participant) {
+            if (track.kind === "video") {
+                try { track.detach().forEach(function (el) { el.remove(); }); } catch (e) {}
+                removeTile(participant.identity);
+            }
+        });
+        lkRoom.on(LivekitClient.RoomEvent.ParticipantDisconnected, function (participant) { removeTile(participant.identity); });
         lkRoom.on(LivekitClient.RoomEvent.Disconnected, function () { setStatus("disconnected", "bg-secondary"); });
         await lkRoom.connect(lk.url, lk.token);
 
@@ -325,11 +348,95 @@
         try { if (processor) processor.disconnect(); } catch (e) {}
         try { if (audioCtx) audioCtx.close(); } catch (e) {}
         try { if (micStream) micStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+        try { if (camTrack) camTrack.stop(); } catch (e) {}
         try { if (lkRoom) lkRoom.disconnect(); } catch (e) {}
-        sttWS = processor = audioCtx = micStream = lkRoom = null;
+        if (videoGrid) videoGrid.innerHTML = "";
+        sttWS = processor = audioCtx = micStream = camTrack = lkRoom = null;
         document.getElementById("rtcLive").classList.add("d-none");
         document.getElementById("rtcConsent").classList.remove("d-none");
     }
+
+    // ---- Phase 2: video + background (blur / preset / upload) ----
+    var camBtn    = document.getElementById("rtcCamBtn");
+    var bgSelect  = document.getElementById("rtcBgSelect");
+    var bgUpload  = document.getElementById("rtcBgUpload");
+    var videoGrid = document.getElementById("rtcVideoGrid");
+    var camTrack = null, bgMode = "none", bgImageURL = null, TP = null, presetURLs = {};
+
+    function addTile(id, label, mediaEl) {
+        removeTile(id);
+        var t = document.createElement("div");
+        t.setAttribute("data-tile", id);
+        t.style.cssText = "position:relative;width:200px;height:150px;background:#000;border-radius:.5rem;overflow:hidden;flex:0 0 auto;";
+        mediaEl.autoplay = true; mediaEl.playsInline = true; mediaEl.muted = (id === "local");
+        mediaEl.style.cssText = "width:100%;height:100%;object-fit:cover;";
+        t.appendChild(mediaEl);
+        var lab = document.createElement("span");
+        lab.textContent = label;
+        lab.style.cssText = "position:absolute;left:4px;bottom:2px;font-size:.7rem;color:#fff;background:rgba(0,0,0,.5);padding:0 4px;border-radius:3px;";
+        t.appendChild(lab);
+        videoGrid.appendChild(t);
+    }
+    function removeTile(id) { var t = videoGrid.querySelector('[data-tile="' + id + '"]'); if (t) t.remove(); }
+
+    async function loadTP() {
+        if (TP !== null) return TP;
+        try { TP = await import("https://esm.sh/@livekit/track-processors?deps=livekit-client@2"); }
+        catch (e) { console.error("background library failed to load", e); TP = false; }
+        return TP;
+    }
+    async function applyBackground() {
+        if (!camTrack) return;
+        try {
+            if (bgMode === "none") { if (camTrack.stopProcessor) await camTrack.stopProcessor(); return; }
+            var tp = await loadTP();
+            if (!tp) return;
+            var proc = (bgMode === "blur") ? tp.BackgroundBlur(12) : tp.VirtualBackground(bgImageURL);
+            await camTrack.setProcessor(proc);
+        } catch (e) { console.error("background apply failed (video still works)", e); }
+    }
+
+    async function cameraOn() {
+        camTrack = await LivekitClient.createLocalVideoTrack();
+        await applyBackground();
+        await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
+        addTile("local", "You", camTrack.attach());
+        camBtn.innerHTML = '<i class="bi bi-camera-video-off-fill"></i> Camera off';
+    }
+    async function cameraOff() {
+        try { if (camTrack) { await lkRoom.localParticipant.unpublishTrack(camTrack); camTrack.stop(); } } catch (e) {}
+        camTrack = null; removeTile("local");
+        camBtn.innerHTML = '<i class="bi bi-camera-video-fill"></i> Camera on';
+    }
+
+    // preset backgrounds: gradients generated client-side (no image files to ship)
+    (function () {
+        var defs = { "1": ["#a8edea", "#fed6e3"], "2": ["#536976", "#292e49"], "3": ["#f6d365", "#fda085"] };
+        Object.keys(defs).forEach(function (k) {
+            var cv = document.createElement("canvas"); cv.width = 640; cv.height = 480;
+            var g = cv.getContext("2d"), grad = g.createLinearGradient(0, 0, 640, 480);
+            grad.addColorStop(0, defs[k][0]); grad.addColorStop(1, defs[k][1]);
+            g.fillStyle = grad; g.fillRect(0, 0, 640, 480);
+            presetURLs[k] = cv.toDataURL("image/png");
+        });
+    })();
+
+    if (camBtn) camBtn.addEventListener("click", function () {
+        (camTrack ? cameraOff() : cameraOn()).catch(function (e) { console.error("camera error", e); });
+    });
+    if (bgSelect) bgSelect.addEventListener("change", function () {
+        var v = bgSelect.value;
+        if (v === "upload") { bgUpload.click(); return; }
+        if (v === "none") { bgMode = "none"; bgImageURL = null; }
+        else if (v === "blur") { bgMode = "blur"; bgImageURL = null; }
+        else if (v.indexOf("preset:") === 0) { bgMode = "image"; bgImageURL = presetURLs[v.split(":")[1]]; }
+        applyBackground();
+    });
+    if (bgUpload) bgUpload.addEventListener("change", function () {
+        var f = bgUpload.files && bgUpload.files[0]; if (!f) return;
+        if (bgImageURL && bgImageURL.indexOf("blob:") === 0) URL.revokeObjectURL(bgImageURL);
+        bgImageURL = URL.createObjectURL(f); bgMode = "image"; applyBackground();
+    });
 
     joinBtn.addEventListener("click", function () {
         joinAudio().catch(function (err) { console.error("RTC error:", err); setStatus("error", "bg-danger"); });
