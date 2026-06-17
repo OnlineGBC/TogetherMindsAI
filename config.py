@@ -123,6 +123,20 @@ MICROSOFT_CLIENT_SECRET: str = os.environ.get("MICROSOFT_CLIENT_SECRET", "")
 MICROSOFT_TENANT: str        = os.environ.get("MICROSOFT_TENANT", "common")
 
 # ---------------------------------------------------------------------------
+# Realtime conferencing (Phase 1) — LiveKit audio + AssemblyAI streaming STT.
+# Optional: the app runs fine without these; the in-session audio/transcription
+# only activates when all are set. Keep secrets in .env (local) / Secret Manager.
+# ---------------------------------------------------------------------------
+
+LIVEKIT_URL: str        = os.environ.get("LIVEKIT_URL", "")
+LIVEKIT_API_KEY: str    = os.environ.get("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET: str = os.environ.get("LIVEKIT_API_SECRET", "")
+ASSEMBLYAI_API_KEY: str = os.environ.get("ASSEMBLYAI_API_KEY", "")
+
+# True when both the audio (LiveKit) and STT (AssemblyAI) backends are configured.
+RTC_ENABLED: bool = bool(LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET and ASSEMBLYAI_API_KEY)
+
+# ---------------------------------------------------------------------------
 # Feedback form — Gmail SMTP send (no DB storage, no audit log)
 # ---------------------------------------------------------------------------
 

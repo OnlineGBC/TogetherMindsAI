@@ -27,6 +27,8 @@ anthropic==0.77.0
 # OAuth (OpenID Connect) login for clinicians — Google & Microsoft
 Authlib==1.3.2
 requests==2.32.3
+# LiveKit server SDK — mints audio-room join tokens (Phase 1 conferencing)
+livekit-api==1.1.0
 # PostgreSQL driver — used on Cloud Run; harmless to install locally
 psycopg2-binary==2.9.11
 # Production WSGI server

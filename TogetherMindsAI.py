@@ -864,6 +864,7 @@ def _render_session_room(session_id, mode):
         mode_label=cfg["label"], mode_icon=cfg["icon"], mode_placeholder=cfg["placeholder"],
         is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
         is_therapist_led=bool(ts and ts.therapist_id),
+        rtc_enabled=config.RTC_ENABLED,
     )
 
 
@@ -880,6 +881,70 @@ def therapy_couple(session_id):
 @app.route("/therapy/group/<session_id>")
 def therapy_group(session_id):
     return _render_session_room(session_id, "group")
+
+
+# ---------------------------------------------------------------------------
+# Realtime conferencing (Phase 1) — short-lived tokens minted server-side so the
+# LiveKit secret and AssemblyAI key never reach the browser. A caller must have a
+# session identity and be pointing at a real session.
+# ---------------------------------------------------------------------------
+
+def _rtc_guard(session_id):
+    """Return (user_id, error_response). error_response is None when allowed."""
+    if not config.RTC_ENABLED:
+        return None, (jsonify({"error": "rtc_disabled"}), 503)
+    user_id = session.get("user_id")
+    if not user_id:
+        return None, (jsonify({"error": "no_identity"}), 403)
+    if not _session_exists(session_id):
+        return None, (jsonify({"error": "no_session"}), 404)
+    return user_id, None
+
+
+@app.route("/rtc/livekit-token", methods=["POST"])
+@limiter.limit("30 per minute")
+def rtc_livekit_token():
+    """Mint a LiveKit join token for the caller to join the session's audio room."""
+    session_id = (request.get_json(silent=True) or {}).get("session_id", "")
+    user_id, err = _rtc_guard(session_id)
+    if err:
+        return err
+    from livekit.api import AccessToken, VideoGrants
+    display = session_display_names.get(session_id, {}).get(user_id) or "Participant"
+    token = (
+        AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET)
+        .with_identity(user_id)
+        .with_name(display)
+        .with_grants(VideoGrants(
+            room_join=True, room=session_id,
+            can_publish=True, can_subscribe=True,
+        ))
+        .to_jwt()
+    )
+    return jsonify({"token": token, "url": config.LIVEKIT_URL})
+
+
+@app.route("/rtc/stt-token", methods=["POST"])
+@limiter.limit("30 per minute")
+def rtc_stt_token():
+    """Mint a short-lived AssemblyAI streaming token for in-browser transcription."""
+    session_id = (request.get_json(silent=True) or {}).get("session_id", "")
+    user_id, err = _rtc_guard(session_id)
+    if err:
+        return err
+    import requests
+    try:
+        resp = requests.get(
+            "https://streaming.assemblyai.com/v3/token",
+            headers={"Authorization": config.ASSEMBLYAI_API_KEY},
+            params={"expires_in_seconds": 600},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return jsonify({"token": resp.json().get("token")})
+    except Exception as exc:
+        app.logger.error("AssemblyAI token error: %s", type(exc).__name__)
+        return jsonify({"error": "stt_token_failed"}), 502
 
 
 @app.route("/api/display-name", methods=["POST"])
