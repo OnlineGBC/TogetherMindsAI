@@ -459,17 +459,12 @@ if not config.IS_TESTING:
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(_purge_expired_sessions, "interval", hours=24, id="purge_expired_sessions")
-    # Annual ICD code-refresh reminder, emailed to the admin inbox every March 1 (UTC).
-    _scheduler.add_job(
-        _send_icd_refresh_reminder, "cron",
-        month=3, day=1, hour=9, timezone="UTC", id="icd_refresh_reminder",
-    )
     _scheduler.start()
     # Run once immediately on startup to catch any sessions that expired while the app was down
     threading.Thread(target=_purge_expired_sessions, daemon=True).start()
-    # Catch-up: if the app was scaled to zero / down on March 1, send the annual
-    # ICD reminder on first boot on/after March 1 (exactly-once via the ledger).
-    threading.Thread(target=_icd_reminder_catchup, daemon=True).start()
+    # NOTE: the annual ICD-refresh reminder job + startup catch-up are registered
+    # at the bottom of this module — they reference functions defined further down,
+    # so they must be wired AFTER those defs (this block runs during import).
 
 
 # ---------------------------------------------------------------------------
@@ -1391,6 +1386,21 @@ def _icd_reminder_catchup() -> None:
     now = datetime.now(timezone.utc)
     if (now.month, now.day) >= (3, 1):
         _deliver_icd_reminder(now.year)
+
+
+# Wire the annual ICD-refresh reminder now that its functions are defined. This
+# runs during import AFTER the main startup block above, so `_scheduler` and
+# `threading` (both module globals created there) already exist. Keeping these
+# two references below the defs avoids the import-order NameError that would
+# occur if they were registered up in the main startup block.
+if not config.IS_TESTING:
+    # Annual reminder, emailed to the admin inbox every March 1 (UTC).
+    _scheduler.add_job(
+        _send_icd_refresh_reminder, "cron",
+        month=3, day=1, hour=9, timezone="UTC", id="icd_refresh_reminder",
+    )
+    # Catch-up if the app was scaled to zero / down on March 1 (exactly-once via ledger).
+    threading.Thread(target=_icd_reminder_catchup, daemon=True).start()
 
 
 @app.route("/feedback")
