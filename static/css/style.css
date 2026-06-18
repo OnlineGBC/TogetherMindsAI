@@ -362,6 +362,7 @@ body.therapy-page main.container {
     padding-top: 1rem;
     padding-bottom: 0.5rem;
     min-height: 0;
+    max-width: none;            /* span the full viewport so the room fills up to the Co-Pilot */
 }
 body.therapy-page main.container > .row {
     flex: 1;
@@ -373,6 +374,9 @@ body.therapy-page .therapy-col {
     flex-direction: column;
     min-height: 0;
     height: 100%;
+    flex: 0 0 100%;             /* drop the col-lg-10 83% cap — use the whole width */
+    max-width: 100%;
+    width: 100%;
 }
 body.therapy-page .chat-window {
     flex: 1;
