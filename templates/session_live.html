@@ -473,7 +473,6 @@
     if (!dv || !work) { return; }
     var dragging = false;
     dv.addEventListener("pointerdown", function (e) {
-        if (window.innerWidth < 992) { return; }
         dragging = true;
         document.body.classList.add("sw-resizing");
         try { dv.setPointerCapture(e.pointerId); } catch (err) {}
@@ -482,9 +481,17 @@
     dv.addEventListener("pointermove", function (e) {
         if (!dragging) { return; }
         var rect = work.getBoundingClientRect();
-        var pct = ((e.clientX - rect.left) / rect.width) * 100;
-        pct = Math.max(15, Math.min(85, pct));
-        work.style.setProperty("--chat-width", pct + "%");
+        if (window.innerWidth < 992) {
+            // Stacked layout: vertical divider sets the video height.
+            // 56px grab strip kept top & bottom so the divider stays grabbable.
+            var y = Math.max(56, Math.min(rect.height - 56, e.clientY - rect.top));
+            work.style.setProperty("--video-height", y + "px");
+        } else {
+            // Side-by-side: horizontal divider sets the chat width.
+            // 32px grab strip kept left & right so a pane can't fully vanish.
+            var x = Math.max(32, Math.min(rect.width - 32, e.clientX - rect.left));
+            work.style.setProperty("--chat-width", (x / rect.width * 100) + "%");
+        }
     });
     function endResize(e) {
         if (!dragging) { return; }

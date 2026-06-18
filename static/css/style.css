@@ -363,11 +363,14 @@ body.therapy-page main.container {
     padding-bottom: 0.5rem;
     min-height: 0;
     max-width: none;            /* span the full viewport so the room fills up to the Co-Pilot */
+    padding-left: 0;            /* flush-left: no wasted left gutter (cards keep inner p-3) */
 }
 body.therapy-page main.container > .row {
     flex: 1;
     min-height: 0;
     align-items: stretch;
+    margin-left: 0;             /* drop Bootstrap's negative row gutters so content is flush */
+    margin-right: 0;
 }
 body.therapy-page .therapy-col {
     display: flex;
@@ -377,6 +380,8 @@ body.therapy-page .therapy-col {
     flex: 0 0 100%;             /* drop the col-lg-10 83% cap — use the whole width */
     max-width: 100%;
     width: 100%;
+    padding-left: 0;
+    padding-right: 0;
 }
 body.therapy-page .chat-window {
     flex: 1;
@@ -415,7 +420,7 @@ body.therapy-page .chat-pane {
    on its own it fills the row. */
 body.therapy-page .session-work.has-video .chat-pane {
     flex: 0 0 var(--chat-width, 42%);
-    min-width: 160px;
+    min-width: 0;          /* drag governs the size; JS keeps a 32px grab strip */
 }
 body.therapy-page .session-work:not(.has-video) .chat-pane {
     flex: 1 1 auto;
@@ -425,7 +430,7 @@ body.therapy-page .video-pane {
     min-width: 0;
     min-height: 0;
     overflow-y: auto;
-    margin-left: 2px;
+    margin-left: 0;
 }
 body.therapy-page .video-pane > .card-body { min-height: 100%; }
 
@@ -504,17 +509,41 @@ body.therapy-page .video-pane::-webkit-scrollbar-thumb:hover {
     background: var(--teal-dark);
 }
 
-/* Phone/tablet: stack the panes (video on top, chat below), hide the divider. */
+/* Phone/tablet: stack the panes (video on top, chat below) with a draggable
+   horizontal divider that resizes their heights (one grows, the other shrinks). */
 @media (max-width: 991.98px) {
     body.therapy-page .session-work { flex-direction: column; }
-    body.therapy-page .session-work.has-video .chat-pane {
-        flex: 1 1 auto; min-width: 0; order: 2;
-    }
     body.therapy-page .video-pane {
-        flex: 0 0 auto; max-height: 42vh; order: 1;
-        margin-left: 0; margin-bottom: 0.5rem;
+        order: 0;
+        flex: 0 0 var(--video-height, 38vh);
+        min-height: 60px;
+        margin-left: 0;
     }
-    body.therapy-page .split-divider { display: none; }
+    body.therapy-page .split-divider {
+        order: 1;
+        flex: 0 0 18px;
+        width: 100%;
+        height: 18px;
+        align-self: auto;
+        cursor: row-resize;
+    }
+    body.therapy-page .split-divider::before {     /* seam becomes horizontal */
+        top: 50%; bottom: auto; left: 8px; right: 8px;
+        width: auto; height: 2px;
+        transform: translateY(-50%);
+    }
+    body.therapy-page .split-divider .split-grip { /* grip becomes horizontal */
+        width: 60px; height: 7px;
+    }
+    body.therapy-page .split-divider:hover .split-grip,
+    body.sw-resizing .split-divider .split-grip { width: 84px; height: 7px; }
+    body.therapy-page .session-work.has-video .chat-pane {
+        order: 2;
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 60px;
+    }
+    body.sw-resizing, body.sw-resizing * { cursor: row-resize !important; }
     .rtc-tile { width: clamp(160px, 42vw, 280px); }
 }
 

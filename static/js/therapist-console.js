@@ -104,7 +104,10 @@ function initTherapistConsole(sessionId, userId) {
         });
         rh.addEventListener("pointermove", function (e) {
             if (!dragging) { return; }
-            var w = Math.max(240, Math.min(window.innerWidth * 0.7, window.innerWidth - e.clientX));
+            // Full travel: drag from a 48px sliver up to 92vw (matches the panel's
+            // max-width); the chevron still does a full collapse. 48px kept for chat.
+            var maxW = Math.min(window.innerWidth * 0.92, window.innerWidth - 48);
+            var w = Math.max(48, Math.min(maxW, window.innerWidth - e.clientX));
             document.documentElement.style.setProperty("--tc-width", w + "px");
         });
         function _tcEndResize(e) {
