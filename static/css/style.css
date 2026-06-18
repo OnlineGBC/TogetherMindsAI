@@ -350,13 +350,13 @@ hr.border-green {
        when content exceeds viewport (e.g. at high zoom). dvh keeps mobile
        browser chrome from causing jumps; vh kept as fallback for older UAs. */
 body.therapy-page {
-    /* Shrink the whole room ~15%. Heights are pre-divided by the zoom factor so
+    /* Shrink the whole room ~25%. Heights are pre-divided by the zoom factor so
        the scaled page still fills the viewport exactly (no blank strip below). */
-    zoom: 0.85;
-    min-height: calc(100vh / 0.85);
-    min-height: calc(100dvh / 0.85);
-    height: calc(100vh / 0.85);
-    height: calc(100dvh / 0.85);
+    zoom: 0.75;
+    min-height: calc(100vh / 0.75);
+    min-height: calc(100dvh / 0.75);
+    height: calc(100vh / 0.75);
+    height: calc(100dvh / 0.75);
     overflow-y: auto;
 }
 body.therapy-page main.container {
