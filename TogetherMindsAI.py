@@ -262,6 +262,28 @@ def _default_display_name(mode: str, position: int) -> str:
     return f"{prefix}{position}"
 
 
+# Per-mode client capacity. "Clients" are participants other than the session's
+# therapist: solo allows 1, couple allows 2, group is unlimited (no entry).
+_MODE_CLIENT_CAP = {"solo": 1, "couple": 2}
+
+
+def _session_is_full(session_id, mode, user_id, therapist_id) -> bool:
+    """True if a non-therapist user joining would exceed the mode's client cap.
+
+    The therapist is never counted, and the joining user is excluded from the
+    tally — so the therapist, and any client reconnecting/reloading, are always
+    allowed back in. Counts only participants currently present.
+    """
+    cap = _MODE_CLIENT_CAP.get(mode)
+    if cap is None or user_id == therapist_id:
+        return False
+    current_clients = {
+        u for u in room_participants.get(session_id, set())
+        if u != therapist_id and u != user_id
+    }
+    return len(current_clients) >= cap
+
+
 def _claim_display_name(session_id: str, user_id: str, name: str) -> None:
     """Store a display name in both active and taken dicts."""
     session_display_names.setdefault(session_id, {})[user_id] = name
@@ -859,6 +881,11 @@ def _render_session_room(session_id, mode):
     # is a stale/invalid record (the consumer 1:1 flow was removed).
     if mode == "solo" and not (ts and ts.therapist_id):
         return _redirect_invalid_session()
+
+    # Enforce the per-mode client capacity before admitting a client into the room.
+    if _session_is_full(session_id, mode, user_id, ts.therapist_id if ts else None):
+        flash("That session is already full.", "warning")
+        return redirect(url_for("welcome"))
 
     cfg = MODE_CONFIG.get(mode, MODE_CONFIG["solo"])
     return render_template(
@@ -1806,6 +1833,19 @@ def on_join(data):
         user_id    = data.get("user_id")
         mode       = data.get("mode", "solo")
 
+        ts = db.session.get(TherapySession, session_id)
+        therapist_id = ts.therapist_id if ts else None
+        eff_mode = ts.mode if (ts and ts.mode) else mode
+
+        # Hard capacity gate: reject a client that would exceed the mode's cap
+        # (solo=1, couple=2, group=unlimited). The therapist is never blocked.
+        if _session_is_full(session_id, eff_mode, user_id, therapist_id):
+            cap = _MODE_CLIENT_CAP.get(eff_mode)
+            emit("error", {"message":
+                 "This session is full — it allows up to %d participant%s."
+                 % (cap, "" if cap == 1 else "s")})
+            return
+
         join_room(session_id)
         room_mode[session_id] = mode
 
@@ -1821,8 +1861,7 @@ def on_join(data):
         # Therapist co-pilot: if this session is therapist-led, remember who the
         # therapist is and — when the joiner IS the therapist — add them to the
         # private console room. Clients are never added to this room, so the
-        # suggestion cards emitted there can never reach them.
-        ts = db.session.get(TherapySession, session_id)
+        # suggestion cards emitted there can never reach them. (ts loaded above.)
         is_therapist_led = bool(ts and ts.therapist_id)
         if is_therapist_led:
             session_therapist_id[session_id] = ts.therapist_id
