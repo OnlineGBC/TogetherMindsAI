@@ -540,6 +540,7 @@ def _inject_auth_state():
     return {
         "current_clinician_id": session.get("clinician_id"),
         "current_client_account_id": session.get("client_account_id"),
+        "current_year": datetime.now(timezone.utc).year,
     }
 
 
@@ -1089,7 +1090,7 @@ def _device_label(platform: str, os_name) -> str:
 
 def _mode_label(mode) -> str:
     return {
-        "solo": "Solo Reflection",
+        "solo": "1:1 Session",
         "couple": "Couple Check-in",
         "group": "Group Circle",
     }.get(mode, "Not in a session")
@@ -1568,7 +1569,7 @@ def download_transcript_pdf(session_id):
         for msg in messages:
             is_ai = msg.user_id == "AI"
             if is_ai:
-                speaker = "AI Therapist"
+                speaker = "AI Co-Pilot"
             elif msg.display_name:
                 speaker = f"{session_id}-{msg.display_name}"
             else:
@@ -1653,7 +1654,7 @@ def download_transcript_docx(session_id):
         for msg in messages:
             is_ai = msg.user_id == "AI"
             if is_ai:
-                speaker = "AI Therapist"
+                speaker = "AI Co-Pilot"
             elif msg.display_name:
                 speaker = f"{session_id}-{msg.display_name}"
             else:

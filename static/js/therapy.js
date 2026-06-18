@@ -177,7 +177,7 @@ function joinRoom(sessionId, userId, mode, soloMode) {
             });
             // Opening message has arrived — allow participants to send messages.
             // The send button starts disabled in the HTML so no one can speak
-            // before the AI guide has opened the session.
+            // before the AI co-pilot has opened the session.
             _hideSendSpinner();
         }
         scrollToBottom(chatBox);
@@ -376,7 +376,7 @@ function appendMessage(chatBox, senderId, text, timestamp, myUserId, displayName
 
     var senderLabel;
     if (isAI) {
-        senderLabel = "AI Guide";
+        senderLabel = "AI Co-Pilot";
     } else if (displayName) {
         senderLabel = (sessionId || "") + "-" + displayName;
     } else {
