@@ -17,7 +17,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, join_room, emit
@@ -1590,11 +1590,12 @@ def download_transcript_pdf(session_id):
             pdf.ln(3)
 
     buf = io.BytesIO(pdf.output())
+    buf.seek(0)
     filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
-    response = make_response(buf.getvalue())
-    response.headers["Content-Type"] = "application/pdf"
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response
+    # send_file streams via the WSGI file wrapper and supports range/conditional
+    # requests, so the browser's ranged download completes instead of resetting.
+    return send_file(buf, mimetype="application/pdf",
+                     as_attachment=True, download_name=filename)
 
 
 @app.route("/transcript/<session_id>/docx")
@@ -1674,10 +1675,10 @@ def download_transcript_docx(session_id):
     doc.save(buf)
     buf.seek(0)
     filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.docx"
-    response = make_response(buf.getvalue())
-    response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True, download_name=filename)
 
 
 # ---------------------------------------------------------------------------
