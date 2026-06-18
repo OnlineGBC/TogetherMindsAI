@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
@@ -467,6 +467,9 @@ if not config.IS_TESTING:
     _scheduler.start()
     # Run once immediately on startup to catch any sessions that expired while the app was down
     threading.Thread(target=_purge_expired_sessions, daemon=True).start()
+    # Catch-up: if the app was scaled to zero / down on March 1, send the annual
+    # ICD reminder on first boot on/after March 1 (exactly-once via the ledger).
+    threading.Thread(target=_icd_reminder_catchup, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -1322,18 +1325,72 @@ def _icd_refresh_reminder_content():
     return subject, plain, html_body
 
 
-def _send_icd_refresh_reminder():
-    """Email the annual ICD-refresh runbook to the admin inbox. Never raises."""
+_ICD_REMINDER_KEY = "icd_refresh"
+_ICD_REMINDER_START_YEAR = 2027
+
+
+def _claim_notification(key: str, year: int) -> bool:
+    """Atomically claim (key, year) in the notification ledger.
+
+    Returns True iff this caller inserted the row — i.e. won the right to send.
+    The unique (key, year) constraint makes this exactly-once across instances
+    and restarts. Assumes an active app context.
+    """
+    from sqlalchemy.exc import IntegrityError
+    try:
+        db.session.add(NotificationLog(key=key, year=year))
+        db.session.commit()
+        return True
+    except IntegrityError:
+        db.session.rollback()          # someone else already claimed this year
+        return False
+
+
+def _release_notification(key: str, year: int) -> None:
+    """Release a previously-claimed (key, year) so a later run can retry."""
+    try:
+        NotificationLog.query.filter_by(key=key, year=year).delete()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _deliver_icd_reminder(year: int) -> None:
+    """Send the ICD-refresh reminder for `year` exactly once. Never raises.
+
+    Claims the year first; on send failure the claim is released so a later
+    startup/cron run retries rather than silently losing the year.
+    """
+    if year < _ICD_REMINDER_START_YEAR:
+        return
     if not (config.FEEDBACK_SMTP_USER and config.FEEDBACK_SMTP_PASSWORD):
         app.logger.warning("ICD refresh reminder skipped — SMTP creds not configured.")
         return
-    try:
-        subject, plain, html_body = _icd_refresh_reminder_content()
-        _send_feedback_email(subject, plain, html_body)
-        app.logger.info("ICD refresh reminder email sent.")
-    except Exception:
-        # Don't log the body — it could echo SMTP server detail.
-        app.logger.warning("ICD refresh reminder email failed to send.")
+    with app.app_context():
+        if not _claim_notification(_ICD_REMINDER_KEY, year):
+            return                     # already sent for this year
+        try:
+            subject, plain, html_body = _icd_refresh_reminder_content()
+            _send_feedback_email(subject, plain, html_body)
+            app.logger.info("ICD refresh reminder email sent for %d.", year)
+        except Exception:
+            # Don't log the body — it could echo SMTP server detail.
+            _release_notification(_ICD_REMINDER_KEY, year)
+            app.logger.warning("ICD refresh reminder email failed; claim released for retry.")
+
+
+def _send_icd_refresh_reminder() -> None:
+    """Cron target — fires March 1 (UTC). Delegates to the exactly-once delivery."""
+    _deliver_icd_reminder(datetime.now(timezone.utc).year)
+
+
+def _icd_reminder_catchup() -> None:
+    """Startup catch-up: if we're on/after March 1 and this year's reminder has
+    not gone out yet, send it now (late is better than never). The (key, year)
+    claim guarantees it won't duplicate the cron send or another instance."""
+    now = datetime.now(timezone.utc)
+    if (now.month, now.day) >= (3, 1):
+        _deliver_icd_reminder(now.year)
 
 
 @app.route("/feedback")

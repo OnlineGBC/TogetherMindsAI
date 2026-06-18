@@ -191,3 +191,26 @@ class SessionParticipant(db.Model):
 
     def __repr__(self):
         return f"<SessionParticipant session={self.session_id} user={self.user_id}>"
+
+
+class NotificationLog(db.Model):
+    """Durable ledger of one-shot/annual notifications already sent.
+
+    A unique (key, year) row is the claim token: whichever process inserts it
+    first owns the send, so a notification goes out exactly once per year even
+    across multiple instances and restarts (e.g. the annual ICD-refresh email,
+    fired by either the March-1 cron or the startup catch-up).
+    """
+    __tablename__ = "notification_log"
+
+    id      = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    key     = db.Column(db.String(64), nullable=False)
+    year    = db.Column(db.Integer, nullable=False)
+    sent_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("key", "year", name="uq_notification_key_year"),
+    )
+
+    def __repr__(self):
+        return f"<NotificationLog {self.key} {self.year}>"
