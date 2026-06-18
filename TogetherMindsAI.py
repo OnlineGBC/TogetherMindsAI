@@ -356,7 +356,9 @@ if not config.IS_TESTING:
             db.session.execute(text("ALTER TABLE therapy_sessions DROP COLUMN nickname"))
             db.session.commit()
         except Exception:
-            pass  # column already removed or never existed
+            db.session.rollback()  # column already removed or never existed
+            # rollback (not pass) is required: on Postgres a failed statement
+            # aborts the transaction, which would block the migrations below.
 
         # One-time migration: add the therapist_id column for therapist-led
         # sessions. create_all() does not alter existing tables, so add it here.
@@ -378,7 +380,7 @@ if not config.IS_TESTING:
             ))
             db.session.commit()
         except Exception:
-            pass  # column already exists
+            db.session.rollback()  # column already exists (rollback clears the aborted txn)
 
     # Add display_name column to chat_messages for participant identification
     with app.app_context():
@@ -389,7 +391,7 @@ if not config.IS_TESTING:
             ))
             db.session.commit()
         except Exception:
-            pass  # column already exists
+            db.session.rollback()  # column already exists (rollback clears the aborted txn)
 
     # Remove prompt/response columns from exercises — conversation text is now
     # stored only in chat_messages (encrypted). Metadata-only exercise records
