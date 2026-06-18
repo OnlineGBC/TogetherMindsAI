@@ -10,6 +10,7 @@ Tests for ICD grounding of the therapist co-pilot:
 """
 
 import os
+import re
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -125,10 +126,13 @@ def test_corpus_entries_have_required_fields():
 
 
 def test_corpus_entries_have_valid_link_urls():
-    """Every entry links ICD-10 to a third-party lookup and ICD-11 to WHO."""
+    """Every entry links ICD-10 to a third-party lookup and ICD-11 to a WHO
+    per-code deep link (…/browse/…#<FoundationEntityId>)."""
     for e in cref._load_corpus().get("entries", []):
         assert e.get("icd10_url", "").startswith("https://"), f"{e.get('id')} bad icd10_url"
-        assert e.get("icd11_url", "").startswith("https://icd.who.int"), f"{e.get('id')} icd11_url not WHO"
+        icd11_url = e.get("icd11_url", "")
+        assert icd11_url.startswith("https://icd.who.int/browse"), f"{e.get('id')} icd11_url not WHO browser"
+        assert re.search(r"#\d+$", icd11_url), f"{e.get('id')} icd11_url missing #<entityId> deep link"
 
 
 def test_card_codes_come_from_corpus():
