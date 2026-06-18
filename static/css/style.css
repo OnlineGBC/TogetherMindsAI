@@ -350,10 +350,13 @@ hr.border-green {
        when content exceeds viewport (e.g. at high zoom). dvh keeps mobile
        browser chrome from causing jumps; vh kept as fallback for older UAs. */
 body.therapy-page {
-    min-height: 100vh;
-    min-height: 100dvh;
-    height: 100vh;
-    height: 100dvh;
+    /* Shrink the whole room ~15%. Heights are pre-divided by the zoom factor so
+       the scaled page still fills the viewport exactly (no blank strip below). */
+    zoom: 0.85;
+    min-height: calc(100vh / 0.85);
+    min-height: calc(100dvh / 0.85);
+    height: calc(100vh / 0.85);
+    height: calc(100dvh / 0.85);
     overflow-y: auto;
 }
 body.therapy-page main.container {
@@ -433,6 +436,12 @@ body.therapy-page .video-pane {
     margin-left: 0;
 }
 body.therapy-page .video-pane > .card-body { min-height: 100%; }
+
+/* Transcript toggle — hide the chat pane (and its divider) so the video goes
+   full-width for when people are just talking. Header button toggles it back. */
+body.therapy-page .session-work.chat-hidden .chat-pane,
+body.therapy-page .session-work.chat-hidden > .split-divider { display: none; }
+body.therapy-page .session-work.chat-hidden .video-pane { flex: 1 1 auto; }
 
 /* Vertical drag divider between chat and video — clearly visible grip. */
 .split-divider {
@@ -775,7 +784,7 @@ body.therapy-page .video-pane::-webkit-scrollbar-thumb:hover {
     right: 0;
     width: var(--tc-width, 360px);
     max-width: 92vw;
-    height: 100vh;
+    bottom: 0;                 /* top:0 + bottom:0 fills the height under page zoom */
     background: #f7faf9;
     border-left: 1px solid #e2e9e7;
     box-shadow: -8px 0 28px rgba(15, 60, 55, 0.10);

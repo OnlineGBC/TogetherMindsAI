@@ -23,6 +23,13 @@
                 </div>
             </div>
             <div class="d-flex gap-1 gap-md-2 flex-shrink-0">
+                {% if rtc_enabled %}
+                <button type="button" id="transcriptToggleBtn"
+                        class="btn btn-outline-green btn-sm rounded-pill"
+                        title="Hide transcript" aria-pressed="false">
+                    <i class="bi bi-card-text"></i><span class="d-none d-md-inline ms-1">Transcript</span>
+                </button>
+                {% endif %}
                 <a href="/progress/{{ user_id }}/{{ mode }}"
                    class="btn btn-outline-green btn-sm rounded-pill" title="Progress">
                     <i class="bi bi-bar-chart-fill"></i><span class="d-none d-md-inline ms-1">Progress</span>
@@ -501,6 +508,20 @@
     }
     dv.addEventListener("pointerup", endResize);
     dv.addEventListener("pointercancel", endResize);
+})();
+
+// Transcript toggle — hide/show the chat pane so the video can go full-width.
+// The button lives in the header (always visible), so it can toggle back.
+(function () {
+    var btn  = document.getElementById("transcriptToggleBtn");
+    var work = document.querySelector(".session-work");
+    if (!btn || !work) { return; }
+    btn.addEventListener("click", function () {
+        var hidden = work.classList.toggle("chat-hidden");
+        btn.classList.toggle("active", hidden);
+        btn.setAttribute("aria-pressed", hidden ? "true" : "false");
+        btn.title = hidden ? "Show transcript" : "Hide transcript";
+    });
 })();
 </script>
 {% endif %}
