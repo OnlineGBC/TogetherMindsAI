@@ -153,8 +153,33 @@ def build_reference_cards(text: str, max_cards: int = MAX_REFERENCE_CARDS) -> li
                 f"The conversation touches on features associated with {e.get('label', '?')}. "
                 "Offered as reference for your assessment — not a diagnosis."
             ),
-            "code": codes,
+            "code": codes,                       # plain-text fallback
+            "code_links": _code_links(e),        # clickable per-code links
             "source": source,
             "confidence": 0.5,
         })
     return cards
+
+
+def _code_links(entry: dict) -> list:
+    """Build clickable per-code links for one entry.
+
+    The ICD-10 link is a THIRD-PARTY lookup (icd10data.com) — flagged so the UI
+    can label it as such — and the ICD-11 link is the official WHO browser. The
+    DSM cross-reference is intentionally NOT linked (no free canonical page); it
+    stays plain text in the card's source line.
+    """
+    links = []
+    if entry.get("icd10_url"):
+        links.append({
+            "label": f"ICD-10 {entry.get('icd10', '?')}",
+            "url": entry["icd10_url"],
+            "third_party": True,
+        })
+    if entry.get("icd11") and entry.get("icd11_url"):
+        links.append({
+            "label": f"ICD-11 {entry['icd11']}",
+            "url": entry["icd11_url"],
+            "third_party": False,
+        })
+    return links

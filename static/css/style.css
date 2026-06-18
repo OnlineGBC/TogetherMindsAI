@@ -954,8 +954,14 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
 .tc-card-urgent .tc-card-label { color: #b71c1c; }
 .tc-card-text { font-size: 0.86rem; line-height: 1.4; color: var(--text-dark); }
 .tc-card-code {
-    display: inline-block;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
     margin-top: 0.35rem;
+}
+.tc-code-link {
+    display: inline-block;
     padding: 0.08rem 0.4rem;
     font-size: 0.7rem;
     font-weight: 700;
@@ -964,6 +970,16 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
     background: #f1ebfb;
     border: 1px solid #ddcdf3;
     border-radius: 4px;
+    text-decoration: none;
+}
+.tc-code-link:hover { background: #e7dcfa; border-color: #c9b3ee; text-decoration: underline; }
+.tc-code-tp {
+    font-size: 0.58rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #8a6fc0;
+    margin-left: -0.1rem;
 }
 .tc-card-source { margin-top: 0.25rem; font-size: 0.66rem; line-height: 1.3; color: var(--text-muted, #6c757d); }
 .tc-dismiss {

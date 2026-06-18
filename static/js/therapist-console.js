@@ -197,7 +197,28 @@ function _tcRenderCard(card) {
 
     // Reference cards carry a grounded ICD code + source citation (read from the
     // curated corpus, never written by the model) — show them under the text.
-    if (card.code) {
+    // Prefer clickable per-code links; fall back to the plain code string.
+    if (card.code_links && card.code_links.length) {
+        var codeWrap = document.createElement("div");
+        codeWrap.className = "tc-card-code";
+        card.code_links.forEach(function (link) {
+            var a = document.createElement("a");
+            a.className = "tc-code-link";
+            a.href = link.url;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.textContent = link.label;
+            codeWrap.appendChild(a);
+            // ICD-10 links go to a third-party lookup — say so explicitly.
+            if (link.third_party) {
+                var tp = document.createElement("span");
+                tp.className = "tc-code-tp";
+                tp.textContent = "third-party";
+                codeWrap.appendChild(tp);
+            }
+        });
+        el.appendChild(codeWrap);
+    } else if (card.code) {
         var code = document.createElement("div");
         code.className = "tc-card-code";
         code.textContent = card.code;

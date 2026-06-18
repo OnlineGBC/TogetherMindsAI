@@ -68,6 +68,28 @@ def test_build_reference_cards_silent_on_benign():
     assert cref.build_reference_cards("I had a pleasant walk in the park today") == []
 
 
+def test_reference_card_code_links():
+    """Reference cards carry clickable per-code links: ICD-10 → third-party lookup
+    (flagged), ICD-11 → official WHO browser (not flagged), DSM left unlinked."""
+    cards = cref.build_reference_cards(
+        "I keep having flashbacks and nightmares, I feel triggered and hypervigilant"
+    )
+    assert cards
+    links = cards[0]["code_links"]
+    by_label = {l["label"].split()[0]: l for l in links}
+
+    icd10 = by_label["ICD-10"]
+    assert icd10["third_party"] is True
+    assert "icd10data.com" in icd10["url"]
+
+    icd11 = by_label["ICD-11"]
+    assert icd11["third_party"] is False
+    assert "icd.who.int" in icd11["url"]
+
+    # The DSM cross-reference is text-only — it must never appear as a link.
+    assert all("dsm" not in l["url"].lower() for l in links)
+
+
 def test_build_reference_cards_caps_count():
     text = ("I'm depressed and hopeless, also anxious and worrying, can't sleep, "
             "drinking too much, and having panic attacks")
@@ -100,6 +122,13 @@ def test_corpus_entries_have_required_fields():
     for e in entries:
         for field in ("id", "label", "icd10", "dsm_xref", "summary", "keywords", "source"):
             assert e.get(field), f"entry {e.get('id')} missing {field}"
+
+
+def test_corpus_entries_have_valid_link_urls():
+    """Every entry links ICD-10 to a third-party lookup and ICD-11 to WHO."""
+    for e in cref._load_corpus().get("entries", []):
+        assert e.get("icd10_url", "").startswith("https://"), f"{e.get('id')} bad icd10_url"
+        assert e.get("icd11_url", "").startswith("https://icd.who.int"), f"{e.get('id')} icd11_url not WHO"
 
 
 def test_card_codes_come_from_corpus():
