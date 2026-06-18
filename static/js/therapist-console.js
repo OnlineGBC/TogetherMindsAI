@@ -104,7 +104,7 @@ function initTherapistConsole(sessionId, userId) {
         });
         rh.addEventListener("pointermove", function (e) {
             if (!dragging) { return; }
-            var w = Math.max(280, Math.min(600, window.innerWidth - e.clientX));
+            var w = Math.max(240, Math.min(window.innerWidth * 0.7, window.innerWidth - e.clientX));
             document.documentElement.style.setProperty("--tc-width", w + "px");
         });
         function _tcEndResize(e) {

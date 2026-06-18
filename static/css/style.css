@@ -411,7 +411,7 @@ body.therapy-page .chat-pane {
    on its own it fills the row. */
 body.therapy-page .session-work.has-video .chat-pane {
     flex: 0 0 var(--chat-width, 42%);
-    min-width: 240px;
+    min-width: 160px;
 }
 body.therapy-page .session-work:not(.has-video) .chat-pane {
     flex: 1 1 auto;
