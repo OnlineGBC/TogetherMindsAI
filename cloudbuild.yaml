@@ -100,6 +100,26 @@ steps:
       - FEEDBACK_SMTP_PASSWORD=FEEDBACK_SMTP_PASSWORD:latest
       - --set-secrets
       - FEEDBACK_TO_EMAIL=FEEDBACK_TO_EMAIL:latest
+      # Confidential conferencing (LiveKit audio/video + AssemblyAI transcription).
+      # Without all four, RTC_ENABLED is false and the room renders without A/V.
+      - --set-secrets
+      - LIVEKIT_URL=LIVEKIT_URL:latest
+      - --set-secrets
+      - LIVEKIT_API_KEY=LIVEKIT_API_KEY:latest
+      - --set-secrets
+      - LIVEKIT_API_SECRET=LIVEKIT_API_SECRET:latest
+      # Secret is named ASSEMBLYAI_API; the app reads ASSEMBLYAI_API_KEY.
+      - --set-secrets
+      - ASSEMBLYAI_API_KEY=ASSEMBLYAI_API:latest
+      # OAuth login for clinicians/clients (Google + Microsoft).
+      - --set-secrets
+      - GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
+      - --set-secrets
+      - GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+      - --set-secrets
+      - MICROSOFT_CLIENT_ID=MICROSOFT_CLIENT_ID:latest
+      - --set-secrets
+      - MICROSOFT_CLIENT_SECRET=MICROSOFT_CLIENT_SECRET:latest
       # min-instances must always be 1 — keeps a warm worker so couple/group
       # SocketIO sessions don't pay a 10-15s cold-start penalty on first message.
       - --min-instances
