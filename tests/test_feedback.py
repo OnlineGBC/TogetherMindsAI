@@ -99,7 +99,7 @@ def test_valid_full_submission_sends_email(client):
         assert "raja@onlinegbc.com" in sent_msg["To"]
         assert sent_msg["From"] == "test-sender@example.com"
         subject = sent_msg["Subject"]
-        assert "Solo" in subject
+        assert "1:1 Session" in subject
         assert "4 / 5" in subject
 
         plain = _plain_body(sent_msg)
@@ -111,7 +111,7 @@ def test_valid_full_submission_sends_email(client):
 
         html = _html_body(sent_msg)
         assert "The reflective prompts felt natural." in html
-        assert "Solo Reflection" in html
+        assert "1:1 Session" in html
 
 
 def test_rating_null_accepted_for_na(client):
