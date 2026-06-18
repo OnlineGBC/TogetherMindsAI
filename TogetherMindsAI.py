@@ -459,6 +459,11 @@ if not config.IS_TESTING:
     from apscheduler.schedulers.background import BackgroundScheduler
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(_purge_expired_sessions, "interval", hours=24, id="purge_expired_sessions")
+    # Annual ICD code-refresh reminder, emailed to the admin inbox every March 1 (UTC).
+    _scheduler.add_job(
+        _send_icd_refresh_reminder, "cron",
+        month=3, day=1, hour=9, timezone="UTC", id="icd_refresh_reminder",
+    )
     _scheduler.start()
     # Run once immediately on startup to catch any sessions that expired while the app was down
     threading.Thread(target=_purge_expired_sessions, daemon=True).start()
@@ -1262,6 +1267,73 @@ def _send_feedback_email(subject: str, plain_body: str, html_body: str) -> None:
         smtp.starttls()
         smtp.login(config.FEEDBACK_SMTP_USER, config.FEEDBACK_SMTP_PASSWORD)
         smtp.send_message(msg)
+
+
+# ---------------------------------------------------------------------------
+# Annual ICD code-refresh reminder — emailed from the app every March 1.
+# WHO ships ~annual ICD-11 releases; this nudges a refresh of the therapist
+# co-pilot's ICD grounding (clinical_data/icd_corpus.json) and carries the full
+# runbook so the steps don't have to be remembered. Reuses the feedback SMTP
+# path and admin inbox (config.FEEDBACK_TO_EMAILS).
+# ---------------------------------------------------------------------------
+
+def _icd_refresh_reminder_content():
+    """Return (subject, plain_body, html_body) for the annual ICD-refresh email."""
+    subject = "TogetherMindsAI — Annual ICD code refresh due (co-pilot grounding)"
+
+    steps = [
+        ("Why", "WHO publishes ICD-11 on a roughly annual release cycle. Refresh the therapist "
+                "co-pilot's ICD grounding so the ICD-11 deep links point at the current release."),
+        ("1. Credentials", "The WHO ICD-API is free (registration only). Client credentials are "
+                "WHO_ICD_ClientId / WHO_ICD_ClientSecret, stored in the local .env (gitignored) AND "
+                "in Google Secret Manager. Make sure .env has them before running the script."),
+        ("2. Harvest (dry run)", "Run: python scripts/harvest_icd11_entities.py — this authenticates "
+                "to the ICD-API, prints the latest MMS release, and resolves each ICD-11 code in "
+                "clinical_data/icd_corpus.json to its WHO Foundation entity id + deep-link URL."),
+        ("3. Apply", "Re-run with --write: python scripts/harvest_icd11_entities.py --write — this "
+                "writes the refreshed icd11_url deep links back into clinical_data/icd_corpus.json."),
+        ("4. Verify", "Spot-check a few resolved entity titles match the corpus labels, then run: "
+                "pytest tests/test_clinical_reference.py tests/test_copilot.py"),
+        ("5. Commit", "Commit & push the updated clinical_data/icd_corpus.json (never commit .env)."),
+        ("ICD-10 note", "ICD-10 links are search-by-code and need no refresh — they don't break on a "
+                "new release. The ICD-11 deep links are the thing this reminder is about."),
+    ]
+
+    plain = (
+        "Annual ICD code refresh for the therapist co-pilot.\n\n"
+        + "\n\n".join(f"{label}:\n  {text}" for label, text in steps)
+        + "\n\nSee project memory: project_who_icd_api.\n"
+    )
+
+    from html import escape as h
+    rows = "".join(
+        f'<h3 style="color:#388E3C;font-size:15px;margin:18px 0 4px;">{h(label)}</h3>'
+        f'<div style="line-height:1.5;color:#212121;">{h(text)}</div>'
+        for label, text in steps
+    )
+    html_body = (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
+        '<h2 style="color:#2e7d32;">Annual ICD code refresh due</h2>'
+        '<p style="color:#555;">A yearly nudge to refresh the therapist co-pilot\'s ICD grounding.</p>'
+        f"{rows}"
+        '<p style="color:#888;font-size:12px;margin-top:20px;">Sent automatically by TogetherMindsAI on March 1.</p>'
+        "</div>"
+    )
+    return subject, plain, html_body
+
+
+def _send_icd_refresh_reminder():
+    """Email the annual ICD-refresh runbook to the admin inbox. Never raises."""
+    if not (config.FEEDBACK_SMTP_USER and config.FEEDBACK_SMTP_PASSWORD):
+        app.logger.warning("ICD refresh reminder skipped — SMTP creds not configured.")
+        return
+    try:
+        subject, plain, html_body = _icd_refresh_reminder_content()
+        _send_feedback_email(subject, plain, html_body)
+        app.logger.info("ICD refresh reminder email sent.")
+    except Exception:
+        # Don't log the body — it could echo SMTP server detail.
+        app.logger.warning("ICD refresh reminder email failed to send.")
 
 
 @app.route("/feedback")
