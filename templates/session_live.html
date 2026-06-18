@@ -138,7 +138,7 @@
                         <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
                             <span class="badge bg-secondary" id="rtcStatus">connecting…</span>
                             <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcMuteBtn"><i class="bi bi-mic-fill"></i> Mute</button>
-                            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn"><i class="bi bi-camera-video-fill"></i> Camera on</button>
+                            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn"><i class="bi bi-camera-video-off-fill"></i> Camera is Off</button>
                             <span class="d-inline-flex align-items-center gap-1">
                                 <span class="small text-muted">Background:</span>
                                 <select class="form-select form-select-sm rounded-pill" id="rtcBgSelect" style="width:auto">
@@ -422,12 +422,12 @@
         await applyBackground();
         await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
         addTile("local", "You", camTrack.attach());
-        camBtn.innerHTML = '<i class="bi bi-camera-video-off-fill"></i> Camera off';
+        camBtn.innerHTML = '<i class="bi bi-camera-video-fill"></i> Camera is On';
     }
     async function cameraOff() {
         try { if (camTrack) { await lkRoom.localParticipant.unpublishTrack(camTrack); camTrack.stop(); } } catch (e) {}
         camTrack = null; removeTile("local");
-        camBtn.innerHTML = '<i class="bi bi-camera-video-fill"></i> Camera on';
+        camBtn.innerHTML = '<i class="bi bi-camera-video-off-fill"></i> Camera is Off';
     }
 
     // preset backgrounds: gradients generated client-side (no image files to ship)
