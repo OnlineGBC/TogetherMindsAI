@@ -943,8 +943,8 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
 
 /* Shift page content so the console never covers the chat (desktop only) */
 @media (min-width: 992px) {
-    body.tcp-console-open main { padding-right: calc(var(--tc-width, 360px) + 24px); transition: padding-right 0.22s ease; }
-    body.tcp-console-open.tcp-collapsed main { padding-right: 70px; }
+    body.tcp-console-open main { padding-right: var(--tc-width, 360px); transition: padding-right 0.22s ease; }
+    body.tcp-console-open.tcp-collapsed main { padding-right: 46px; }
 }
 
 /* ============================================================
