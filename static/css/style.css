@@ -388,6 +388,131 @@ body.therapy-page .input-group {
     flex: 0 0 auto;
     margin-top: 0.5rem;
 }
+/* Flex governs pane height; drop the 48vh floor so panes don't overflow. */
+body.therapy-page #chatBox { min-height: 0; }
+
+/* ============================================================
+   Session work area: chat (left) | divider | video (center)
+   Desktop: side-by-side, each pane scrolls internally, the chat|video
+   divider is draggable. Phone/tablet: stacked (video on top, chat below).
+   ============================================================ */
+body.therapy-page .session-work {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+body.therapy-page .chat-pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+}
+/* With video present the chat takes a resizable share (--chat-width);
+   on its own it fills the row. */
+body.therapy-page .session-work.has-video .chat-pane {
+    flex: 0 0 var(--chat-width, 42%);
+    min-width: 240px;
+}
+body.therapy-page .session-work:not(.has-video) .chat-pane {
+    flex: 1 1 auto;
+}
+body.therapy-page .video-pane {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    margin-left: 2px;
+}
+body.therapy-page .video-pane > .card-body { min-height: 100%; }
+
+/* Vertical drag divider between chat and video — clearly visible grip. */
+.split-divider {
+    flex: 0 0 14px;
+    align-self: stretch;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: col-resize;
+    touch-action: none;
+}
+.split-divider::before {                 /* faint full-height seam */
+    content: "";
+    position: absolute;
+    top: 6px; bottom: 6px; left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    background: #d3e2dd;
+    border-radius: 2px;
+}
+.split-divider .split-grip {             /* the visible handle */
+    position: relative;
+    width: 7px;
+    height: 60px;
+    border-radius: 6px;
+    background: rgba(15, 60, 55, 0.30);
+    box-shadow: 0 1px 4px rgba(15, 60, 55, 0.20);
+    transition: background 0.15s, height 0.15s;
+}
+.split-divider:hover .split-grip,
+body.sw-resizing .split-divider .split-grip {
+    background: var(--teal-primary);
+    height: 84px;
+}
+body.sw-resizing, body.sw-resizing * { user-select: none; cursor: col-resize !important; }
+body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !important; }
+
+/* Larger, centered video tiles so people feel face-to-face. */
+.rtc-tile {
+    position: relative;
+    width: clamp(220px, 30vw, 440px);
+    aspect-ratio: 4 / 3;
+    background: #000;
+    border-radius: 0.6rem;
+    overflow: hidden;
+    flex: 0 1 auto;
+    box-shadow: 0 6px 18px rgba(15, 60, 55, 0.18);
+}
+
+/* ---- Clearly visible scrollbars in the session room ---- */
+body.therapy-page .chat-window .card-body,
+body.therapy-page .video-pane {
+    scrollbar-width: thin;                       /* Firefox */
+    scrollbar-color: var(--teal-primary) #e3efeb;
+}
+body.therapy-page .chat-window .card-body::-webkit-scrollbar,
+body.therapy-page .video-pane::-webkit-scrollbar {
+    width: 11px;
+}
+body.therapy-page .chat-window .card-body::-webkit-scrollbar-track,
+body.therapy-page .video-pane::-webkit-scrollbar-track {
+    background: #e3efeb;
+    border-radius: 10px;
+}
+body.therapy-page .chat-window .card-body::-webkit-scrollbar-thumb,
+body.therapy-page .video-pane::-webkit-scrollbar-thumb {
+    background: var(--teal-primary);
+    border-radius: 10px;
+    border: 2px solid #e3efeb;
+}
+body.therapy-page .chat-window .card-body::-webkit-scrollbar-thumb:hover,
+body.therapy-page .video-pane::-webkit-scrollbar-thumb:hover {
+    background: var(--teal-dark);
+}
+
+/* Phone/tablet: stack the panes (video on top, chat below), hide the divider. */
+@media (max-width: 991.98px) {
+    body.therapy-page .session-work { flex-direction: column; }
+    body.therapy-page .session-work.has-video .chat-pane {
+        flex: 1 1 auto; min-width: 0; order: 2;
+    }
+    body.therapy-page .video-pane {
+        flex: 0 0 auto; max-height: 42vh; order: 1;
+        margin-left: 0; margin-bottom: 0.5rem;
+    }
+    body.therapy-page .split-divider { display: none; }
+    .rtc-tile { width: clamp(160px, 42vw, 280px); }
+}
 
 /* ---- Responsive tweaks ---- */
 @media (max-width: 991px) {
@@ -640,10 +765,14 @@ body.therapy-page .input-group {
     touch-action: none;
 }
 .tc-resize-handle::after {
-    content: ""; position: absolute; left: 3px; top: 50%; transform: translateY(-50%);
-    width: 3px; height: 42px; border-radius: 3px; background: rgba(15, 60, 55, 0.18);
+    content: ""; position: absolute; left: 1px; top: 50%; transform: translateY(-50%);
+    width: 7px; height: 60px; border-radius: 6px;
+    background: rgba(15, 60, 55, 0.30); box-shadow: 0 1px 4px rgba(15, 60, 55, 0.20);
+    transition: background 0.15s, height 0.15s;
 }
-.tc-resize-handle:hover::after { background: var(--teal-primary); }
+.tc-resize-handle:hover::after, body.tc-resizing .tc-resize-handle::after {
+    background: var(--teal-primary); height: 84px;
+}
 .therapist-console.collapsed .tc-resize-handle { display: none; }
 @media (max-width: 991.98px) { .tc-resize-handle { display: none; } }
 body.tc-resizing, body.tc-resizing * { user-select: none; }
