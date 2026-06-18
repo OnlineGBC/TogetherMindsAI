@@ -211,6 +211,7 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None) -> None:
         cards = []
         if trigger_text:
             cards.extend(copilot.build_risk_cards(trigger_text))
+        cards.extend(copilot.build_reference_cards(transcript))
         cards.extend(copilot.generate_suggestions(transcript, mode=mode, therapist_notes=notes))
 
         recent = session_recent_cards.setdefault(session_id, [])

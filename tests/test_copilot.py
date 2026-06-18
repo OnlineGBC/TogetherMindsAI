@@ -167,6 +167,35 @@ def test_generate_suggestions_garbage_output_is_empty():
 
 
 # ---------------------------------------------------------------------------
+# ICD grounding — reference block injection + grounded cards
+# ---------------------------------------------------------------------------
+
+def test_generate_suggestions_injects_reference_block_when_matched():
+    """A clinically-loaded transcript injects an ICD reference block into the prompt
+    so the model's own cards are grounded in the curated corpus."""
+    cl = _claude_returning("[]")
+    with patch("copilot._get_claude_client", return_value=cl):
+        copilot.generate_suggestions("Client: I'm anxious and worry all the time", mode="solo")
+    user_msg = cl.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "Reference material" in user_msg
+    assert "F41.1" in user_msg                       # GAD ICD-10 code reached the prompt
+
+
+def test_generate_suggestions_no_reference_block_when_benign():
+    cl = _claude_returning("[]")
+    with patch("copilot._get_claude_client", return_value=cl):
+        copilot.generate_suggestions("Client: thanks, see you next week", mode="solo")
+    user_msg = cl.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "Reference material" not in user_msg
+
+
+def test_build_reference_cards_reexported_from_copilot():
+    cards = copilot.build_reference_cards("I keep having flashbacks and nightmares, feeling triggered")
+    assert cards and cards[0]["type"] == "reference"
+    assert "F43.10" in cards[0]["code"]
+
+
+# ---------------------------------------------------------------------------
 # build_risk_cards
 # ---------------------------------------------------------------------------
 
@@ -280,6 +309,24 @@ def test_crisis_shows_client_message_and_therapist_risk_card(enc_client):
     t_cards = _args_of(t_recv, "suggestion_cards")
     assert t_cards and any(card["type"] == "risk" for card in t_cards[0]["cards"])
     assert "suggestion_cards" not in _names(c_recv)
+
+
+def test_reference_card_reaches_only_therapist(enc_client):
+    """A clinically-loaded client message produces a grounded ICD reference card,
+    built deterministically from the corpus, delivered only to the therapist."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+
+    # generate_suggestions is stubbed to [] so the only card is the grounded one.
+    with patch("copilot.generate_suggestions", return_value=[]):
+        c_sio.emit("send_message", {"session_id": sid, "user_id": client_user,
+                                    "text": "I keep having flashbacks and nightmares, I feel triggered",
+                                    "mode": "couple"})
+
+    t_cards = _args_of(t_sio.get_received(), "suggestion_cards")
+    assert t_cards
+    ref = [c for c in t_cards[0]["cards"] if c["type"] == "reference"]
+    assert ref and "F43.10" in ref[0]["code"]
+    assert "suggestion_cards" not in _names(c_sio.get_received())
 
 
 def test_therapist_note_emits_cards_to_therapist_only(enc_client):

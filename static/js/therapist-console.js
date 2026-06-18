@@ -173,6 +173,7 @@ function _tcRenderCard(card) {
         question:    { label: "Ask",       icon: "chat-quote-fill" },
         technique:   { label: "Technique", icon: "life-preserver" },
         observation: { label: "Notice",    icon: "eye-fill" },
+        reference:   { label: "Reference", icon: "journal-medical" },
     }[type] || { label: "Note", icon: "sticky-fill" };
 
     var dismiss = document.createElement("button");
@@ -193,6 +194,21 @@ function _tcRenderCard(card) {
     el.appendChild(dismiss);
     el.appendChild(head);
     el.appendChild(body);
+
+    // Reference cards carry a grounded ICD code + source citation (read from the
+    // curated corpus, never written by the model) — show them under the text.
+    if (card.code) {
+        var code = document.createElement("div");
+        code.className = "tc-card-code";
+        code.textContent = card.code;
+        el.appendChild(code);
+    }
+    if (card.source) {
+        var src = document.createElement("div");
+        src.className = "tc-card-source";
+        src.textContent = card.source;
+        el.appendChild(src);
+    }
 
     // Newest on top; risk cards always pinned above suggestions.
     if (card.priority === "high") {

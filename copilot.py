@@ -24,8 +24,13 @@ import json
 import logging
 
 from ai_therapist import _get_claude_client, detect_crisis, detect_escalation
+from clinical_reference import build_reference_cards, format_reference_block, retrieve
 
 logger = logging.getLogger(__name__)
+
+# Re-exported so the orchestrator builds grounded ICD reference cards the same way
+# it builds keyword risk cards: copilot.build_reference_cards(transcript).
+__all__ = ["generate_suggestions", "build_risk_cards", "build_reference_cards", "dedupe_cards"]
 
 # Card types the advisor model may emit. "risk" is produced only by
 # build_risk_cards (keyword-driven), never by the model.
@@ -67,6 +72,9 @@ Rules:
   that intervention — a sharper follow-up, a refinement, or a gentle caution if it risks closing
   the client down.
 - Do NOT produce risk or crisis flags — those are handled by a separate safety layer.
+- You may be given a "Reference material" block of ICD entries. Let it sharpen your
+  question / technique / observation cards, but do NOT output diagnoses, ICD/DSM
+  codes, or a "reference" card — a separate grounded layer cites those.
 - Output ONLY the raw JSON array. No code fences, no commentary before or after.
 """
 
@@ -88,6 +96,9 @@ def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: s
     user_content = f"Recent session transcript:\n{transcript}"
     if therapist_notes and therapist_notes.strip():
         user_content += f"\n\nTherapist's private notes (not visible to the client):\n{therapist_notes}"
+    reference_block = format_reference_block(retrieve(transcript))
+    if reference_block:
+        user_content += f"\n\n{reference_block}"
     user_content += (
         "\n\nGive your co-pilot cards now as a JSON array "
         "(return [] if there is nothing worth surfacing)."

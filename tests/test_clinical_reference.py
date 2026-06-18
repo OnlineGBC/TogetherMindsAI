@@ -1,0 +1,115 @@
+"""
+tests/test_clinical_reference.py
+--------------------------------
+Tests for ICD grounding of the therapist co-pilot:
+
+  - clinical_reference.retrieve: matches presentations, ignores logistics, thresholds
+  - clinical_reference.build_reference_cards: grounded cards, real codes only, silence
+  - clinical_reference.format_reference_block: prompt block content + framing
+  - corpus integrity: every card's code is read from the curated file (never fabricated)
+"""
+
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+import clinical_reference as cref
+
+
+# ---------------------------------------------------------------------------
+# retrieve
+# ---------------------------------------------------------------------------
+
+def test_retrieve_matches_anxiety_presentation():
+    hits = cref.retrieve("Client: I feel so anxious and I worry about everything, I can't relax")
+    labels = [h["label"] for h in hits]
+    assert "Generalized anxiety disorder" in labels
+
+
+def test_retrieve_ranks_by_score():
+    # Strong, repeated anxiety language should outrank a single incidental token.
+    hits = cref.retrieve("I'm anxious, worrying constantly, on edge and can't relax. Also tired.")
+    assert hits[0]["label"] == "Generalized anxiety disorder"
+    assert hits[0]["_score"] >= hits[-1]["_score"]
+
+
+def test_retrieve_empty_on_logistical_text():
+    assert cref.retrieve("Hi, thanks, see you next week. One sec.") == []
+
+
+def test_retrieve_empty_string():
+    assert cref.retrieve("   ") == []
+
+
+def test_retrieve_min_score_filters_weak_single_hits():
+    # A single common single-token keyword ("trauma") scores 1 — below the card
+    # threshold of 2, so it must not surface as a reference card.
+    cards = cref.build_reference_cards("we talked about trauma briefly")
+    assert cards == []
+
+
+# ---------------------------------------------------------------------------
+# build_reference_cards
+# ---------------------------------------------------------------------------
+
+def test_build_reference_cards_grounded_fields():
+    cards = cref.build_reference_cards(
+        "I keep having flashbacks and nightmares, I feel triggered and hypervigilant"
+    )
+    assert cards, "expected a PTSD reference card"
+    card = cards[0]
+    assert card["type"] == "reference"
+    assert "F43.10" in card["code"]                 # real ICD-10 code from the corpus
+    assert "DSM-5-TR" in card["source"]             # DSM cross-reference present
+    assert "not a diagnosis" in card["text"].lower()
+
+
+def test_build_reference_cards_silent_on_benign():
+    assert cref.build_reference_cards("I had a pleasant walk in the park today") == []
+
+
+def test_build_reference_cards_caps_count():
+    text = ("I'm depressed and hopeless, also anxious and worrying, can't sleep, "
+            "drinking too much, and having panic attacks")
+    cards = cref.build_reference_cards(text)
+    assert len(cards) <= cref.MAX_REFERENCE_CARDS
+
+
+# ---------------------------------------------------------------------------
+# format_reference_block
+# ---------------------------------------------------------------------------
+
+def test_format_reference_block_empty_when_no_entries():
+    assert cref.format_reference_block([]) == ""
+
+
+def test_format_reference_block_frames_as_non_diagnostic():
+    block = cref.format_reference_block(cref.retrieve("I feel anxious and worry all the time"))
+    assert block
+    assert "not diagnoses" in block.lower()
+    assert "F41.1" in block                          # GAD ICD-10 surfaced in the block
+
+
+# ---------------------------------------------------------------------------
+# corpus integrity — codes must never be fabricated
+# ---------------------------------------------------------------------------
+
+def test_corpus_entries_have_required_fields():
+    entries = cref._load_corpus().get("entries", [])
+    assert entries, "corpus should load with entries"
+    for e in entries:
+        for field in ("id", "label", "icd10", "dsm_xref", "summary", "keywords", "source"):
+            assert e.get(field), f"entry {e.get('id')} missing {field}"
+
+
+def test_card_codes_come_from_corpus():
+    # Every code a card can emit must be an icd10 value present in the corpus —
+    # proves the code is read from the curated file, not written by the model.
+    valid = {e["icd10"] for e in cref._load_corpus().get("entries", [])}
+    cards = cref.build_reference_cards(
+        "I'm so depressed and hopeless, nothing matters and I have no energy"
+    )
+    assert cards
+    for c in cards:
+        icd10_part = c["code"].split(" · ")[0].replace("ICD-10 ", "")
+        assert icd10_part in valid
