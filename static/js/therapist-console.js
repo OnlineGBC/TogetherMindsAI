@@ -75,6 +75,11 @@ function initTherapistConsole(sessionId, userId) {
         }
     });
 
+    // Session summary (private to the therapist) — generates on demand.
+    document.getElementById("tcSummaryBtn").addEventListener("click", function () {
+        _tcLoadSummary(sessionId);
+    });
+
     // Mute toggle
     document.getElementById("tcMuteBtn").addEventListener("click", function () {
         _tcMuted = !_tcMuted;
@@ -146,6 +151,7 @@ function _tcBuildPanel() {
         '  <span class="tc-title"><i class="bi bi-clipboard2-pulse-fill me-1"></i>Co-Pilot</span>' +
         '  <span class="tc-badge">private</span>' +
         '  <div class="tc-actions">' +
+        '    <button type="button" id="tcSummaryBtn" class="tc-icon-btn" title="Session summary (private to you)"><i class="bi bi-file-earmark-text-fill"></i></button>' +
         '    <button type="button" id="tcMuteBtn" class="tc-icon-btn" title="Mute suggestions"><i class="bi bi-bell-fill"></i></button>' +
         '    <button type="button" id="tcCollapseBtn" class="tc-icon-btn" title="Collapse"><i class="bi bi-chevron-bar-right"></i></button>' +
         '  </div>' +
@@ -261,4 +267,137 @@ function _tcTrim() {
 function _tcSetStatus(text) {
     var s = document.getElementById("tcStatus");
     if (s) { s.textContent = text; }
+}
+
+// ---------------------------------------------------------------------------
+// Session summary — private to the therapist (clinical recap + grounded ICD
+// codes for billing reference + a draft the therapist MAY share). The endpoint
+// is therapist-gated server-side; this UI is only loaded for the therapist.
+// ---------------------------------------------------------------------------
+
+function _tcLoadSummary(sessionId) {
+    var overlay = _tcSummaryOverlay();
+    var body = overlay.querySelector(".tcs-body");
+    body.innerHTML = "";
+    body.appendChild(_tcEl("div", "tcs-note", "Generating session summary… this can take a few seconds."));
+
+    fetch("/session/" + encodeURIComponent(sessionId) + "/summary", {
+        headers: { "Accept": "application/json" },
+    })
+        .then(function (r) {
+            if (r.status === 403) { throw new Error("forbidden"); }
+            if (!r.ok) { throw new Error("http " + r.status); }
+            return r.json();
+        })
+        .then(function (data) { _tcRenderSummary(body, data); })
+        .catch(function (err) {
+            body.innerHTML = "";
+            var msg = err && err.message === "forbidden"
+                ? "This summary is available only to the session's therapist."
+                : "Could not generate the summary right now. Please try again.";
+            body.appendChild(_tcEl("div", "tcs-note", msg));
+        });
+}
+
+function _tcEl(tag, className, text) {
+    var el = document.createElement(tag);
+    if (className) { el.className = className; }
+    if (text != null) { el.textContent = text; }
+    return el;
+}
+
+function _tcRenderSummary(body, data) {
+    body.innerHTML = "";
+
+    if (data.disclaimer) {
+        body.appendChild(_tcEl("div", "tcs-disclaimer", data.disclaimer));
+    }
+
+    // Clinical summary
+    body.appendChild(_tcEl("h4", "tcs-h", "Clinical summary"));
+    body.appendChild(_tcEl("p", "tcs-p",
+        data.clinical || "AI narrative unavailable — the grounded codes below are still accurate."));
+
+    // ICD codes (billing reference)
+    body.appendChild(_tcEl("h4", "tcs-h", "ICD codes — billing reference"));
+    var codes = data.codes || [];
+    if (codes.length) {
+        var ul = _tcEl("ul", "tcs-codes");
+        codes.forEach(function (c) {
+            var label = c.label ? c.label + " — " : "";
+            var li = _tcEl("li", null, label + (c.code || "") + (c.source ? "  (" + c.source + ")" : ""));
+            ul.appendChild(li);
+        });
+        body.appendChild(ul);
+    } else {
+        body.appendChild(_tcEl("p", "tcs-p", "No ICD reference codes surfaced during this session."));
+    }
+    if (data.codes_rationale) {
+        body.appendChild(_tcEl("p", "tcs-p", data.codes_rationale));
+    }
+
+    // Client-facing draft
+    if (data.client_recap) {
+        body.appendChild(_tcEl("h4", "tcs-h",
+            "Client-facing draft — share only at your discretion"));
+        body.appendChild(_tcEl("div", "tcs-note tcs-warn",
+            "The client cannot see this unless you choose to give it to them."));
+        body.appendChild(_tcEl("p", "tcs-p tcs-client", data.client_recap));
+    }
+}
+
+function _tcSummaryOverlay() {
+    var existing = document.getElementById("tcSummaryOverlay");
+    if (existing) { existing.style.display = "flex"; return existing; }
+
+    var overlay = document.createElement("div");
+    overlay.id = "tcSummaryOverlay";
+    overlay.style.cssText =
+        "position:fixed;inset:0;z-index:3000;display:flex;align-items:center;" +
+        "justify-content:center;background:rgba(0,0,0,.45);padding:16px;";
+
+    var card = document.createElement("div");
+    card.style.cssText =
+        "background:#fff;max-width:680px;width:100%;max-height:88vh;overflow:auto;" +
+        "border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.3);padding:20px 22px;";
+
+    var head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;";
+    var title = _tcEl("strong", null, "Session Summary — Private");
+    title.style.cssText = "font-size:1.1rem;color:#14532d;";
+    var close = _tcEl("button", null, "✕");
+    close.type = "button";
+    close.title = "Close";
+    close.style.cssText = "border:none;background:none;font-size:1.2rem;cursor:pointer;color:#555;";
+    close.addEventListener("click", function () { overlay.style.display = "none"; });
+    head.appendChild(title);
+    head.appendChild(close);
+
+    var bodyEl = document.createElement("div");
+    bodyEl.className = "tcs-body";
+    bodyEl.style.cssText = "font-size:.92rem;line-height:1.5;color:#222;";
+
+    // Lightweight scoped styling for the summary sections.
+    var style = document.createElement("style");
+    style.textContent =
+        "#tcSummaryOverlay .tcs-h{margin:14px 0 4px;font-size:.8rem;text-transform:uppercase;" +
+        "letter-spacing:.03em;color:#6b7280;}" +
+        "#tcSummaryOverlay .tcs-p{margin:0 0 8px;white-space:pre-wrap;}" +
+        "#tcSummaryOverlay .tcs-codes{margin:0 0 8px;padding-left:18px;}" +
+        "#tcSummaryOverlay .tcs-codes li{margin-bottom:3px;}" +
+        "#tcSummaryOverlay .tcs-disclaimer{font-size:.78rem;font-style:italic;color:#92400e;" +
+        "background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;margin-bottom:6px;}" +
+        "#tcSummaryOverlay .tcs-note{color:#555;font-size:.85rem;margin:4px 0;}" +
+        "#tcSummaryOverlay .tcs-warn{color:#92400e;font-weight:600;}" +
+        "#tcSummaryOverlay .tcs-client{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;}";
+
+    card.appendChild(head);
+    card.appendChild(style);
+    card.appendChild(bodyEl);
+    overlay.appendChild(card);
+    overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) { overlay.style.display = "none"; }
+    });
+    document.body.appendChild(overlay);
+    return overlay;
 }

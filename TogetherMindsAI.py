@@ -30,6 +30,7 @@ from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySessi
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
+import clinical_summary
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 from log_filter import install_log_filter
@@ -1756,6 +1757,196 @@ def _user_can_access_session(session_id: str, user_id: str) -> bool:
     return ChatMessage.query.filter_by(session_id=session_id, user_id=user_id).first() is not None
 
 
+# ---------------------------------------------------------------------------
+# Therapist-only session summary (clinical recap + grounded ICD codes for
+# billing reference + a plain-language draft the therapist MAY share). Never
+# reaches the client through the system.
+# ---------------------------------------------------------------------------
+
+def _session_transcript_text(messages, ts) -> str:
+    """Full speaker-labelled transcript for the summary model."""
+    therapist_id = ts.therapist_id if ts else None
+    lines = []
+    for m in messages:
+        if m.user_id == therapist_id:
+            who = "Therapist"
+        elif m.user_id == "AI":
+            who = "AI"
+        else:
+            who = m.display_name or "Client"
+        lines.append(f"{who}: {m.text}")
+    return "\n".join(lines)
+
+
+def _surfaced_codes(session_id: str) -> list:
+    """Distinct ICD reference codes that actually surfaced in this session.
+
+    Read from the persisted reference cards (grounded — the codes came from the
+    curated corpus, never the model), deduped by code, in first-seen order.
+    """
+    import json as _json
+    rows = (
+        CopilotCard.query
+        .filter_by(session_id=session_id, card_type="reference")
+        .order_by(CopilotCard.id.asc())
+        .all()
+    )
+    seen, out = set(), []
+    for r in rows:
+        code = source = ""
+        try:
+            payload = _json.loads(r.payload)
+            code = payload.get("code", "")
+            source = payload.get("source", "")
+        except Exception:
+            pass
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        match = re.search(r"associated with (.+?)\.", r.text or "")
+        out.append({"label": match.group(1) if match else "", "code": code, "source": source})
+    return out
+
+
+def _session_summary_payload(session_id: str, ts) -> dict:
+    """Build the therapist-only summary payload. The codes list is always present
+    (grounded); the AI narrative is best-effort and may be empty."""
+    messages, _mode, generated_at = _transcript_data(session_id)
+    transcript = _session_transcript_text(messages, ts)
+    codes = _surfaced_codes(session_id)
+    summary = clinical_summary.generate(transcript, codes, mode=ts.mode if ts else "solo") or {}
+    log_event("session_summary_generated", session_id=session_id,
+              user_id=ts.therapist_id if ts else None,
+              codes=len(codes), narrative=bool(summary))
+    return {
+        "session_id": session_id,
+        "generated_at": generated_at,
+        "disclaimer": clinical_summary.DISCLAIMER,
+        "codes": codes,
+        "clinical": summary.get("clinical", ""),
+        "codes_rationale": summary.get("codes_rationale", ""),
+        "client_recap": summary.get("client_recap", ""),
+        "narrative_available": bool(summary),
+    }
+
+
+def _is_session_therapist(session_id: str):
+    """Return the TherapySession iff the current user is its therapist, else None."""
+    ts = db.session.get(TherapySession, session_id)
+    if ts and ts.therapist_id and ts.therapist_id == session.get("user_id"):
+        return ts
+    return None
+
+
+@app.route("/session/<session_id>/summary")
+def session_summary(session_id):
+    """Therapist-only: generate and return the private session summary as JSON."""
+    ts = _is_session_therapist(session_id)
+    if ts is None:
+        return jsonify({"error": "Forbidden"}), 403
+    return jsonify(_session_summary_payload(session_id, ts))
+
+
+def _render_summary_pdf(pdf, summary: dict) -> None:
+    """Prepend the therapist-only summary to the PDF, above the transcript."""
+    from fpdf.enums import XPos, YPos
+
+    pdf.set_font("DejaVu", "B", 14)
+    pdf.set_text_color(146, 39, 15)
+    pdf.cell(0, 9, "Clinician Summary — Private (therapist only)",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("DejaVu", "", 9)
+    pdf.set_text_color(120, 120, 120)
+    pdf.multi_cell(0, 5, summary.get("disclaimer", ""))
+    pdf.ln(2)
+
+    def _section(title, body):
+        if not body:
+            return
+        pdf.set_font("DejaVu", "B", 11)
+        pdf.set_text_color(40, 40, 40)
+        pdf.multi_cell(0, 6, title)
+        pdf.set_font("DejaVu", "", 10)
+        pdf.set_text_color(30, 30, 30)
+        pdf.multi_cell(0, 5, body)
+        pdf.ln(2)
+
+    _section("Clinical summary",
+             summary.get("clinical") or "(AI narrative unavailable — see transcript below.)")
+
+    # ICD codes — always rendered (grounded data), even if the narrative failed.
+    pdf.set_font("DejaVu", "B", 11)
+    pdf.set_text_color(40, 40, 40)
+    pdf.multi_cell(0, 6, "ICD codes (billing reference)")
+    pdf.set_font("DejaVu", "", 10)
+    pdf.set_text_color(30, 30, 30)
+    codes = summary.get("codes") or []
+    if codes:
+        for c in codes:
+            label = f"{c['label']} — " if c.get("label") else ""
+            pdf.multi_cell(0, 5, f"• {label}{c.get('code', '')}  ({c.get('source', '')})")
+    else:
+        pdf.multi_cell(0, 5, "No ICD reference codes surfaced during this session.")
+    if summary.get("codes_rationale"):
+        pdf.ln(1)
+        pdf.multi_cell(0, 5, summary["codes_rationale"])
+    pdf.ln(2)
+
+    _section("Client-facing draft — share only at your discretion "
+             "(the client cannot see this unless you give it to them)",
+             summary.get("client_recap"))
+
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(20, pdf.get_y(), 190, pdf.get_y())
+    pdf.ln(6)
+    pdf.set_font("DejaVu", "B", 13)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 8, "Transcript", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(2)
+
+
+def _render_summary_docx(doc, summary: dict) -> None:
+    """Prepend the therapist-only summary to the DOCX, above the transcript."""
+    from docx.shared import Pt, RGBColor
+
+    h = doc.add_heading("Clinician Summary — Private (therapist only)", level=2)
+    h.runs[0].font.color.rgb = RGBColor(0x92, 0x27, 0x0F)
+    disc = doc.add_paragraph()
+    run = disc.add_run(summary.get("disclaimer", ""))
+    run.italic = True
+    run.font.size = Pt(9)
+    run.font.color.rgb = RGBColor(0x78, 0x78, 0x78)
+
+    def _section(title, body):
+        if not body:
+            return
+        p = doc.add_paragraph()
+        p.add_run(title).bold = True
+        doc.add_paragraph(body)
+
+    _section("Clinical summary",
+             summary.get("clinical") or "(AI narrative unavailable — see transcript below.)")
+
+    p = doc.add_paragraph()
+    p.add_run("ICD codes (billing reference)").bold = True
+    codes = summary.get("codes") or []
+    if codes:
+        for c in codes:
+            label = f"{c['label']} — " if c.get("label") else ""
+            doc.add_paragraph(f"• {label}{c.get('code', '')}  ({c.get('source', '')})")
+    else:
+        doc.add_paragraph("No ICD reference codes surfaced during this session.")
+    if summary.get("codes_rationale"):
+        doc.add_paragraph(summary["codes_rationale"])
+
+    _section("Client-facing draft — share only at your discretion "
+             "(the client cannot see this unless you give it to them)",
+             summary.get("client_recap"))
+
+    doc.add_paragraph("─" * 40)
+    doc.add_heading("Transcript", level=2)
+
+
 @app.route("/transcript/<session_id>/pdf")
 def download_transcript_pdf(session_id):
     if not _user_can_access_session(session_id, session.get("user_id")):
@@ -1790,6 +1981,11 @@ def download_transcript_pdf(session_id):
     pdf.set_draw_color(200, 200, 200)
     pdf.line(20, pdf.get_y(), 190, pdf.get_y())
     pdf.ln(6)
+
+    # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    _ts_therapist = _is_session_therapist(session_id)
+    if _ts_therapist is not None:
+        _render_summary_pdf(pdf, _session_summary_payload(session_id, _ts_therapist))
 
     # Assign a distinct RGB color to each human participant
     _PDF_PARTICIPANT_COLORS = [
@@ -1877,6 +2073,11 @@ def download_transcript_docx(session_id):
     meta3.add_run(generated_at)
 
     doc.add_paragraph("─" * 40)
+
+    # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    _ts_therapist = _is_session_therapist(session_id)
+    if _ts_therapist is not None:
+        _render_summary_docx(doc, _session_summary_payload(session_id, _ts_therapist))
 
     # Assign a distinct color to each human participant (AI is always green)
     _PARTICIPANT_COLORS = [
