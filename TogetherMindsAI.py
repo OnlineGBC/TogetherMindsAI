@@ -1729,8 +1729,10 @@ def _transcript_data(session_id):
         .all()
     )
     ts = db.session.get(TherapySession, session_id)
-    user = db.session.get(User, ts.created_by) if ts else None
-    mode = user.therapy_mode.capitalize() if user else "Unknown"
+    # Use the session's own mode (authoritative). The creator of a therapist-led
+    # session is a Clinician, not a User row, so deriving mode from User.therapy_mode
+    # yielded "Unknown" for those sessions.
+    mode = ts.mode.capitalize() if ts and ts.mode else "Unknown"
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return messages, mode, generated_at
 
@@ -1851,13 +1853,18 @@ def _render_summary_pdf(pdf, summary: dict) -> None:
     """Prepend the therapist-only summary to the PDF, above the transcript."""
     from fpdf.enums import XPos, YPos
 
+    # multi_cell defaults to new_x=RIGHT, which leaves the cursor at the right
+    # margin and makes the NEXT multi_cell raise "not enough horizontal space".
+    # Return to the left margin after every block.
+    mc = {"new_x": XPos.LMARGIN, "new_y": YPos.NEXT}
+
     pdf.set_font("DejaVu", "B", 14)
     pdf.set_text_color(146, 39, 15)
     pdf.cell(0, 9, "Clinician Summary — Private (therapist only)",
              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("DejaVu", "", 9)
     pdf.set_text_color(120, 120, 120)
-    pdf.multi_cell(0, 5, summary.get("disclaimer", ""))
+    pdf.multi_cell(0, 5, summary.get("disclaimer", ""), **mc)
     pdf.ln(2)
 
     def _section(title, body):
@@ -1865,10 +1872,10 @@ def _render_summary_pdf(pdf, summary: dict) -> None:
             return
         pdf.set_font("DejaVu", "B", 11)
         pdf.set_text_color(40, 40, 40)
-        pdf.multi_cell(0, 6, title)
+        pdf.multi_cell(0, 6, title, **mc)
         pdf.set_font("DejaVu", "", 10)
         pdf.set_text_color(30, 30, 30)
-        pdf.multi_cell(0, 5, body)
+        pdf.multi_cell(0, 5, body, **mc)
         pdf.ln(2)
 
     _section("Clinical summary",
@@ -1877,19 +1884,19 @@ def _render_summary_pdf(pdf, summary: dict) -> None:
     # ICD codes — always rendered (grounded data), even if the narrative failed.
     pdf.set_font("DejaVu", "B", 11)
     pdf.set_text_color(40, 40, 40)
-    pdf.multi_cell(0, 6, "ICD codes (billing reference)")
+    pdf.multi_cell(0, 6, "ICD codes (billing reference)", **mc)
     pdf.set_font("DejaVu", "", 10)
     pdf.set_text_color(30, 30, 30)
     codes = summary.get("codes") or []
     if codes:
         for c in codes:
             label = f"{c['label']} — " if c.get("label") else ""
-            pdf.multi_cell(0, 5, f"• {label}{c.get('code', '')}  ({c.get('source', '')})")
+            pdf.multi_cell(0, 5, f"• {label}{c.get('code', '')}  ({c.get('source', '')})", **mc)
     else:
-        pdf.multi_cell(0, 5, "No ICD reference codes surfaced during this session.")
+        pdf.multi_cell(0, 5, "No ICD reference codes surfaced during this session.", **mc)
     if summary.get("codes_rationale"):
         pdf.ln(1)
-        pdf.multi_cell(0, 5, summary["codes_rationale"])
+        pdf.multi_cell(0, 5, summary["codes_rationale"], **mc)
     pdf.ln(2)
 
     _section("Client-facing draft — share only at your discretion "

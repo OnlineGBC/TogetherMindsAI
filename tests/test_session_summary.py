@@ -33,7 +33,7 @@ os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 from datetime import datetime, timezone, timedelta
 
 import clinical_summary
-from TogetherMindsAI import app, _surfaced_codes, _session_summary_payload
+from TogetherMindsAI import app, _surfaced_codes, _session_summary_payload, _transcript_data
 from models import db, init_encryption, TherapySession, ChatMessage, CopilotCard
 from session_id import generate_session_id
 
@@ -208,6 +208,34 @@ def test_client_docx_has_no_summary(enc_client):
     assert "Clinician Summary" not in text
     assert "CLINICAL_RECAP_MARKER." not in text
     gen.assert_not_called()                      # never even generated for a client
+
+
+def test_therapist_pdf_renders_with_summary(enc_client):
+    """Regression: the therapist PDF must render with a multi-paragraph summary —
+    chained multi_cell calls previously crashed fpdf ('not enough horizontal space')."""
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
+    fake = {
+        "clinical": "Para one — racing heart when bills arrive.\n\nPara two — nightmares since job loss.",
+        "codes_rationale": "F43.2 (Adjustment disorder) fits the stressor-linked onset.",
+        "client_recap": "Today we talked about the stress of the job loss and some next steps.",
+    }
+    with patch("clinical_summary.generate", return_value=fake):
+        rv = enc_client.get(f"/transcript/{sid}/pdf")
+    assert rv.status_code == 200
+    assert rv.data[:4] == b"%PDF"
+    assert rv.mimetype == "application/pdf"
+
+
+def test_transcript_mode_uses_session_not_user(enc_client):
+    """Therapist-led sessions have a Clinician creator (no User row), so mode must
+    come from the session itself — not resolve to 'Unknown'."""
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        _messages, mode, _generated = _transcript_data(sid)
+    assert mode == "Solo"
 
 
 def test_therapist_docx_still_works_when_narrative_fails(enc_client):
