@@ -188,7 +188,19 @@
         "can't adjust",
         "struggling to cope with the change",
         "stressor",
-        "ever since it happened"
+        "ever since it happened",
+        "stressed out",
+        "under a lot of stress",
+        "lost my job",
+        "out of work",
+        "can't find work",
+        "can't pay",
+        "behind on rent",
+        "behind on bills",
+        "money problems",
+        "no income",
+        "drowning in debt",
+        "laid off"
       ],
       "source": "ICD-10-CM F43.2 (CMS, public domain)"
     },

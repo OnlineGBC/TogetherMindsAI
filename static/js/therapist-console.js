@@ -42,6 +42,15 @@ function initTherapistConsole(sessionId, userId) {
         _tcTrim();
     });
 
+    // Stored card history, replayed once on (re)connect so the panel survives a
+    // reload or server restart instead of starting blank. Oldest first → newest
+    // ends on top, matching the live feed.
+    sock.on("card_history", function (data) {
+        var cards = (data && data.cards) || [];
+        cards.forEach(_tcRenderCard);
+        _tcTrim();
+    });
+
     // Notes box → therapist_note
     var noteInput = document.getElementById("tcNoteInput");
     var noteBtn   = document.getElementById("tcNoteBtn");

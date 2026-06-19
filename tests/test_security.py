@@ -172,6 +172,50 @@ class TestPurgeExpiredSessions:
 
 
 # ---------------------------------------------------------------------------
+# GDPR erasure leaves a per-session audit trail (no silent content deletion)
+# ---------------------------------------------------------------------------
+
+class TestGdprDeleteAuditTrail:
+    def test_delete_user_records_per_session_erasure_and_clears_participation(self, enc_client):
+        """A GDPR delete must leave each affected session's own audit trail a record
+        that its content was erased, and remove the orphaned participation link."""
+        from models import AuditLog, SessionParticipant, User
+
+        uid = "gdpr-user-1"
+        sid = generate_session_id()
+        with app.app_context():
+            db.session.add(TherapySession(
+                id=sid, mode="solo", created_by=uid,
+                created_at=datetime.now(timezone.utc),
+                retention_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+                therapist_id=uid,
+            ))
+            db.session.add(User(id=uid, therapy_mode="solo"))
+            db.session.add(ChatMessage(session_id=sid, user_id=uid, text="hello there"))
+            db.session.add(SessionParticipant(
+                session_id=sid, user_id=uid, joined_at=datetime.now(timezone.utc)))
+            db.session.commit()
+
+        with enc_client.session_transaction() as s:
+            s["user_id"] = uid
+        rv = enc_client.delete(f"/user/{uid}")
+        assert rv.status_code == 200
+
+        with app.app_context():
+            # Content and participation are gone.
+            assert ChatMessage.query.filter_by(user_id=uid).count() == 0
+            assert SessionParticipant.query.filter_by(user_id=uid).count() == 0
+            # The session itself survives (the user only erased their own data)...
+            assert TherapySession.query.get(sid) is not None
+            # ...and its audit trail now shows the erasure, keyed to THIS session_id.
+            per_session = AuditLog.query.filter_by(
+                event_type="session_content_erased_gdpr", session_id=sid).all()
+            assert len(per_session) == 1
+            # The user-level event is still emitted too.
+            assert AuditLog.query.filter_by(event_type="data_deleted_user").count() >= 1
+
+
+# ---------------------------------------------------------------------------
 # Session cookie security flags (finding 3.4)
 # ---------------------------------------------------------------------------
 

@@ -214,3 +214,34 @@ class NotificationLog(db.Model):
 
     def __repr__(self):
         return f"<NotificationLog {self.key} {self.year}>"
+
+
+class CopilotCard(db.Model):
+    """A persisted therapist co-pilot card (suggestion, risk, or reference).
+
+    Cards used to be ephemeral — emitted over SocketIO with only a count logged —
+    so anything beyond the console's in-memory window was lost on scroll, reload,
+    or server restart. Storing them lets the therapist console replay the full
+    history on (re)connect.
+
+    `text` and `payload` are encrypted because a card can quote client content.
+    `payload` is the full emitted card dict as JSON, so the console re-renders
+    exactly what was shown (code links, source, priority included).
+
+    Lifecycle: purged with the parent session (retention), and erased in the
+    GDPR delete-user flow for any session the deleted user took part in (a card
+    may quote that person's now-erased words).
+    """
+    __tablename__ = "copilot_cards"
+
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    session_id      = db.Column(db.String(36), index=True, nullable=False)
+    card_type       = db.Column(db.String(20), nullable=False)   # question|technique|observation|risk|reference
+    text            = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
+    payload         = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
+    confidence      = db.Column(db.Float, nullable=True)
+    trigger_user_id = db.Column(db.String(36), nullable=True)    # who spoke the turn that produced the card
+    created_at      = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def __repr__(self):
+        return f"<CopilotCard id={self.id} session={self.session_id} type={self.card_type}>"

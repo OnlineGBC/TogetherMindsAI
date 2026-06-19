@@ -195,6 +195,17 @@ def test_build_reference_cards_reexported_from_copilot():
     assert "F43.10" in cards[0]["code"]
 
 
+def test_build_reference_cards_grounds_plain_financial_stress():
+    """Everyday financial/employment-stress language (no clinical jargon) now clears
+    the threshold and maps to Adjustment disorder — closing the gap where a real
+    'I'm stressed, I lost my job, can't pay rent' session grounded to nothing."""
+    cards = copilot.build_reference_cards(
+        "I'm so stressed out — I lost my job and now I can't pay the rent"
+    )
+    assert cards
+    assert any("F43.2" in c.get("code", "") for c in cards)
+
+
 # ---------------------------------------------------------------------------
 # build_risk_cards
 # ---------------------------------------------------------------------------
@@ -513,3 +524,65 @@ def test_therapist_led_solo_cards_isolated_and_no_autoreply(enc_client):
     assert "suggestion_cards" not in _names(c_recv)
     c_new = _args_of(c_recv, "new_message")
     assert all(m["user_id"] != "AI" for m in c_new)
+
+
+# ---------------------------------------------------------------------------
+# Card persistence + history replay (cards survive reload / restart)
+# ---------------------------------------------------------------------------
+
+def test_cards_are_persisted_for_retrieval(enc_client):
+    """Emitted co-pilot cards are stored, so they can be replayed later instead of
+    being lost once they scroll out of the live console."""
+    from models import CopilotCard
+
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+    fake = [{"type": "question", "text": "Ask what changed this week.", "confidence": 0.7}]
+    with patch("copilot.generate_suggestions", return_value=fake):
+        c_sio.emit("send_message", {"session_id": sid, "user_id": client_user,
+                                    "text": "Things feel different lately", "mode": "couple"})
+
+    with app.app_context():
+        rows = CopilotCard.query.filter_by(session_id=sid).all()
+        assert any(r.card_type == "question" and "changed this week" in r.text for r in rows)
+        # The triggering speaker is recorded.
+        assert any(r.trigger_user_id == client_user for r in rows)
+
+
+def test_therapist_join_replays_card_history(enc_client):
+    """A therapist (re)joining receives the stored cards as `card_history`, so the
+    panel shows full history rather than starting blank."""
+    from models import CopilotCard
+
+    therapist_id = str(uuid.uuid4())
+    sid = _insert_session(mode="couple", therapist_id=therapist_id, created_by=therapist_id)
+    with app.app_context():
+        card = {"type": "observation", "text": "Earlier note worth recalling.", "confidence": 0.5}
+        db.session.add(CopilotCard(
+            session_id=sid, card_type="observation",
+            text=card["text"], payload=json.dumps(card), confidence=0.5,
+        ))
+        db.session.commit()
+
+    t_sio = socketio.test_client(app, flask_test_client=enc_client)
+    t_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": "couple"})
+    hist = _args_of(t_sio.get_received(), "card_history")
+    assert hist and any("Earlier note" in c["text"] for c in hist[0]["cards"])
+
+
+def test_card_history_not_sent_to_clients(enc_client):
+    """History replay is therapist-only — a client joining must never receive it."""
+    from models import CopilotCard
+
+    therapist_id = str(uuid.uuid4())
+    sid = _insert_session(mode="couple", therapist_id=therapist_id, created_by=therapist_id)
+    with app.app_context():
+        card = {"type": "observation", "text": "Private earlier note.", "confidence": 0.5}
+        db.session.add(CopilotCard(
+            session_id=sid, card_type="observation",
+            text=card["text"], payload=json.dumps(card), confidence=0.5,
+        ))
+        db.session.commit()
+
+    c_sio = socketio.test_client(app, flask_test_client=enc_client)
+    c_sio.emit("join", {"session_id": sid, "user_id": str(uuid.uuid4()), "mode": "couple"})
+    assert "card_history" not in _names(c_sio.get_received())

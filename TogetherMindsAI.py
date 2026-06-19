@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
@@ -199,11 +199,13 @@ def _build_transcript(session_id: str, limit: int = 20) -> str:
     return "\n".join(lines)
 
 
-def _run_copilot(session_id: str, mode: str, trigger_text: str = None) -> None:
+def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
+                 trigger_user_id: str = None) -> None:
     """Generate co-pilot cards and emit them to the therapist-only room.
 
     `trigger_text`, when given, is the latest client utterance — used for the
-    zero-latency keyword risk check. Never raises into the caller.
+    zero-latency keyword risk check. `trigger_user_id` is the speaker of that
+    turn, stored alongside the card. Never raises into the caller.
     """
     try:
         transcript = _build_transcript(session_id)
@@ -224,8 +226,60 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None) -> None:
 
         socketio.emit("suggestion_cards", {"cards": cards}, to=_therapist_room(session_id))
         log_event("suggestions_generated", session_id=session_id, count=len(cards))
+        _persist_cards(session_id, cards, trigger_user_id)
     except Exception as e:
         app.logger.error("copilot error: %s", type(e).__name__)
+
+
+def _persist_cards(session_id: str, cards: list, trigger_user_id: str = None) -> None:
+    """Store emitted co-pilot cards so the console can replay full history later.
+
+    Best-effort and isolated: a storage failure must never disrupt the live
+    session (the cards have already been emitted), so it is caught and rolled
+    back on its own.
+    """
+    import json
+    try:
+        for c in cards:
+            db.session.add(CopilotCard(
+                session_id=session_id,
+                card_type=c.get("type", "observation"),
+                text=c.get("text", ""),
+                payload=json.dumps(c, sort_keys=True),
+                confidence=c.get("confidence"),
+                trigger_user_id=trigger_user_id,
+            ))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error("copilot card persist failed: %s", type(e).__name__)
+
+
+def _emit_card_history(session_id: str) -> None:
+    """Replay stored co-pilot cards to the just-joined therapist console.
+
+    Emits to the requesting socket only (called from on_join inside the
+    therapist-only branch), so clients can never receive the history.
+    """
+    import json
+    try:
+        stored = (
+            CopilotCard.query
+            .filter_by(session_id=session_id)
+            .order_by(CopilotCard.created_at.asc(), CopilotCard.id.asc())
+            .all()
+        )
+        if not stored:
+            return
+        cards = []
+        for row in stored:
+            try:
+                cards.append(json.loads(row.payload))
+            except (ValueError, TypeError):
+                cards.append({"type": row.card_type, "text": row.text})
+        emit("card_history", {"cards": cards})
+    except Exception as e:
+        app.logger.error("card history load failed: %s", type(e).__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +396,7 @@ def _purge_expired_sessions():
 
             for ts in expired:
                 ChatMessage.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
+                CopilotCard.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 Exercise.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 RateLimitEntry.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 db.session.delete(ts)
@@ -1624,12 +1679,37 @@ def delete_user(user_id):
     if session.get("user_id") != user_id:
         return jsonify({"error": "Forbidden"}), 403
 
+    # Capture every session this user touched BEFORE deleting. The user-level
+    # data_deleted_user event carries no session_id, so without this each affected
+    # session's own audit trail would show no sign its content was erased (the gap
+    # that made an erased therapist's messages look like a mystery deletion).
+    affected = {
+        sid for (sid,) in db.session.query(ChatMessage.session_id)
+        .filter_by(user_id=user_id).distinct()
+    }
+    affected |= {
+        sid for (sid,) in db.session.query(SessionParticipant.session_id)
+        .filter_by(user_id=user_id).distinct()
+    }
+    messages_deleted = ChatMessage.query.filter_by(user_id=user_id).count()
+
     Exercise.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     ChatMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     RateLimitEntry.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    # Clear the participation links too — otherwise they orphan the erased user.
+    SessionParticipant.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    # Co-pilot cards in those sessions may quote the now-erased content.
+    for sid in affected:
+        CopilotCard.query.filter_by(session_id=sid).delete(synchronize_session=False)
     User.query.filter_by(id=user_id).delete(synchronize_session=False)
     db.session.commit()
-    log_event("data_deleted_user", user_id=user_id, trigger="user_gdpr_request")
+
+    log_event("data_deleted_user", user_id=user_id, trigger="user_gdpr_request",
+              sessions_affected=len(affected), messages_deleted=messages_deleted)
+    # One per-session record so each affected session's audit trail shows the erasure.
+    for sid in affected:
+        log_event("session_content_erased_gdpr", session_id=sid, user_id=user_id,
+                  trigger="user_gdpr_request")
 
     session.clear()
     return jsonify({"deleted": True}), 200
@@ -2008,6 +2088,9 @@ def on_join(data):
             if user_id == ts.therapist_id:
                 join_room(_therapist_room(session_id))
                 emit("console_init", {"mode": mode})
+                # Replay any stored cards so the console shows full history, not
+                # just whatever arrived live since this connection opened.
+                _emit_card_history(session_id)
 
         # Assign join position (used for default display names)
         joined = session_joined_users.setdefault(session_id, [])
@@ -2121,11 +2204,11 @@ def on_send_message(data):
                          to=session_id)
                     log_event("crisis_detected", session_id=session_id, user_id=user_id,
                               layer="keyword", recipient="client_and_therapist")
-                _run_copilot(session_id, mode, trigger_text=text)
+                _run_copilot(session_id, mode, trigger_text=text, trigger_user_id=user_id)
             else:
                 # THERAPIST spoke. Reflect on the intervention too. No client crisis
                 # net and no keyword risk card from the therapist's own words.
-                _run_copilot(session_id, mode, trigger_text=None)
+                _run_copilot(session_id, mode, trigger_text=None, trigger_user_id=user_id)
             return
     except Exception as e:
         app.logger.error("on_send_message error: %s", type(e).__name__)
@@ -2155,7 +2238,8 @@ def on_therapist_note(data):
     notes = session_therapist_notes.setdefault(session_id, [])
     notes.append(text)
     del notes[:-20]   # keep the most recent notes only
-    _run_copilot(session_id, room_mode.get(session_id, "solo"), trigger_text=None)
+    _run_copilot(session_id, room_mode.get(session_id, "solo"), trigger_text=None,
+                 trigger_user_id=user_id)
 
 
 @socketio.on("set_display_name")
