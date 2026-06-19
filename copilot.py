@@ -39,6 +39,11 @@ SUGGESTION_CARD_TYPES = {"question", "technique", "observation"}
 # Cap per turn so the panel stays glanceable, not a wall of text.
 MAX_CARDS_PER_TURN = 3
 
+# Model for the suggestion (question/technique/observation) call. Behind a
+# constant so swapping to a stronger model (e.g. "claude-opus-4-8") is one edit.
+# The grounded reference/risk layers are deterministic and don't use a model.
+ADVISOR_MODEL = "claude-sonnet-4-6"
+
 _MODE_FRAMING = {
     "solo":   "a one-on-one session between the therapist and a single client",
     "couple": "a couples session the therapist is facilitating between two partners",
@@ -60,17 +65,23 @@ Output a JSON array of AT MOST {max_cards} cards. Each card is an object:
 
 Rules:
 - Terse. One or two lines per card. No preamble, no sign-off, no markdown.
-- Whenever the latest turn carries any emotional or clinical content, offer at least one card —
-  a specific next question, a fitting technique, or a pattern worth noting. A practising therapist
-  would rather glance at a relevant cue than see an empty panel.
-- Return [] ONLY when the latest turn is purely logistical or social ("hi", "thanks", "one sec")
-  or a card would just restate the obvious. Do not pad with empty praise.
+- GROUND every card in what was actually said. An "observation" must reflect the client's own
+  words, not a theme you infer. Do NOT introduce ideas the client has not expressed (e.g. self-worth,
+  shame, identity) and then treat them as established. If something is a hypothesis, mark it tentative
+  ("possible…", "might be…") and tie it to the specific turn that prompted it.
+- ATTRIBUTE correctly. The transcript labels each turn "Therapist:" or "Client:". Credit a statement,
+  feeling, or theme ONLY to the speaker who actually said it. Never present the therapist's words —
+  including options offered inside a question — as the client's. If the therapist introduced a topic,
+  do NOT describe the client as raising it "unprompted" or "on their own".
+- Offer a card only when it is directly supported by the latest turns. Prefer an empty panel to a
+  speculative one: return [] rather than manufacture a pattern, and also when the latest turn is purely
+  logistical or social ("hi", "thanks", "one sec") or a card would just restate the obvious.
 - "question": a specific question the therapist might pose next.
 - "technique": a named tool/technique that fits right now, stated in a phrase.
-- "observation": a pattern worth noting (e.g. possible catastrophizing, repeated deflection).
-- The transcript labels each turn "Therapist:" or "Client:". If the THERAPIST just spoke, react to
-  that intervention — a sharper follow-up, a refinement, or a gentle caution if it risks closing
-  the client down.
+- "observation": a grounded pattern worth noting (e.g. possible catastrophizing, repeated deflection)
+  — only when the transcript actually shows it.
+- If the THERAPIST just spoke, react to that intervention — a sharper follow-up, a refinement, or a
+  gentle caution if it risks closing the client down.
 - Do NOT produce risk or crisis flags — those are handled by a separate safety layer.
 - You may be given a "Reference material" block of ICD entries. Let it sharpen your
   question / technique / observation cards, but do NOT output diagnoses, ICD/DSM
@@ -107,7 +118,7 @@ def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: s
     try:
         client = _get_claude_client()
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=ADVISOR_MODEL,
             max_tokens=400,
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
