@@ -57,10 +57,14 @@ Return a JSON object with exactly these three string fields:
       consideration — NOT a diagnosis and NOT a billing determination. If no codes are
       provided, return an empty string. Never introduce a code that is not in the list.
 
-  "client_recap": a warm, plain-language recap suitable to share WITH THE CLIENT — what
-      was talked about and any agreed next steps, in supportive, validating language.
-      NO diagnoses, NO ICD/DSM codes, no clinical jargon. Write it directly to the client
-      ("Today we talked about ...").
+  "client_recap": a detailed, warm, plain-language recap written directly to the client
+      ("Today we talked about ..."). Cover, in a few short paragraphs: what you discussed
+      and why it seems to matter to them; the main feelings and concerns they shared,
+      reflected back with empathy; any strengths, insights, or helpful reframes that came
+      up; the concrete next steps, ideas, or things to try that were agreed or suggested;
+      and a brief encouraging close. Use supportive, validating, everyday language — NO
+      diagnoses, NO ICD/DSM codes, no clinical jargon. Be specific to THIS conversation,
+      not generic.
 
 Rules:
 - Ground everything strictly in the transcript. Do not invent events, quotes, or codes.
@@ -98,7 +102,7 @@ def generate(transcript: str, surfaced_codes: list, mode: str = "solo") -> "dict
         client = _get_claude_client()
         response = client.messages.create(
             model=SUMMARY_MODEL,
-            max_tokens=2000,
+            max_tokens=3000,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_content}],
         )
