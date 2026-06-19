@@ -29,8 +29,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["generate", "DISCLAIMER"]
 
-# Matches the proven co-pilot path; bump to "claude-opus-4-8" for richer summaries.
-SUMMARY_MODEL = "claude-sonnet-4-6"
+# Opus for the clinical summary: an infrequent, on-demand, quality-sensitive call
+# (richer clinical synthesis + tighter grounding than Sonnet). Drop to
+# "claude-sonnet-4-6" to trade some quality for lower cost/latency.
+SUMMARY_MODEL = "claude-opus-4-8"
 
 DISCLAIMER = (
     "Therapist-only. AI-generated decision support — not a diagnosis and not a "
