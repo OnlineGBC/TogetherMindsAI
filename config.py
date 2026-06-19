@@ -120,6 +120,11 @@ ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 # same env vars directly; they are surfaced here for discoverability.
 EMBEDDING_ENABLED: bool = os.environ.get("EMBEDDING_ENABLED", "true").lower() in ("1", "true", "yes")
 EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+# Cosine-similarity thresholds for ICD grounding — tunable without a code change
+# (env locally, GSM secret on Cloud Run). Card threshold is stricter than the
+# prompt-block one. clinical_reference.py reads these same vars directly.
+EMBEDDING_MIN_SIM_CARD: float = float(os.environ.get("EMBEDDING_MIN_SIM_CARD", "0.58"))
+EMBEDDING_MIN_SIM_BLOCK: float = float(os.environ.get("EMBEDDING_MIN_SIM_BLOCK", "0.55"))
 
 # ---------------------------------------------------------------------------
 # Clinician OAuth login (OpenID Connect) — Google & Microsoft.

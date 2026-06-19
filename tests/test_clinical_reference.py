@@ -200,3 +200,23 @@ def test_retrieve_falls_back_to_lexical_when_embeddings_unavailable():
         hits = cref.retrieve("I feel so anxious and worry about everything, I can't relax")
     assert "Generalized anxiety disorder" in [h["label"] for h in hits]
     assert "_score" in hits[0]        # lexical entries carry _score, not _sim
+
+
+# ---------------------------------------------------------------------------
+# Threshold configuration (env / GSM-overridable, default-safe)
+# ---------------------------------------------------------------------------
+
+def test_default_similarity_thresholds():
+    assert cref._MIN_SIM_CARD == 0.58
+    assert cref._MIN_SIM_BLOCK == 0.55
+
+
+def test_env_float_override_and_bad_value():
+    assert cref._env_float("___UNSET_SIM___", "0.58") == 0.58       # missing → default
+    os.environ["___TMP_SIM___"] = "0.7"
+    try:
+        assert cref._env_float("___TMP_SIM___", "0.58") == 0.7      # override honored
+        os.environ["___TMP_SIM___"] = "not-a-number"
+        assert cref._env_float("___TMP_SIM___", "0.58") == 0.58     # bad value → default
+    finally:
+        os.environ.pop("___TMP_SIM___", None)

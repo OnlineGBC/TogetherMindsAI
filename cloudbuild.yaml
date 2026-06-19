@@ -86,6 +86,11 @@ steps:
       - RATE_MAX_MESSAGES=RATE_MAX_MESSAGES:latest
       - --set-secrets
       - MAX_MESSAGE_LENGTH=MAX_MESSAGE_LENGTH:latest
+      # ICD-grounding cosine thresholds — tunable without an image rebuild.
+      - --set-secrets
+      - EMBEDDING_MIN_SIM_CARD=EMBEDDING_MIN_SIM_CARD:latest
+      - --set-secrets
+      - EMBEDDING_MIN_SIM_BLOCK=EMBEDDING_MIN_SIM_BLOCK:latest
       - --set-secrets
       - CLOUD_SQL_CONNECTION_NAME=CLOUD_SQL_CONNECTION_NAME:latest
       - --set-secrets

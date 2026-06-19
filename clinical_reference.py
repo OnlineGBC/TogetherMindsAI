@@ -67,8 +67,19 @@ _EMBEDDINGS_ENABLED = (
     and os.environ.get("TESTING", "false").lower() not in ("1", "true")
 )
 _EMBEDDING_CACHE = os.environ.get("FASTEMBED_CACHE_DIR") or None
-_MIN_SIM_CARD = 0.58    # surfaced reference cards (strict — rejects benign turns)
-_MIN_SIM_BLOCK = 0.55   # prompt-injection reference block (slightly looser)
+
+
+def _env_float(name: str, default: str) -> float:
+    """Read a float env override, falling back to the default on a missing/bad value."""
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+# Cosine thresholds — overridable without a code change via env / GSM secret.
+_MIN_SIM_CARD = _env_float("EMBEDDING_MIN_SIM_CARD", "0.58")     # surfaced cards (strict)
+_MIN_SIM_BLOCK = _env_float("EMBEDDING_MIN_SIM_BLOCK", "0.55")   # prompt block (slightly looser)
 
 _corpus_cache = None
 _model = None
