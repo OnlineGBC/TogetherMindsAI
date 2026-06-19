@@ -37,3 +37,7 @@ gunicorn==25.3.0
 alembic==1.18.4
 # Browser-based end-to-end tests
 pytest-playwright==0.7.2
+# Local semantic retrieval for ICD grounding — fastembed runs BAAI/bge-small-en-v1.5
+# via ONNX in-process (no PHI leaves the instance, no API key). Pulls in
+# onnxruntime + numpy. The model is pre-baked into the Docker image (see Dockerfile).
+fastembed==0.8.0

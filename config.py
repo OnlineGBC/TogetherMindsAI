@@ -109,6 +109,19 @@ FIELD_ENCRYPTION_KEY: str = os.environ.get("FIELD_ENCRYPTION_KEY", "")
 ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ---------------------------------------------------------------------------
+# Clinical-reference semantic retrieval (local embeddings)
+# ---------------------------------------------------------------------------
+# The co-pilot's ICD grounding matches the transcript against a curated corpus.
+# When enabled, matching is done by MEANING via a small local embedding model
+# (fastembed / ONNX, in-process — no transcript text ever leaves the instance),
+# so everyday phrasing the keyword list misses still grounds. It degrades to
+# pure keyword matching whenever the model is unavailable. No API key, no secret
+# — the model is baked into the Docker image. clinical_reference.py reads these
+# same env vars directly; they are surfaced here for discoverability.
+EMBEDDING_ENABLED: bool = os.environ.get("EMBEDDING_ENABLED", "true").lower() in ("1", "true", "yes")
+EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+
+# ---------------------------------------------------------------------------
 # Clinician OAuth login (OpenID Connect) — Google & Microsoft.
 # Optional: the app starts fine without these, but the /login buttons only work
 # once the corresponding client id/secret are set. No email/PII is stored — only

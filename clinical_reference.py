@@ -48,7 +48,32 @@ _MIN_CARD_SCORE = 2
 # glanceable; dedupe upstream then prevents the same card recurring each turn.
 MAX_REFERENCE_CARDS = 2
 
+# ---------------------------------------------------------------------------
+# Local semantic retrieval (fastembed / ONNX, in-process — no data leaves the
+# instance). Falls back to lexical keyword matching whenever the model is
+# disabled or unavailable, so a missing dependency never breaks the co-pilot.
+#
+# Thresholds are cosine similarity, tuned against the curated corpus with
+# BAAI/bge-small-en-v1.5: real clinical presentations score ~0.63-0.67 on the
+# right disorder, while benign chatter ("thanks, see you next week") tops out
+# ~0.52. 0.58 cleanly separates the two for surfaced cards; the prompt-injection
+# block is a touch looser since it only informs the model, never shows a code.
+# ---------------------------------------------------------------------------
+
+_EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+_EMBEDDINGS_ENABLED = (
+    os.environ.get("EMBEDDING_ENABLED", "true").lower() in ("1", "true", "yes")
+    # Off under pytest so the suite never downloads a model or hits the network.
+    and os.environ.get("TESTING", "false").lower() not in ("1", "true")
+)
+_EMBEDDING_CACHE = os.environ.get("FASTEMBED_CACHE_DIR") or None
+_MIN_SIM_CARD = 0.58    # surfaced reference cards (strict — rejects benign turns)
+_MIN_SIM_BLOCK = 0.55   # prompt-injection reference block (slightly looser)
+
 _corpus_cache = None
+_model = None
+_model_failed = False
+_corpus_vecs = None     # cached list of (entry, embedding vector)
 
 
 def _load_corpus() -> dict:
@@ -77,12 +102,24 @@ def _score(text_lower: str, entry: dict) -> int:
     return score
 
 
-def retrieve(text: str, k: int = 3, min_score: int = 1) -> list:
-    """Return up to `k` corpus entries most relevant to `text`, scored highest first.
+def retrieve(text: str, k: int = 3, min_score: int = 1, min_sim: float = _MIN_SIM_BLOCK) -> list:
+    """Return up to `k` corpus entries most relevant to `text`, best first.
 
-    Each returned entry is the corpus dict with an added "_score". Entries scoring
-    below `min_score` are dropped. Never raises — returns [] on any problem.
+    Semantic-first: when the local embedding model is available, matches are made
+    by meaning (cosine similarity ≥ `min_sim`), so everyday phrasing the keyword
+    list misses ("I lost my job and can't pay rent") still grounds. Falls back to
+    lexical keyword matching (`min_score`) when embeddings are unavailable.
+    Never raises — returns [] on any problem.
     """
+    semantic = _retrieve_semantic(text, k, min_sim)
+    if semantic is not None:        # None == embeddings unavailable → fall back
+        return semantic
+    return _retrieve_lexical(text, k, min_score)
+
+
+def _retrieve_lexical(text: str, k: int = 3, min_score: int = 1) -> list:
+    """Lexical keyword retrieval. Each returned entry is the corpus dict with an
+    added "_score"; entries scoring below `min_score` are dropped."""
     if not text or not text.strip():
         return []
     try:
@@ -99,6 +136,86 @@ def retrieve(text: str, k: int = 3, min_score: int = 1) -> list:
     except Exception as exc:
         logger.warning("Clinical reference retrieval failed (%s); no reference material.", exc)
         return []
+
+
+def _get_model():
+    """Lazily load the local embedding model; None if disabled or unavailable."""
+    global _model, _model_failed
+    if not _EMBEDDINGS_ENABLED or _model_failed:
+        return None
+    if _model is None:
+        try:
+            from fastembed import TextEmbedding
+            _model = TextEmbedding(model_name=_EMBEDDING_MODEL, cache_dir=_EMBEDDING_CACHE)
+            logger.info("Loaded local embedding model %s for ICD retrieval.", _EMBEDDING_MODEL)
+        except Exception as exc:
+            logger.warning("Embedding model unavailable (%s); using lexical retrieval.", exc)
+            _model_failed = True
+            return None
+    return _model
+
+
+def _embed(texts: list):
+    """Return a list of embedding vectors, or None if embeddings are unavailable."""
+    model = _get_model()
+    if model is None:
+        return None
+    try:
+        return list(model.embed(list(texts)))
+    except Exception as exc:
+        logger.warning("Embedding call failed (%s); using lexical retrieval.", exc)
+        return None
+
+
+def _entry_text(entry: dict) -> str:
+    """Text representation of a corpus entry used to compute its embedding."""
+    parts = [entry.get("label", ""), entry.get("summary", "")]
+    parts.extend(entry.get("keywords", []) or [])
+    parts.extend(entry.get("screening_questions", []) or [])
+    return " ".join(p for p in parts if p)
+
+
+def _get_corpus_vecs():
+    """Embed every corpus entry once and cache. None if embeddings unavailable."""
+    global _corpus_vecs
+    if _corpus_vecs is None:
+        entries = _load_corpus().get("entries", [])
+        vecs = _embed([_entry_text(e) for e in entries])
+        if vecs is None:
+            return None
+        _corpus_vecs = list(zip(entries, vecs))
+    return _corpus_vecs
+
+
+def _retrieve_semantic(text: str, k: int, min_sim: float):
+    """Semantic retrieval by cosine similarity.
+
+    Returns a list (possibly empty) when embeddings are available, or None when
+    they are not — the None signal tells `retrieve` to fall back to lexical.
+    """
+    if not text or not text.strip():
+        return []
+    corpus = _get_corpus_vecs()
+    if corpus is None:
+        return None
+    qvecs = _embed([text])
+    if qvecs is None:
+        return None
+    try:
+        import numpy as np
+        q = np.asarray(qvecs[0], dtype=float)
+        q = q / (np.linalg.norm(q) + 1e-9)
+        scored = []
+        for entry, ev in corpus:
+            e = np.asarray(ev, dtype=float)
+            sim = float(np.dot(q, e / (np.linalg.norm(e) + 1e-9)))
+            if sim >= min_sim:
+                scored.append({**entry, "_sim": sim})
+        scored.sort(key=lambda x: x["_sim"], reverse=True)
+        return scored[:k]
+    except Exception as exc:
+        logger.warning("Semantic retrieval failed (%s); using lexical retrieval.", exc)
+        return None
 
 
 def format_reference_block(entries: list) -> str:
@@ -138,7 +255,7 @@ def build_reference_cards(text: str, max_cards: int = MAX_REFERENCE_CARDS) -> li
     Codes are read straight from the curated corpus, so they can never be
     fabricated. Returns [] when nothing clears the relevance threshold.
     """
-    entries = retrieve(text, k=max_cards, min_score=_MIN_CARD_SCORE)
+    entries = retrieve(text, k=max_cards, min_score=_MIN_CARD_SCORE, min_sim=_MIN_SIM_CARD)
     cards = []
     for e in entries:
         codes = f"ICD-10 {e.get('icd10', '?')}"

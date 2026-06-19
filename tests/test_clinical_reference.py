@@ -14,6 +14,13 @@ import re
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+# Keep the lexical tests below on the keyword path (and never download a model in
+# CI). The semantic tests further down inject a fake embedder directly.
+os.environ.setdefault("EMBEDDING_ENABLED", "false")
+
+import numpy as np
+from unittest.mock import patch
+
 import clinical_reference as cref
 
 
@@ -146,3 +153,50 @@ def test_card_codes_come_from_corpus():
     for c in cards:
         icd10_part = c["code"].split(" · ")[0].replace("ICD-10 ", "")
         assert icd10_part in valid
+
+
+# ---------------------------------------------------------------------------
+# Semantic retrieval (local embeddings) — mocked so no model is downloaded
+# ---------------------------------------------------------------------------
+
+def _v(*xs):
+    return np.array(xs, dtype=float)
+
+
+def test_retrieve_semantic_matches_by_meaning():
+    """Cosine match surfaces the right disorder even when the query shares no
+    keywords with the entry — the recall the keyword matcher couldn't give."""
+    adj = {"id": "adjustment", "label": "Adjustment disorder", "icd10": "F43.2"}
+    gad = {"id": "gad", "label": "Generalized anxiety disorder", "icd10": "F41.1"}
+    corpus = [(adj, _v(1, 0, 0)), (gad, _v(0, 1, 0))]
+    with patch.object(cref, "_get_corpus_vecs", return_value=corpus), \
+         patch.object(cref, "_embed", return_value=[_v(0.95, 0.05, 0)]):
+        hits = cref._retrieve_semantic("I lost my job and can't pay rent", k=2, min_sim=0.58)
+    assert hits[0]["label"] == "Adjustment disorder"
+    assert "_sim" in hits[0]
+
+
+def test_retrieve_semantic_threshold_rejects_weak_match():
+    """A below-threshold cosine (benign chatter) yields no card."""
+    adj = {"id": "adjustment", "label": "Adjustment disorder", "icd10": "F43.2"}
+    with patch.object(cref, "_get_corpus_vecs", return_value=[(adj, _v(1, 0, 0))]), \
+         patch.object(cref, "_embed", return_value=[_v(0.3, 0.95, 0)]):   # cosine ~0.30
+        assert cref._retrieve_semantic("what time is our appointment", k=2, min_sim=0.58) == []
+
+
+def test_retrieve_prefers_semantic_when_available():
+    adj = {"id": "adjustment", "label": "Adjustment disorder", "icd10": "F43.2"}
+    with patch.object(cref, "_get_corpus_vecs", return_value=[(adj, _v(1, 0, 0))]), \
+         patch.object(cref, "_embed", return_value=[_v(1, 0, 0)]):
+        hits = cref.retrieve("anything at all", k=1, min_sim=0.58)
+    assert hits[0]["label"] == "Adjustment disorder"
+    assert "_sim" in hits[0]          # came from the semantic path
+
+
+def test_retrieve_falls_back_to_lexical_when_embeddings_unavailable():
+    """When the model is unavailable (_get_corpus_vecs → None), retrieve degrades
+    to keyword matching rather than returning nothing."""
+    with patch.object(cref, "_get_corpus_vecs", return_value=None):
+        hits = cref.retrieve("I feel so anxious and worry about everything, I can't relax")
+    assert "Generalized anxiety disorder" in [h["label"] for h in hits]
+    assert "_score" in hits[0]        # lexical entries carry _score, not _sim
