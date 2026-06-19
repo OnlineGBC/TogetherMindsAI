@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
@@ -398,6 +398,7 @@ def _purge_expired_sessions():
             for ts in expired:
                 ChatMessage.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 CopilotCard.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
+                SessionSummary.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 Exercise.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 RateLimitEntry.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 db.session.delete(ts)
@@ -1699,9 +1700,10 @@ def delete_user(user_id):
     RateLimitEntry.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     # Clear the participation links too — otherwise they orphan the erased user.
     SessionParticipant.query.filter_by(user_id=user_id).delete(synchronize_session=False)
-    # Co-pilot cards in those sessions may quote the now-erased content.
+    # Co-pilot cards and any cached summary in those sessions quote the now-erased content.
     for sid in affected:
         CopilotCard.query.filter_by(session_id=sid).delete(synchronize_session=False)
+        SessionSummary.query.filter_by(session_id=sid).delete(synchronize_session=False)
     User.query.filter_by(id=user_id).delete(synchronize_session=False)
     db.session.commit()
 
@@ -1811,8 +1813,22 @@ def _surfaced_codes(session_id: str) -> list:
 
 
 def _session_summary_payload(session_id: str, ts) -> dict:
-    """Build the therapist-only summary payload. The codes list is always present
-    (grounded); the AI narrative is best-effort and may be empty."""
+    """Therapist-only summary payload, cached per session and reused while the
+    conversation is unchanged (keyed on message count) — generation is a slow LLM
+    call, so this keeps repeat console views and downloads instant. The grounded
+    codes list is always present; the AI narrative is best-effort."""
+    import json as _json
+    msg_count = ChatMessage.query.filter_by(session_id=session_id).count()
+
+    cached = db.session.get(SessionSummary, session_id)
+    if cached is not None and cached.message_count == msg_count:
+        try:
+            data = _json.loads(cached.payload)
+            data["cached"] = True
+            return data
+        except Exception:
+            pass  # corrupt cache → fall through and regenerate
+
     messages, _mode, generated_at = _transcript_data(session_id)
     transcript = _session_transcript_text(messages, ts)
     codes = _surfaced_codes(session_id)
@@ -1820,7 +1836,7 @@ def _session_summary_payload(session_id: str, ts) -> dict:
     log_event("session_summary_generated", session_id=session_id,
               user_id=ts.therapist_id if ts else None,
               codes=len(codes), narrative=bool(summary))
-    return {
+    payload = {
         "session_id": session_id,
         "generated_at": generated_at,
         "disclaimer": clinical_summary.DISCLAIMER,
@@ -1829,7 +1845,28 @@ def _session_summary_payload(session_id: str, ts) -> dict:
         "codes_rationale": summary.get("codes_rationale", ""),
         "client_recap": summary.get("client_recap", ""),
         "narrative_available": bool(summary),
+        "cached": False,
     }
+    _store_summary(session_id, payload, msg_count)
+    return payload
+
+
+def _store_summary(session_id: str, payload: dict, msg_count: int) -> None:
+    """Upsert the cached summary. Best-effort — a cache write must never break the
+    console request or the download."""
+    import json as _json
+    try:
+        row = db.session.get(SessionSummary, session_id)
+        if row is None:
+            row = SessionSummary(session_id=session_id)
+            db.session.add(row)
+        row.payload = _json.dumps(payload)
+        row.message_count = msg_count
+        row.generated_at = datetime.now(timezone.utc)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error("session summary cache store failed: %s", type(e).__name__)
 
 
 def _is_session_therapist(session_id: str):

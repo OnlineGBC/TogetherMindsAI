@@ -210,6 +210,36 @@ def test_client_docx_has_no_summary(enc_client):
     gen.assert_not_called()                      # never even generated for a client
 
 
+def test_summary_is_cached_across_calls(enc_client):
+    """The slow LLM call runs once; a second request with the same conversation
+    is served from the cache (so repeat downloads/console views are instant)."""
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        ts = db.session.get(TherapySession, sid)
+        gen = MagicMock(return_value={"clinical": "c", "codes_rationale": "r", "client_recap": "cr"})
+        with patch("clinical_summary.generate", gen):
+            first = _session_summary_payload(sid, ts)
+            second = _session_summary_payload(sid, ts)
+    assert gen.call_count == 1            # second call served from cache
+    assert first["cached"] is False
+    assert second["cached"] is True
+    assert second["clinical"] == "c"
+
+
+def test_summary_cache_invalidated_by_new_message(enc_client):
+    """A new message bumps the covered count, so the summary regenerates (never stale)."""
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        ts = db.session.get(TherapySession, sid)
+        gen = MagicMock(return_value={"clinical": "c", "codes_rationale": "r", "client_recap": "cr"})
+        with patch("clinical_summary.generate", gen):
+            _session_summary_payload(sid, ts)
+            db.session.add(ChatMessage(session_id=sid, user_id="client-1", text="a new turn"))
+            db.session.commit()
+            _session_summary_payload(sid, ts)
+    assert gen.call_count == 2            # conversation changed → regenerated
+
+
 def test_therapist_pdf_renders_with_summary(enc_client):
     """Regression: the therapist PDF must render with a multi-paragraph summary —
     chained multi_cell calls previously crashed fpdf ('not enough horizontal space')."""

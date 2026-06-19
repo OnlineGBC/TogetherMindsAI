@@ -245,3 +245,25 @@ class CopilotCard(db.Model):
 
     def __repr__(self):
         return f"<CopilotCard id={self.id} session={self.session_id} type={self.card_type}>"
+
+
+class SessionSummary(db.Model):
+    """Cached therapist-only session summary (clinical recap + grounded ICD codes
+    + client-facing draft).
+
+    Generating it is a multi-second LLM call, so it is cached per session and
+    reused while the conversation is unchanged — keyed on the message count it
+    covers, so the next new message triggers a fresh generation (never stale).
+    The payload (the full summary dict as JSON) is encrypted because it quotes
+    client content; it is purged with the session and erased in the GDPR
+    delete-user flow.
+    """
+    __tablename__ = "session_summaries"
+
+    session_id    = db.Column(db.String(36), primary_key=True)
+    payload       = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
+    message_count = db.Column(db.Integer, nullable=False)   # cache key: messages the summary covers
+    generated_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def __repr__(self):
+        return f"<SessionSummary session={self.session_id} msgs={self.message_count}>"

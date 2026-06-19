@@ -270,6 +270,63 @@
         initDisplayNameRename(SESSION_ID, USER_ID, false /* realtime */);
         initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/{{ mode }}");
     });
+
+    // Transcript download with progress feedback. The therapist's copy generates
+    // an AI summary server-side, which can take ~20s the FIRST time (cached and
+    // fast afterwards) — so show an indicator instead of a silent hang while the
+    // browser waits for the file.
+    (function initTranscriptDownload() {
+        function showOverlay() {
+            var o = document.getElementById("tmDlOverlay");
+            if (o) { o.style.display = "flex"; return o; }
+            o = document.createElement("div");
+            o.id = "tmDlOverlay";
+            o.style.cssText = "position:fixed;inset:0;z-index:4000;display:flex;align-items:center;" +
+                "justify-content:center;background:rgba(0,0,0,.35);";
+            var box = document.createElement("div");
+            box.style.cssText = "background:#fff;border-radius:12px;padding:18px 22px;max-width:320px;" +
+                "box-shadow:0 12px 40px rgba(0,0,0,.3);text-align:center;font-size:.95rem;color:#222;";
+            box.innerHTML =
+                '<div class="spinner-border text-success mb-2" role="status" aria-hidden="true"></div>' +
+                '<div>Preparing your document…<br>' +
+                '<span style="font-size:.82rem;color:#666;">This can take a few seconds the first time.</span></div>';
+            o.appendChild(box);
+            document.body.appendChild(o);
+            return o;
+        }
+        function hideOverlay() {
+            var o = document.getElementById("tmDlOverlay");
+            if (o) { o.style.display = "none"; }
+        }
+        document.addEventListener("click", function (e) {
+            var a = e.target.closest('a[href*="/transcript/"]');
+            if (!a) { return; }
+            var href = a.getAttribute("href") || "";
+            if (!/\/transcript\/[^/]+\/(pdf|docx)(\?.*)?$/.test(href)) { return; }
+            e.preventDefault();
+            showOverlay();
+            fetch(href, { credentials: "same-origin" })
+                .then(function (r) {
+                    if (!r.ok) { throw new Error("http " + r.status); }
+                    var cd = r.headers.get("Content-Disposition") || "";
+                    var m = /filename="?([^";]+)"?/.exec(cd);
+                    var name = m ? m[1] : "transcript";
+                    return r.blob().then(function (b) { return { blob: b, name: name }; });
+                })
+                .then(function (res) {
+                    var url = URL.createObjectURL(res.blob);
+                    var tmp = document.createElement("a");
+                    tmp.href = url; tmp.download = res.name;
+                    document.body.appendChild(tmp); tmp.click(); document.body.removeChild(tmp);
+                    setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+                    hideOverlay();
+                })
+                .catch(function () {
+                    hideOverlay();
+                    window.location.href = href;   // fallback: plain navigation still downloads
+                });
+        });
+    })();
 </script>
 
 {% if rtc_enabled %}
