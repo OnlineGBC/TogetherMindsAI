@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -70,6 +70,21 @@ def test_plan_for_price_mapping():
         assert billing.plan_for_price("price_premium") == "premium"
         assert billing.plan_for_price("price_pro") == "pro"
         assert billing.plan_for_price("price_other") == "free"
+
+
+def test_verify_webhook_returns_plain_dict():
+    """Regression: construct_event returns a Stripe StripeObject that doesn't
+    support dict .get() — which 500'd the live webhook. verify_webhook must return
+    a plain dict (parsed from the verified payload)."""
+    fake_stripe = MagicMock()
+    fake_stripe.Webhook.construct_event.return_value = object()   # signature OK
+    payload = b'{"type": "checkout.session.completed", "data": {"object": {"customer": "cus_x"}}}'
+    with patch.object(config, "STRIPE_WEBHOOK_SECRET", "whsec_x"), \
+         patch("billing._init", return_value=fake_stripe):
+        out = billing.verify_webhook(payload, "sig")
+    assert isinstance(out, dict)
+    assert out["type"] == "checkout.session.completed"
+    assert out["data"]["object"]["customer"] == "cus_x"
 
 
 def test_subscription_plan_and_status_from_dict():

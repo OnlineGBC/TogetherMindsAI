@@ -124,19 +124,27 @@ def create_portal_url(customer_id: str, return_url: str) -> "str | None":
 
 
 def verify_webhook(payload: bytes, sig_header: str):
-    """Verify a webhook payload's signature and return the Stripe event dict, or
-    None if verification fails (bad signature, unconfigured secret, tampering)."""
+    """Verify a webhook payload's signature and return the event as a PLAIN dict,
+    or None if verification fails (bad signature, unconfigured secret, tampering).
+
+    construct_event returns a Stripe `StripeObject`, which does NOT support dict
+    `.get()` — so after verifying the signature we return the parsed JSON instead,
+    giving callers ordinary dict semantics."""
     if not config.STRIPE_WEBHOOK_SECRET:
         return None
     stripe = _init()
     if stripe is None:
         return None
     try:
-        return stripe.Webhook.construct_event(
-            payload, sig_header, config.STRIPE_WEBHOOK_SECRET,
-        )
+        stripe.Webhook.construct_event(payload, sig_header, config.STRIPE_WEBHOOK_SECRET)
     except Exception as exc:
         logger.warning("verify_webhook failed: %s", exc)
+        return None
+    try:
+        import json
+        return json.loads(payload)
+    except Exception as exc:
+        logger.warning("verify_webhook payload parse failed: %s", exc)
         return None
 
 
