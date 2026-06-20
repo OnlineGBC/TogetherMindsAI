@@ -125,18 +125,22 @@ steps:
       - MICROSOFT_CLIENT_ID=MICROSOFT_CLIENT_ID:latest
       - --set-secrets
       - MICROSOFT_CLIENT_SECRET=MICROSOFT_CLIENT_SECRET:latest
-      # Subscription billing (Phase 4 Step 4 — Stripe). BILLING_ENABLED is a plain
-      # env var (not secret); flip to "false" to instantly restore full access to all.
+      # Subscription billing (Phase 4 Step 4 — Stripe) + A/V recording (Phase 4).
+      # Plain env vars (not secrets): flip BILLING_ENABLED=false to restore full
+      # access; RECORDING_ENABLED gates the Premium recording feature.
       - --set-env-vars
-      - BILLING_ENABLED=true
+      - BILLING_ENABLED=true,RECORDING_ENABLED=true
+      # Stripe secrets PINNED to :1 = TEST keys, so deploys stay in Stripe test
+      # mode. AT GO-LIVE: change these four to :2 (the live versions) — or :latest —
+      # and redeploy to switch to live keys.
       - --set-secrets
-      - STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest
+      - STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:1
       - --set-secrets
-      - STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest
+      - STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:1
       - --set-secrets
-      - STRIPE_PRICE_PRO=STRIPE_PRICE_PRO:latest
+      - STRIPE_PRICE_PRO=STRIPE_PRICE_PRO:1
       - --set-secrets
-      - STRIPE_PRICE_PREMIUM=STRIPE_PRICE_PREMIUM:latest
+      - STRIPE_PRICE_PREMIUM=STRIPE_PRICE_PREMIUM:1
       # min-instances must always be 1 — keeps a warm worker so couple/group
       # SocketIO sessions don't pay a 10-15s cold-start penalty on first message.
       - --min-instances
