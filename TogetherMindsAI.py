@@ -17,7 +17,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file, abort
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, join_room, emit
@@ -1578,6 +1578,11 @@ def api_feedback():
 
 @app.route("/progress/<user_id>/<therapy_mode>")
 def progress(user_id, therapy_mode):
+    # Access control: a user may only view their OWN progress page. Without this,
+    # the page (which exposes the session ID + activity data + download links) was
+    # an IDOR — any user_id in the URL would render it.
+    if session.get("user_id") != user_id:
+        abort(403)
     exercises = (
         Exercise.query
         .filter_by(user_id=user_id)
@@ -2025,6 +2030,9 @@ def _render_summary_docx(doc, summary: dict) -> None:
 def download_transcript_pdf(session_id):
     if not _user_can_access_session(session_id, session.get("user_id")):
         return jsonify({"error": "Forbidden"}), 403
+    # PHI disclosure — record it (HIPAA § 164.312(b) access logging).
+    log_event("transcript_downloaded", session_id=session_id,
+              user_id=session.get("user_id"), format="pdf")
 
     from fpdf import FPDF
     from fpdf.enums import XPos, YPos
@@ -2122,6 +2130,9 @@ def download_transcript_pdf(session_id):
 def download_transcript_docx(session_id):
     if not _user_can_access_session(session_id, session.get("user_id")):
         return jsonify({"error": "Forbidden"}), 403
+    # PHI disclosure — record it (HIPAA § 164.312(b) access logging).
+    log_event("transcript_downloaded", session_id=session_id,
+              user_id=session.get("user_id"), format="docx")
 
     from docx import Document
     from docx.shared import Pt, RGBColor

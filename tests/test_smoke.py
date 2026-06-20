@@ -200,6 +200,9 @@ def test_progress_page_returns_200(client):
         user_id = str(uuid.uuid4())
         db.session.add(User(id=user_id, therapy_mode="solo"))
         db.session.commit()
+    # The progress page is now gated to its own user (see IDOR fix).
+    with client.session_transaction() as s:
+        s["user_id"] = user_id
     assert client.get(f"/progress/{user_id}/solo").status_code == 200
 
 

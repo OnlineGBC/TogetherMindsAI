@@ -268,6 +268,29 @@ def test_transcript_mode_uses_session_not_user(enc_client):
     assert mode == "Solo"
 
 
+def test_transcript_download_is_audited(enc_client):
+    """A transcript download is a PHI disclosure and must be logged."""
+    from models import AuditLog
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
+    with patch("clinical_summary.generate", return_value=None):
+        rv = enc_client.get(f"/transcript/{sid}/docx")
+    assert rv.status_code == 200
+    with app.app_context():
+        assert AuditLog.query.filter_by(
+            event_type="transcript_downloaded", session_id=sid).count() == 1
+
+
+def test_progress_page_blocks_other_users(enc_client):
+    """The progress page may only be viewed by its own user (was an IDOR)."""
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "user-A"
+    assert enc_client.get("/progress/user-B/solo").status_code == 403   # someone else's
+    assert enc_client.get("/progress/user-A/solo").status_code == 200   # your own
+
+
 def test_therapist_docx_still_works_when_narrative_fails(enc_client):
     """If summary generation fails, the download still succeeds with the grounded
     codes and a clear note — a download must never break."""
