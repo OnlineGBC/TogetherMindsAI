@@ -223,7 +223,7 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
         if trigger_text:
             cards.extend(copilot.build_risk_cards(trigger_text))
         # The AI advisory (reference + LLM suggestions) is the paid "AI analysis"
-        # tier — Plus or Pro. Free clinicians still get the safety alerts above.
+        # tier — Pro or Premium. Free clinicians still get the safety alerts above.
         if _has_ai_analysis(_session_clinician(session_id)):
             cards.extend(copilot.build_reference_cards(transcript))
             cards.extend(copilot.generate_suggestions(transcript, mode=mode, therapist_notes=notes))
@@ -800,13 +800,13 @@ def logout():
 # ---------------------------------------------------------------------------
 # Subscription entitlements (Phase 4 Step 4). While BILLING_ENABLED is OFF every
 # clinician keeps full access. When ON, only an active/trialing paid plan grants
-# the tier: "plus" -> AI analysis, "pro" -> AI analysis + recording.
+# the tier: "pro" -> AI analysis, "premium" -> AI analysis + recording.
 # ---------------------------------------------------------------------------
 
 def _effective_plan(clinician):
-    """The clinician's currently-entitled tier ("free"|"plus"|"pro")."""
+    """The clinician's currently-entitled tier ("free"|"pro"|"premium")."""
     if not config.BILLING_ENABLED:
-        return "pro"                       # billing disabled -> full access
+        return "premium"                   # billing disabled -> full access
     if clinician is None:
         return "free"
     if (clinician.subscription_status or "").lower() not in ("active", "trialing"):
@@ -815,11 +815,11 @@ def _effective_plan(clinician):
 
 
 def _has_ai_analysis(clinician):
-    return _effective_plan(clinician) in ("plus", "pro")
+    return _effective_plan(clinician) in ("pro", "premium")
 
 
 def _has_recording(clinician):
-    return _effective_plan(clinician) == "pro"
+    return _effective_plan(clinician) == "premium"
 
 
 def _session_clinician(session_id):
@@ -2159,7 +2159,7 @@ def session_summary(session_id):
     if not _has_ai_analysis(_session_clinician(session_id)):
         return jsonify({
             "locked": True,
-            "message": "The AI session summary is part of the Plus plan.",
+            "message": "The AI session summary is part of the Pro plan.",
             "upgrade_url": url_for("billing_page"),
         }), 402
     return jsonify(_session_summary_payload(session_id, ts))
@@ -2178,7 +2178,7 @@ def recording_start(session_id):
     if _is_session_therapist(session_id) is None:
         return jsonify({"error": "Forbidden"}), 403
     if not _has_recording(_session_clinician(session_id)):
-        return jsonify({"error": "recording_requires_pro"}), 402
+        return jsonify({"error": "recording_requires_premium"}), 402
     # NOTE: all-party consent gating is added in Phase 4 Step 2.
     now = datetime.now(timezone.utc)
     filepath = f"{session_id}/{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
@@ -2542,7 +2542,7 @@ def download_transcript_pdf(session_id):
     pdf.ln(6)
 
     # Therapist-only: prepend the private clinical summary + grounded ICD codes.
-    # The AI summary is a paid (Plus/Pro) feature; the transcript itself is free.
+    # The AI summary is a paid (Pro/Premium) feature; the transcript itself is free.
     _ts_therapist = _is_session_therapist(session_id)
     if _ts_therapist is not None and _has_ai_analysis(_session_clinician(session_id)):
         _render_summary_pdf(pdf, _session_summary_payload(session_id, _ts_therapist))
@@ -2638,7 +2638,7 @@ def download_transcript_docx(session_id):
     doc.add_paragraph("─" * 40)
 
     # Therapist-only: prepend the private clinical summary + grounded ICD codes.
-    # The AI summary is a paid (Plus/Pro) feature; the transcript itself is free.
+    # The AI summary is a paid (Pro/Premium) feature; the transcript itself is free.
     _ts_therapist = _is_session_therapist(session_id)
     if _ts_therapist is not None and _has_ai_analysis(_session_clinician(session_id)):
         _render_summary_docx(doc, _session_summary_payload(session_id, _ts_therapist))
@@ -3112,7 +3112,7 @@ def _evaluate_recording(session_id: str) -> None:
         all_consent = bool(participants) and all(consent.get(u) is True for u in participants)
         active_id = session_recording_active.get(session_id)
         # Entitlement is the ultimate guard: recording never starts unless the
-        # session's clinician holds the Pro plan (a no-op while billing is off).
+        # session's clinician holds the Premium plan (a no-op while billing is off).
         entitled = _has_recording(_session_clinician(session_id))
 
         if requested and all_consent and entitled and not active_id:
@@ -3159,7 +3159,7 @@ def on_recording_request(data):
     if session_therapist_id.get(session_id) != user_id:
         return   # only the session's clinician may start recording
     if not _has_recording(_session_clinician(session_id)):
-        emit("recording_unavailable", {"message": "Recording is a Pro-plan feature. Upgrade in Plans & billing."})
+        emit("recording_unavailable", {"message": "Recording is a Premium-plan feature. Upgrade in Plans & billing."})
         return
     session_recording_requested[session_id] = True
     session_recording_consent[session_id][user_id] = True   # the clinician consents by requesting

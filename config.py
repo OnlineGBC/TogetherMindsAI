@@ -168,9 +168,9 @@ PUBLIC_BASE_URL: str = os.environ.get("PUBLIC_BASE_URL", "https://tm.onlinegbc.c
 
 # ---------------------------------------------------------------------------
 # Subscription billing (Phase 4 Step 4 — Stripe). Three clinician tiers:
-#   free        — reflections chat + transcript
-#   plus  ($10) — + AI analysis (therapist co-pilot + session summary)
-#   pro   ($25) — + audio/video recording
+#   free          — reflections chat + transcript
+#   pro     ($10) — + AI analysis (therapist co-pilot + session summary)
+#   premium ($25) — + audio/video recording
 # OFF by default. While OFF every clinician keeps full access (entitlement checks
 # short-circuit to True), so production is unchanged until billing is switched on
 # with the Stripe price IDs configured. Keep all secrets in .env / Secret Manager.
@@ -180,8 +180,9 @@ BILLING_ENABLED: bool       = os.environ.get("BILLING_ENABLED", "false").lower()
 STRIPE_SECRET_KEY: str      = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET: str  = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 # Stripe recurring Price IDs (created in the Stripe dashboard) for each paid tier.
-STRIPE_PRICE_PLUS: str      = os.environ.get("STRIPE_PRICE_PLUS", "")
+# Product names: "TogetherMindsAI Pro" ($10) and "TogetherMindsAI Premium" ($25).
 STRIPE_PRICE_PRO: str       = os.environ.get("STRIPE_PRICE_PRO", "")
+STRIPE_PRICE_PREMIUM: str   = os.environ.get("STRIPE_PRICE_PREMIUM", "")
 
 # ---------------------------------------------------------------------------
 # Feedback form — Gmail SMTP send (no DB storage, no audit log)

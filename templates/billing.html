@@ -68,13 +68,13 @@
         </div>
       </div>
 
-      <!-- Plus -->
+      <!-- Pro -->
       <div class="col-12 col-md-4">
-        <div class="card plan-card border-0 {% if current_plan == 'plus' %}is-current{% endif %}">
+        <div class="card plan-card border-0 {% if current_plan == 'pro' %}is-current{% endif %}">
           <div class="card-body p-3 p-md-4 d-flex flex-column">
             <div class="d-flex align-items-center justify-content-between mb-1">
-              <span class="plan-name">Plus</span>
-              {% if current_plan == 'plus' %}<span class="current-chip">Current</span>{% endif %}
+              <span class="plan-name">Pro</span>
+              {% if current_plan == 'pro' %}<span class="current-chip">Current</span>{% endif %}
             </div>
             <div class="plan-price mb-3">$10<small> /month</small></div>
             <div class="d-grid gap-2 mb-3">
@@ -84,11 +84,11 @@
               <div class="plan-feat off"><i class="bi bi-x-circle me-2"></i>Audio/video recording</div>
             </div>
             <div class="mt-auto">
-              {% if current_plan == 'plus' %}
+              {% if current_plan == 'pro' %}
                 <button class="btn btn-primary-green rounded-pill w-100" disabled>Your plan</button>
               {% else %}
-                <form method="POST" action="{{ url_for('billing_checkout', plan='plus') }}" class="m-0">
-                  <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Plus</button>
+                <form method="POST" action="{{ url_for('billing_checkout', plan='pro') }}" class="m-0">
+                  <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Pro</button>
                 </form>
               {% endif %}
             </div>
@@ -96,26 +96,26 @@
         </div>
       </div>
 
-      <!-- Pro -->
+      <!-- Premium -->
       <div class="col-12 col-md-4">
-        <div class="card plan-card border-0 {% if current_plan == 'pro' %}is-current{% endif %}">
+        <div class="card plan-card border-0 {% if current_plan == 'premium' %}is-current{% endif %}">
           <div class="card-body p-3 p-md-4 d-flex flex-column">
             <div class="d-flex align-items-center justify-content-between mb-1">
-              <span class="plan-name">Pro</span>
-              {% if current_plan == 'pro' %}<span class="current-chip">Current</span>{% endif %}
+              <span class="plan-name">Premium</span>
+              {% if current_plan == 'premium' %}<span class="current-chip">Current</span>{% endif %}
             </div>
             <div class="plan-price mb-3">$25<small> /month</small></div>
             <div class="d-grid gap-2 mb-3">
-              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Everything in Plus</div>
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Everything in Pro</div>
               <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Audio &amp; video recording</div>
               <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>30-day secure recording storage</div>
             </div>
             <div class="mt-auto">
-              {% if current_plan == 'pro' %}
+              {% if current_plan == 'premium' %}
                 <button class="btn btn-primary-green rounded-pill w-100" disabled>Your plan</button>
               {% else %}
-                <form method="POST" action="{{ url_for('billing_checkout', plan='pro') }}" class="m-0">
-                  <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Pro</button>
+                <form method="POST" action="{{ url_for('billing_checkout', plan='premium') }}" class="m-0">
+                  <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Premium</button>
                 </form>
               {% endif %}
             </div>

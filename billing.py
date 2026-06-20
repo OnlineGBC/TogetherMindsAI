@@ -20,24 +20,24 @@ import config
 
 logger = logging.getLogger(__name__)
 
-PAID_PLANS = ("plus", "pro")
-ALL_PLANS = ("free", "plus", "pro")
+PAID_PLANS = ("pro", "premium")
+ALL_PLANS = ("free", "pro", "premium")
 
 
 def _price_for_plan(plan: str) -> str:
     """Stripe Price ID for a paid plan, or "" if unknown/unconfigured."""
     return {
-        "plus": config.STRIPE_PRICE_PLUS,
-        "pro":  config.STRIPE_PRICE_PRO,
+        "pro":     config.STRIPE_PRICE_PRO,        # $10 — AI analysis
+        "premium": config.STRIPE_PRICE_PREMIUM,    # $25 — + recording
     }.get(plan, "")
 
 
 def plan_for_price(price_id: str) -> str:
     """Reverse map a Stripe Price ID back to our plan name, or "free"."""
+    if price_id and price_id == config.STRIPE_PRICE_PREMIUM:
+        return "premium"
     if price_id and price_id == config.STRIPE_PRICE_PRO:
         return "pro"
-    if price_id and price_id == config.STRIPE_PRICE_PLUS:
-        return "plus"
     return "free"
 
 

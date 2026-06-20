@@ -324,10 +324,10 @@ def _seed_clinician(cid, plan, status="active"):
     db.session.commit()
 
 
-def test_recording_start_requires_pro_when_billing_on(enc_client):
+def test_recording_start_requires_premium_when_billing_on(enc_client):
     with app.app_context():
         sid = _seed("doc")
-        _seed_clinician("doc", plan="plus")     # has AI analysis but not recording
+        _seed_clinician("doc", plan="pro")      # has AI analysis but not recording
     with enc_client.session_transaction() as s:
         s["user_id"] = "doc"
     with patch.object(config, "RECORDING_ENABLED", True), \
@@ -338,10 +338,10 @@ def test_recording_start_requires_pro_when_billing_on(enc_client):
     start.assert_not_called()
 
 
-def test_recording_start_allowed_for_pro(enc_client):
+def test_recording_start_allowed_for_premium(enc_client):
     with app.app_context():
         sid = _seed("doc")
-        _seed_clinician("doc", plan="pro")
+        _seed_clinician("doc", plan="premium")
     with enc_client.session_transaction() as s:
         s["user_id"] = "doc"
     with patch.object(config, "RECORDING_ENABLED", True), \
