@@ -172,47 +172,67 @@ class TestPurgeExpiredSessions:
 
 
 # ---------------------------------------------------------------------------
-# GDPR erasure leaves a per-session audit trail (no silent content deletion)
+# "Delete my data": clinical records are retained (hidden from the user), not erased
 # ---------------------------------------------------------------------------
 
-class TestGdprDeleteAuditTrail:
-    def test_delete_user_records_per_session_erasure_and_clears_participation(self, enc_client):
-        """A GDPR delete must leave each affected session's own audit trail a record
-        that its content was erased, and remove the orphaned participation link."""
-        from models import AuditLog, SessionParticipant, User
+class TestDeleteMyData:
+    def _seed_clinical(self, ther, client_id):
+        sid = generate_session_id()
+        now = datetime.now(timezone.utc)
+        from models import User, SessionParticipant
+        db.session.add(TherapySession(id=sid, mode="solo", created_by=ther,
+            created_at=now, retention_expires_at=now + timedelta(days=30), therapist_id=ther))
+        db.session.add(User(id=client_id, therapy_mode="solo"))
+        db.session.add(ChatMessage(session_id=sid, user_id=client_id, text="client message"))
+        db.session.add(ChatMessage(session_id=sid, user_id=ther, text="therapist message"))
+        db.session.add(SessionParticipant(session_id=sid, user_id=client_id, joined_at=now))
+        db.session.commit()
+        return sid
 
-        uid = "gdpr-user-1"
+    def test_client_clinical_session_hidden_not_deleted(self, enc_client):
+        """A client's request hides a therapist-led session from THEIR view but keeps
+        the clinical record (clinician retains full access)."""
+        from models import AuditLog, SessionParticipant, SessionHidden, User
+        from TogetherMindsAI import _user_can_access_session
+
+        ther, client_id = "ther-1", "client-1"
+        with app.app_context():
+            sid = self._seed_clinical(ther, client_id)
+        with enc_client.session_transaction() as s:
+            s["user_id"] = client_id
+        assert enc_client.delete(f"/user/{client_id}").status_code == 200
+
+        with app.app_context():
+            # Clinical record RETAINED — nothing deleted.
+            assert ChatMessage.query.filter_by(session_id=sid).count() == 2
+            assert SessionParticipant.query.filter_by(user_id=client_id).count() == 1
+            assert User.query.get(client_id) is not None
+            # Hidden for the client; clinician still has access.
+            assert SessionHidden.query.filter_by(session_id=sid, user_id=client_id).count() == 1
+            assert _user_can_access_session(sid, client_id) is False
+            assert _user_can_access_session(sid, ther) is True
+            assert AuditLog.query.filter_by(
+                event_type="session_hidden_by_user", session_id=sid).count() == 1
+
+    def test_therapist_cannot_erase_own_clinical_record(self, enc_client):
+        """A therapist's request on their own clinical session leaves it untouched —
+        not deleted, not hidden."""
+        from models import SessionHidden, User
+        ther = "ther-2"
         sid = generate_session_id()
         with app.app_context():
-            db.session.add(TherapySession(
-                id=sid, mode="solo", created_by=uid,
-                created_at=datetime.now(timezone.utc),
-                retention_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
-                therapist_id=uid,
-            ))
-            db.session.add(User(id=uid, therapy_mode="solo"))
-            db.session.add(ChatMessage(session_id=sid, user_id=uid, text="hello there"))
-            db.session.add(SessionParticipant(
-                session_id=sid, user_id=uid, joined_at=datetime.now(timezone.utc)))
+            now = datetime.now(timezone.utc)
+            db.session.add(TherapySession(id=sid, mode="solo", created_by=ther,
+                created_at=now, retention_expires_at=now + timedelta(days=30), therapist_id=ther))
+            db.session.add(User(id=ther, therapy_mode="solo"))
+            db.session.add(ChatMessage(session_id=sid, user_id=ther, text="clinical note"))
             db.session.commit()
-
         with enc_client.session_transaction() as s:
-            s["user_id"] = uid
-        rv = enc_client.delete(f"/user/{uid}")
-        assert rv.status_code == 200
-
+            s["user_id"] = ther
+        assert enc_client.delete(f"/user/{ther}").status_code == 200
         with app.app_context():
-            # Content and participation are gone.
-            assert ChatMessage.query.filter_by(user_id=uid).count() == 0
-            assert SessionParticipant.query.filter_by(user_id=uid).count() == 0
-            # The session itself survives (the user only erased their own data)...
-            assert TherapySession.query.get(sid) is not None
-            # ...and its audit trail now shows the erasure, keyed to THIS session_id.
-            per_session = AuditLog.query.filter_by(
-                event_type="session_content_erased_gdpr", session_id=sid).all()
-            assert len(per_session) == 1
-            # The user-level event is still emitted too.
-            assert AuditLog.query.filter_by(event_type="data_deleted_user").count() >= 1
+            assert ChatMessage.query.filter_by(session_id=sid).count() == 1     # retained
+            assert SessionHidden.query.filter_by(session_id=sid).count() == 0    # not hidden either
 
 
 # ---------------------------------------------------------------------------

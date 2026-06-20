@@ -267,3 +267,27 @@ class SessionSummary(db.Model):
 
     def __repr__(self):
         return f"<SessionSummary session={self.session_id} msgs={self.message_count}>"
+
+
+class SessionHidden(db.Model):
+    """Marks that a participant hid a (therapist-led) session from THEIR OWN view.
+
+    For clinical records, the clinician must retain the session (medical-record
+    retention law), so a participant's "delete my data" cannot erase it. Instead
+    we record that this user hid it: the session no longer appears in, or is
+    retrievable by, that user — while the clinician's copy is untouched. Stores no
+    content (just the link), and is cleared when the session is finally purged.
+    """
+    __tablename__ = "session_hidden"
+
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    session_id = db.Column(db.String(36), index=True, nullable=False)
+    user_id    = db.Column(db.String(36), index=True, nullable=False)
+    hidden_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("session_id", "user_id", name="uq_session_hidden"),
+    )
+
+    def __repr__(self):
+        return f"<SessionHidden session={self.session_id} user={self.user_id}>"

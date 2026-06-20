@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
@@ -399,6 +399,7 @@ def _purge_expired_sessions():
                 ChatMessage.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 CopilotCard.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 SessionSummary.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
+                SessionHidden.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 Exercise.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 RateLimitEntry.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 db.session.delete(ts)
@@ -807,6 +808,11 @@ def my_sessions():
     } | {
         row[0] for row in
         db.session.query(ChatMessage.session_id).filter_by(user_id=account_id).distinct().all()
+    }
+    # Drop sessions this client hid from their own view (the clinician still keeps them).
+    session_ids -= {
+        row[0] for row in
+        db.session.query(SessionHidden.session_id).filter_by(user_id=account_id).all()
     }
     sessions = []
     if session_ids:
@@ -1678,44 +1684,64 @@ def session_join_post():
 
 @app.route("/user/<user_id>", methods=["DELETE"])
 def delete_user(user_id):
+    """Handle a user's "delete my data" request.
+
+    A therapist-led session is a CLINICAL RECORD the clinician must retain under
+    medical-record law — neither participant may erase it. So for those sessions
+    we HIDE them from the requesting user's own view (the clinician's copy is
+    untouched). Genuinely non-clinical data (consumer sessions, exercises, the
+    account row when there is no clinical footprint) is still permanently erased.
+    """
     if session.get("user_id") != user_id:
         return jsonify({"error": "Forbidden"}), 403
 
-    # Capture every session this user touched BEFORE deleting. The user-level
-    # data_deleted_user event carries no session_id, so without this each affected
-    # session's own audit trail would show no sign its content was erased (the gap
-    # that made an erased therapist's messages look like a mystery deletion).
     affected = {
         sid for (sid,) in db.session.query(ChatMessage.session_id)
         .filter_by(user_id=user_id).distinct()
-    }
-    affected |= {
+    } | {
         sid for (sid,) in db.session.query(SessionParticipant.session_id)
         .filter_by(user_id=user_id).distinct()
     }
-    messages_deleted = ChatMessage.query.filter_by(user_id=user_id).count()
 
-    Exercise.query.filter_by(user_id=user_id).delete(synchronize_session=False)
-    ChatMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
-    RateLimitEntry.query.filter_by(user_id=user_id).delete(synchronize_session=False)
-    # Clear the participation links too — otherwise they orphan the erased user.
-    SessionParticipant.query.filter_by(user_id=user_id).delete(synchronize_session=False)
-    # Co-pilot cards and any cached summary in those sessions quote the now-erased content.
+    hidden_clinical, erasable, owns_clinical = [], [], False
     for sid in affected:
-        CopilotCard.query.filter_by(session_id=sid).delete(synchronize_session=False)
-        SessionSummary.query.filter_by(session_id=sid).delete(synchronize_session=False)
-    User.query.filter_by(id=user_id).delete(synchronize_session=False)
+        ts = db.session.get(TherapySession, sid)
+        if ts and ts.therapist_id:                 # clinical record — must be retained
+            if ts.therapist_id == user_id:
+                owns_clinical = True                # the clinician: retain, untouched
+            else:
+                hidden_clinical.append(sid)         # a client: hide from their own view
+        else:
+            erasable.append(sid)                    # non-clinical — may be erased
+
+    now = datetime.now(timezone.utc)
+    for sid in hidden_clinical:
+        if not db.session.query(SessionHidden.id).filter_by(session_id=sid, user_id=user_id).first():
+            db.session.add(SessionHidden(session_id=sid, user_id=user_id, hidden_at=now))
+
+    for sid in erasable:
+        ChatMessage.query.filter_by(session_id=sid, user_id=user_id).delete(synchronize_session=False)
+        SessionParticipant.query.filter_by(session_id=sid, user_id=user_id).delete(synchronize_session=False)
+
+    # Non-clinical account metadata is always erasable.
+    Exercise.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    RateLimitEntry.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+
+    # Fully remove the account only when the user has NO clinical footprint at all
+    # (their identity must persist while they appear in a retained clinical record).
+    has_clinical = bool(hidden_clinical) or owns_clinical
+    if not has_clinical:
+        SessionParticipant.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+        User.query.filter_by(id=user_id).delete(synchronize_session=False)
     db.session.commit()
 
-    log_event("data_deleted_user", user_id=user_id, trigger="user_gdpr_request",
-              sessions_affected=len(affected), messages_deleted=messages_deleted)
-    # One per-session record so each affected session's audit trail shows the erasure.
-    for sid in affected:
-        log_event("session_content_erased_gdpr", session_id=sid, user_id=user_id,
-                  trigger="user_gdpr_request")
+    log_event("data_deletion_request", user_id=user_id, trigger="user_request",
+              hidden=len(hidden_clinical), erased_sessions=len(erasable))
+    for sid in hidden_clinical:
+        log_event("session_hidden_by_user", session_id=sid, user_id=user_id, trigger="user_request")
 
     session.clear()
-    return jsonify({"deleted": True}), 200
+    return jsonify({"hidden": len(hidden_clinical), "erased": len(erasable)}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -1758,6 +1784,10 @@ def _user_can_access_session(session_id: str, user_id: str) -> bool:
     # The clinician who led the session can always retrieve its full record.
     if ts.therapist_id and ts.therapist_id == user_id:
         return True
+    # A participant who hid this session can no longer retrieve it (their own view
+    # only — the clinician's record is untouched).
+    if db.session.query(SessionHidden.id).filter_by(session_id=session_id, user_id=user_id).first():
+        return False
     return ChatMessage.query.filter_by(session_id=session_id, user_id=user_id).first() is not None
 
 
