@@ -1191,3 +1191,29 @@ hr, .dropdown-divider { border-color: var(--border-dk) !important; }
 }
 .privacy-banner .small, .privacy-banner small, .privacy-banner strong,
 .privacy-banner span, .privacy-banner a { color: #dcefe9 !important; }
+
+/* ---- Session header banners — bulletproof dark contrast (QA round 2) ----
+   Higher specificity (tag.class.class / #id) + solid bg + explicit child text
+   colors so nothing dark-on-dark survives. */
+div.alert.alert-share {
+    background-color: #15403A !important;
+    border: 1px solid rgba(0,150,136,.55) !important;
+    color: #eaf5f2 !important;
+}
+div.alert.alert-share small,
+div.alert.alert-share strong,
+div.alert.alert-share .font-monospace,
+div.alert.alert-share i.bi { color: #eaf5f2 !important; }
+
+#privacyBanner.alert {
+    background-color: #15403A !important;
+    border: 1px solid rgba(0,150,136,.55) !important;
+}
+#privacyBanner,
+#privacyBanner div,
+#privacyBanner small,
+#privacyBanner .small,
+#privacyBanner strong,
+#privacyBanner span,
+#privacyBanner a { color: #eaf5f2 !important; }
+#privacyBanner a { text-decoration: underline; }
