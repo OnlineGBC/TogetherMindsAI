@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Therapist Co-Pilot — TogetherMindsAI{% endblock %}
+{% block body_class %}therapist-start-page{% endblock %}
 
 {% block content %}
 <style>
+  /* Scale the start page down ~5% so the whole card fits without scrolling. */
+  body.therapist-start-page { zoom: 0.95; }
   /* ---- Therapist Co-Pilot landing — polished, professional ---- */
   .tcp-hero-icon {
     width: 3.4rem;

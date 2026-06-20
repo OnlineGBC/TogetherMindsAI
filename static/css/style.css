@@ -1165,3 +1165,29 @@ hr, .dropdown-divider { border-color: var(--border-dk) !important; }
 
 /* Modal close button + bootstrap icons inversion where needed */
 .modal-header .btn-close, .btn-close { filter: invert(1) grayscale(1) brightness(1.6); }
+
+/* ---- Dark-mode QA fixes (contrast) ---- */
+/* Outline-secondary buttons (Unmute/Camera, OAuth, etc.) read clearly on dark */
+.btn-outline-secondary {
+    color: #cdd8d4 !important;
+    border-color: var(--border-dk) !important;
+}
+.btn-outline-secondary:hover, .btn-outline-secondary:focus {
+    background: var(--surface-2) !important;
+    color: #ffffff !important;
+    border-color: var(--border-dk) !important;
+}
+/* Live-session header banners — bump bg opacity + brighten text for readability */
+.alert-share {
+    background: rgba(0,150,136,.18) !important;
+    border-color: rgba(0,150,136,.42) !important;
+    color: #dcefe9 !important;
+}
+.alert-share small, .alert-share strong, .alert-share .font-monospace { color: #dcefe9 !important; }
+.privacy-banner {
+    background: rgba(0,150,136,.16) !important;
+    border-color: rgba(0,150,136,.40) !important;
+    color: #dcefe9 !important;
+}
+.privacy-banner .small, .privacy-banner small, .privacy-banner strong,
+.privacy-banner span, .privacy-banner a { color: #dcefe9 !important; }
