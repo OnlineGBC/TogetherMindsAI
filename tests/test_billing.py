@@ -110,6 +110,35 @@ def test_billing_page_shows_current_plan(client):
     assert b"Plans" in rv.data
 
 
+def test_success_banner_confirms_when_plan_active(client):
+    with app.app_context():
+        _clinician(plan="pro", status="active")
+    _login(client)
+    body = client.get("/billing?success=1").data.decode()
+    assert "You're on" in body and "Pro" in body
+    assert "being activated" not in body      # no stale "activating" message
+    assert "Current plan" in body             # current-plan button, not "Your plan"
+
+
+def test_success_banner_pending_when_still_free(client):
+    with app.app_context():
+        _clinician(plan="free", status=None)
+    _login(client)
+    body = client.get("/billing?success=1").data.decode()
+    assert "being activated" in body          # genuinely pending → keep waiting message
+
+
+def test_billing_shows_renewal_date(client):
+    with app.app_context():
+        _clinician(plan="pro", status="active")
+        c = db.session.get(Clinician, "clin-1")
+        c.current_period_end = datetime(2026, 7, 15, tzinfo=timezone.utc)
+        db.session.commit()
+    _login(client)
+    body = client.get("/billing").data.decode()
+    assert "Renews on" in body and "15 Jul 2026" in body
+
+
 # ---- checkout -------------------------------------------------------------
 
 def test_checkout_requires_login(client):

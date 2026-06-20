@@ -34,7 +34,11 @@
     </div>
 
     {% if request.args.get('success') %}
-      <div class="alert alert-success rounded-4">Thanks — your subscription is being activated. It may take a few seconds to appear here.</div>
+      {% if current_plan in ['pro', 'premium'] %}
+      <div class="alert alert-success rounded-4"><i class="bi bi-check-circle-fill me-1"></i>You're on <strong>{{ current_plan|capitalize }}</strong> — thanks for subscribing!</div>
+      {% else %}
+      <div class="alert alert-success rounded-4">Thanks — your subscription is being activated. This can take a few seconds; refresh if your plan doesn't update shortly.</div>
+      {% endif %}
     {% elif request.args.get('canceled') %}
       <div class="alert alert-warning rounded-4">Checkout canceled — no changes were made.</div>
     {% endif %}
@@ -62,7 +66,11 @@
               <div class="plan-feat off"><i class="bi bi-x-circle me-2"></i>Audio/video recording</div>
             </div>
             <div class="mt-auto">
-              <button class="btn btn-outline-secondary rounded-pill w-100" disabled>Always free</button>
+              {% if current_plan == 'free' %}
+                <button class="btn btn-outline-success rounded-pill w-100" disabled><i class="bi bi-check-circle-fill me-1"></i>Current plan</button>
+              {% else %}
+                <button class="btn btn-outline-secondary rounded-pill w-100" disabled>Always free</button>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -85,7 +93,8 @@
             </div>
             <div class="mt-auto">
               {% if current_plan == 'pro' %}
-                <button class="btn btn-primary-green rounded-pill w-100" disabled>Your plan</button>
+                {% if renews_on %}<div class="small text-muted text-center mb-2"><i class="bi bi-calendar-check me-1"></i>Renews on {{ renews_on }}</div>{% endif %}
+                <button class="btn btn-outline-success rounded-pill w-100" disabled><i class="bi bi-check-circle-fill me-1"></i>Current plan</button>
               {% else %}
                 <form method="POST" action="{{ url_for('billing_checkout', plan='pro') }}" class="m-0">
                   <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Pro</button>
@@ -112,7 +121,8 @@
             </div>
             <div class="mt-auto">
               {% if current_plan == 'premium' %}
-                <button class="btn btn-primary-green rounded-pill w-100" disabled>Your plan</button>
+                {% if renews_on %}<div class="small text-muted text-center mb-2"><i class="bi bi-calendar-check me-1"></i>Renews on {{ renews_on }}</div>{% endif %}
+                <button class="btn btn-outline-success rounded-pill w-100" disabled><i class="bi bi-check-circle-fill me-1"></i>Current plan</button>
               {% else %}
                 <form method="POST" action="{{ url_for('billing_checkout', plan='premium') }}" class="m-0">
                   <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Premium</button>

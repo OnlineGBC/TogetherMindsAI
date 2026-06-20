@@ -849,6 +849,8 @@ def billing_page():
         current_plan=(clin.plan or "free") if clin else "free",
         subscription_status=(clin.subscription_status if clin else None),
         has_customer=bool(clin and clin.stripe_customer_id),
+        renews_on=(clin.current_period_end.strftime("%d %b %Y")
+                   if clin and clin.current_period_end else None),
     )
 
 
