@@ -125,6 +125,18 @@ steps:
       - MICROSOFT_CLIENT_ID=MICROSOFT_CLIENT_ID:latest
       - --set-secrets
       - MICROSOFT_CLIENT_SECRET=MICROSOFT_CLIENT_SECRET:latest
+      # Subscription billing (Phase 4 Step 4 — Stripe). BILLING_ENABLED is a plain
+      # env var (not secret); flip to "false" to instantly restore full access to all.
+      - --set-env-vars
+      - BILLING_ENABLED=true
+      - --set-secrets
+      - STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest
+      - --set-secrets
+      - STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:latest
+      - --set-secrets
+      - STRIPE_PRICE_PRO=STRIPE_PRICE_PRO:latest
+      - --set-secrets
+      - STRIPE_PRICE_PREMIUM=STRIPE_PRICE_PREMIUM:latest
       # min-instances must always be 1 — keeps a warm worker so couple/group
       # SocketIO sessions don't pay a 10-15s cold-start penalty on first message.
       - --min-instances
