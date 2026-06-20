@@ -4,19 +4,24 @@
    ============================================================ */
 
 :root {
+    /* Brand accents — kept vivid; used for buttons, navbar, links on dark. */
     --green-primary:   #4CAF50;
     --green-dark:      #388E3C;
-    --green-light:     #C8E6C9;
-    --green-pale:      #E8F5E9;
+    --green-light:     #C8E6C9;   /* small bright-green chips (avatars/scrollbar) */
     --teal-primary:    #009688;
     --teal-dark:       #00796B;
-    --gray-bubble:     #F1F3F4;
-    --text-dark:       #212121;
-    --text-muted:      #757575;
     --border-radius:   16px;
-    /* App-wide page backdrop (soft sage-grey). Cards/content sit on top in white,
-       so all text contrast is unchanged. Change this one value to retune globally. */
-    --page-bg:         #DCE7E0;
+
+    /* ===== Dark theme ===== app-wide. Surfaces/text/borders are dark; brand
+       greens stay as accents. Retune the whole app from these few values. */
+    --page-bg:         #16201E;   /* app backdrop */
+    --surface:         #1E2A28;   /* cards / modals / dropdowns / inputs base */
+    --surface-2:       #243430;   /* raised / inputs / hover */
+    --border-dk:       #30403B;   /* borders & dividers on dark */
+    --text-dark:       #E8EEEC;   /* primary text (light on dark) */
+    --text-muted:      #9DB0AA;   /* muted/secondary text */
+    --gray-bubble:     #26332F;   /* AI chat bubble */
+    --green-pale:      #1B2C22;   /* dark green-tinted surface (was a light tint) */
 }
 
 /* ---- Persistent disclaimer bar ---- */
@@ -129,7 +134,7 @@ hr.border-green {
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
     border-radius: var(--border-radius) !important;
-    background: #fff;
+    background: var(--surface);
 }
 .therapy-card:hover {
     transform: translateY(-4px);
@@ -277,7 +282,7 @@ hr.border-green {
 
 /* ---- Progress stat cards ---- */
 .stat-card {
-    background: #fff;
+    background: var(--surface);
     transition: transform 0.15s;
 }
 .stat-card:hover {
@@ -298,7 +303,7 @@ hr.border-green {
 }
 
 .consent-item {
-    background: #fff;
+    background: var(--surface);
     border-color: #ccc !important;
     color: var(--text-dark);
     transition: border-color 0.15s, background 0.15s;
@@ -316,7 +321,7 @@ hr.border-green {
 /* ---- Footer ---- */
 .footer-bar {
     border-top: 1px solid #E0E0E0;
-    background: #fff;
+    background: var(--surface);
 }
 
 /* ---- Scrollbar styling (webkit) ---- */
@@ -920,7 +925,7 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
 
 .tc-card {
     position: relative;
-    background: #ffffff;
+    background: var(--surface);
     border: 1px solid #e8eeec;
     border-left: 3px solid var(--teal-primary);
     border-radius: 11px;
@@ -1004,7 +1009,7 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
     gap: 0.45rem;
     padding: 0.65rem;
     border-top: 1px solid #e2e9e7;
-    background: #ffffff;
+    background: var(--surface);
 }
 .tc-notes textarea { resize: none; border-radius: 9px; font-size: 0.84rem; }
 .tc-notes .btn { border-radius: 9px; }
@@ -1043,7 +1048,7 @@ body.tcp-session .session-private-chip {
 body.tcp-session .chat-window {
     border: 1px solid #e3ece9 !important;
     box-shadow: 0 10px 30px rgba(15, 60, 55, 0.08) !important;
-    background: #ffffff;
+    background: var(--surface);
 }
 body.tcp-session #chatBox { min-height: 48vh; }
 body.tcp-session .alert-share { border: 1px solid #cfe6df; }
@@ -1051,6 +1056,112 @@ body.tcp-session .input-group {
     box-shadow: 0 8px 22px rgba(15, 60, 55, 0.10) !important;
     border: 1px solid #e3ece9;
 }
-body.tcp-session .chat-input { background: #ffffff; }
+body.tcp-session .chat-input { background: var(--surface); }
 body.tcp-session .bubble { border-radius: 15px; }
 
+
+/* ============================================================
+   DARK THEME — global override layer
+   Re-skins Bootstrap components, in-file light tints, and the
+   page-specific classes (billing / therapist / co-pilot console)
+   for the dark palette. Uses !important so it also beats the
+   non-!important inline backgrounds set in templates/JS.
+   Brand greens/teals stay as accents (buttons, navbar, links).
+   ============================================================ */
+
+/* ---- Surfaces ---- */
+.card,
+.modal-content,
+.dropdown-menu,
+.offcanvas,
+.list-group,
+.list-group-item,
+.accordion-item,
+.accordion-button,
+.toast,
+.popover,
+.tcp-card,
+.plan-card,
+.tcp-step,
+.resume-item,
+.mode-btn {
+    background-color: var(--surface) !important;
+    color: var(--text-dark);
+    border-color: var(--border-dk) !important;
+}
+.bg-white, .bg-light { background-color: var(--surface) !important; }
+
+/* ---- Text ---- */
+.text-dark, .text-body, .text-black,
+.plan-name, .plan-price, .plan-feat,
+.tcp-step-title, .mb-title { color: var(--text-dark) !important; }
+.plan-price small { color: var(--text-muted) !important; }
+.text-muted, small.text-muted,
+.plan-feat.off, .tcp-step-text, .mb-sub, .mb-arrow { color: var(--text-muted) !important; }
+.plan-feat.off i { color: #5a6b66 !important; }
+a { color: #5fd0c2; }
+a:hover { color: #8fe0d5; }
+
+/* ---- Form controls ---- */
+.form-control, .form-select, .input-group-text,
+textarea, input[type="text"], input[type="email"], input[type="number"], input[type="search"] {
+    background-color: var(--surface-2) !important;
+    color: var(--text-dark) !important;
+    border-color: var(--border-dk) !important;
+}
+.form-control::placeholder, textarea::placeholder { color: var(--text-muted) !important; opacity: 1; }
+
+/* ---- Borders & dividers ---- */
+.border, .border-top, .border-bottom, .border-start, .border-end,
+hr, .dropdown-divider { border-color: var(--border-dk) !important; }
+
+/* ---- Dropdown items ---- */
+.dropdown-item { color: var(--text-dark); }
+.dropdown-item:hover, .dropdown-item:focus { background-color: var(--surface-2); color: var(--text-dark); }
+
+/* ---- Tables ---- */
+.table { color: var(--text-dark); --bs-table-bg: transparent; border-color: var(--border-dk); }
+
+/* ---- Alerts → dark tinted variants ---- */
+.alert-info, .alert-share, .alert-info-teal {
+    background: rgba(0,150,136,.14) !important;
+    border-color: rgba(0,150,136,.40) !important;
+    color: #b9e8e2 !important;
+}
+.alert-success {
+    background: rgba(76,175,80,.16) !important;
+    border-color: rgba(76,175,80,.42) !important;
+    color: #bdeec0 !important;
+}
+.alert-warning {
+    background: rgba(255,193,7,.14) !important;
+    border-color: rgba(255,193,7,.40) !important;
+    color: #f2d493 !important;
+}
+.alert-danger {
+    background: rgba(211,47,47,.16) !important;
+    border-color: rgba(211,47,47,.45) !important;
+    color: #f3b6b6 !important;
+}
+
+/* ---- App-specific light tints from the base stylesheet ---- */
+.disclaimer-bar { background-color: #2a2410 !important; border-bottom-color: #4a3f15 !important; color: #e7d9a6 !important; }
+.footer-bar { background: var(--surface) !important; border-top-color: var(--border-dk) !important; }
+.consent-item { background: var(--surface) !important; border-color: var(--border-dk) !important; color: var(--text-dark) !important; }
+.consent-item:hover, .consent-item:has(.consent-check:checked) { background: var(--green-pale) !important; }
+.tcp-ack { background: var(--green-pale) !important; border-color: rgba(0,150,136,.4) !important; }
+.tcp-ack label { color: var(--text-dark) !important; }
+.resume-item:hover { background: var(--surface-2) !important; }
+.mode-btn:not(:disabled):hover, .mode-btn:not(:disabled):focus-visible { background: var(--surface-2) !important; }
+
+/* ---- Co-pilot console + summary overlay ---- */
+#tcSummaryOverlay .tcs-body { color: var(--text-dark) !important; }
+#tcSummaryOverlay .tcs-h { color: var(--text-muted) !important; }
+#tcSummaryOverlay .tcs-note { color: var(--text-muted) !important; }
+.tcs-client { background: rgba(76,175,80,.12) !important; border-color: rgba(76,175,80,.35) !important; color: var(--text-dark) !important; }
+.tcs-disclaimer { background: rgba(255,193,7,.12) !important; border-color: rgba(255,193,7,.35) !important; color: #f2d493 !important; }
+.tc-code-link { background: var(--surface-2) !important; border-color: var(--border-dk) !important; color: #b9a9e8 !important; }
+.tc-code-link:hover { background: #2e2545 !important; border-color: #4b3d72 !important; }
+
+/* Modal close button + bootstrap icons inversion where needed */
+.modal-header .btn-close, .btn-close { filter: invert(1) grayscale(1) brightness(1.6); }

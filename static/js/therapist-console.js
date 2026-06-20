@@ -369,13 +369,13 @@ function _tcSummaryOverlay() {
 
     var card = document.createElement("div");
     card.style.cssText =
-        "background:#fff;max-width:680px;width:100%;max-height:88vh;overflow:auto;" +
-        "border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.3);padding:20px 22px;";
+        "background:var(--surface);color:var(--text-dark);max-width:680px;width:100%;max-height:88vh;overflow:auto;" +
+        "border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.5);padding:20px 22px;";
 
     var head = document.createElement("div");
     head.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;";
     var title = _tcEl("strong", null, "Session Summary — Private");
-    title.style.cssText = "font-size:1.1rem;color:#14532d;";
+    title.style.cssText = "font-size:1.1rem;color:#5fd0c2;";
     var close = _tcEl("button", null, "✕");
     close.type = "button";
     close.title = "Close";
@@ -386,7 +386,7 @@ function _tcSummaryOverlay() {
 
     var bodyEl = document.createElement("div");
     bodyEl.className = "tcs-body";
-    bodyEl.style.cssText = "font-size:.92rem;line-height:1.5;color:#222;";
+    bodyEl.style.cssText = "font-size:.92rem;line-height:1.5;color:var(--text-dark);";
 
     // Lightweight scoped styling for the summary sections.
     var style = document.createElement("style");

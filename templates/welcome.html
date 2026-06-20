@@ -201,6 +201,34 @@
     color: #6b7c78;
     margin: 1.1rem 0 0.6rem;
   }
+
+  /* ===== Dark-theme overrides for the landing page (win by source order) ===== */
+  body.welcome-page { background: linear-gradient(180deg, #16201E 0%, #1A2622 100%); }
+  .pillar-tile.anon { background: rgba(0,150,136,.16); }
+  .pillar-tile.free { background: rgba(255,193,7,.14); }
+  .pillar-tile.anon .pillar-icon, .pillar-tile.anon h3, .pillar-tile.anon p { color: #8fe0d5; }
+  .pillar-tile.free .pillar-icon, .pillar-tile.free h3, .pillar-tile.free p { color: #f2d493; }
+  .modes-card { background: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+  .mode-link .mode-title { color: var(--text-dark); }
+  .mode-link p { color: var(--text-muted); }
+  .mode-link.solo   .mode-icon, .mode-link.solo   .mode-cta { color: #4fd6c6; }
+  .mode-link.couple .mode-icon, .mode-link.couple .mode-cta { color: #ff7a9c; }
+  .mode-link.group  .mode-icon, .mode-link.group  .mode-cta { color: #9aa0ff; }
+  .privacy-strip { background: var(--surface-2); }
+  .privacy-strip .privacy-icon { color: #9fb0ab; }
+  .privacy-strip .privacy-title { color: var(--text-dark); }
+  .privacy-strip p { color: var(--text-muted); }
+  .safety-alert { background: rgba(124,58,237,.18); border-left-color: #a78bfa; color: #d6c8f5; }
+  .safety-alert strong { color: #e3d8fb; }
+  .rejoin-btn { background: var(--surface); color: #5fd0c2; }
+  .rejoin-btn:hover, .rejoin-btn:focus { background: #009688; color: #fff; }
+  .clinician-card { background: var(--surface); border-color: rgba(0,150,136,.4); box-shadow: 0 10px 28px rgba(0,0,0,.4); }
+  .clinician-card .cc-title { color: var(--text-dark); }
+  .clinician-card .cc-sub { color: var(--text-muted); }
+  .cc-feature-strip { background: var(--surface-2); border-color: var(--border-dk); }
+  .cc-feat-label { color: var(--text-dark); }
+  .cc-foot { color: var(--text-muted); }
+  .consumer-divider { color: var(--text-muted); }
 </style>
 
 <!-- Hero — clinician-first -->
