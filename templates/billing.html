@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Plans &amp; Billing — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<style>
+  .plan-card {
+    border: 1.5px solid #e3e8e6;
+    border-radius: 1rem;
+    box-shadow: 0 10px 30px rgba(15, 60, 55, 0.06);
+    height: 100%;
+    transition: border-color 0.15s ease, transform 0.12s ease;
+  }
+  .plan-card.is-current { border-color: var(--teal-primary); }
+  .plan-card .plan-price { font-size: 1.9rem; font-weight: 800; color: #1f2937; }
+  .plan-card .plan-price small { font-size: 0.85rem; font-weight: 600; color: #6b7280; }
+  .plan-name { font-size: 1.05rem; font-weight: 800; letter-spacing: .2px; }
+  .plan-feat { font-size: 0.85rem; color: #374151; }
+  .plan-feat i { color: var(--teal-primary); }
+  .plan-feat.off { color: #9aa7a3; }
+  .plan-feat.off i { color: #cbd5d1; }
+  .current-chip {
+    font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+    background: var(--teal-primary); color: #fff;
+    border-radius: 999px; padding: .15rem .6rem;
+  }
+</style>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-10">
+
+    <div class="text-center mb-3">
+      <h3 class="fw-bold mb-1">Plans &amp; billing</h3>
+      <p class="text-muted mb-0">Choose the tier that fits your practice. Cancel anytime.</p>
+    </div>
+
+    {% if request.args.get('success') %}
+      <div class="alert alert-success rounded-4">Thanks — your subscription is being activated. It may take a few seconds to appear here.</div>
+    {% elif request.args.get('canceled') %}
+      <div class="alert alert-warning rounded-4">Checkout canceled — no changes were made.</div>
+    {% endif %}
+
+    {% if not billing_enabled %}
+      <div class="alert alert-info rounded-4">
+        <i class="bi bi-info-circle me-1"></i>Billing is not active yet — all features are currently available to every clinician.
+      </div>
+    {% endif %}
+
+    <div class="row g-3">
+      <!-- Free -->
+      <div class="col-12 col-md-4">
+        <div class="card plan-card border-0 {% if current_plan == 'free' %}is-current{% endif %}">
+          <div class="card-body p-3 p-md-4 d-flex flex-column">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+              <span class="plan-name">Free</span>
+              {% if current_plan == 'free' %}<span class="current-chip">Current</span>{% endif %}
+            </div>
+            <div class="plan-price mb-3">$0<small> /month</small></div>
+            <div class="d-grid gap-2 mb-3">
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Guided reflections chat</div>
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Full session transcript</div>
+              <div class="plan-feat off"><i class="bi bi-x-circle me-2"></i>AI analysis (co-pilot &amp; summary)</div>
+              <div class="plan-feat off"><i class="bi bi-x-circle me-2"></i>Audio/video recording</div>
+            </div>
+            <div class="mt-auto">
+              <button class="btn btn-outline-secondary rounded-pill w-100" disabled>Always free</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plus -->
+      <div class="col-12 col-md-4">
+        <div class="card plan-card border-0 {% if current_plan == 'plus' %}is-current{% endif %}">
+          <div class="card-body p-3 p-md-4 d-flex flex-column">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+              <span class="plan-name">Plus</span>
+              {% if current_plan == 'plus' %}<span class="current-chip">Current</span>{% endif %}
+            </div>
+            <div class="plan-price mb-3">$10<small> /month</small></div>
+            <div class="d-grid gap-2 mb-3">
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Everything in Free</div>
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>AI co-pilot suggestions</div>
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>AI session summary &amp; billing codes</div>
+              <div class="plan-feat off"><i class="bi bi-x-circle me-2"></i>Audio/video recording</div>
+            </div>
+            <div class="mt-auto">
+              {% if current_plan == 'plus' %}
+                <button class="btn btn-primary-green rounded-pill w-100" disabled>Your plan</button>
+              {% else %}
+                <form method="POST" action="{{ url_for('billing_checkout', plan='plus') }}" class="m-0">
+                  <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Plus</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pro -->
+      <div class="col-12 col-md-4">
+        <div class="card plan-card border-0 {% if current_plan == 'pro' %}is-current{% endif %}">
+          <div class="card-body p-3 p-md-4 d-flex flex-column">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+              <span class="plan-name">Pro</span>
+              {% if current_plan == 'pro' %}<span class="current-chip">Current</span>{% endif %}
+            </div>
+            <div class="plan-price mb-3">$25<small> /month</small></div>
+            <div class="d-grid gap-2 mb-3">
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Everything in Plus</div>
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>Audio &amp; video recording</div>
+              <div class="plan-feat"><i class="bi bi-check-circle-fill me-2"></i>30-day secure recording storage</div>
+            </div>
+            <div class="mt-auto">
+              {% if current_plan == 'pro' %}
+                <button class="btn btn-primary-green rounded-pill w-100" disabled>Your plan</button>
+              {% else %}
+                <form method="POST" action="{{ url_for('billing_checkout', plan='pro') }}" class="m-0">
+                  <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Pro</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-center mt-4 d-flex flex-wrap justify-content-center gap-3">
+      <a href="/therapist" class="text-muted small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to Co-Pilot</a>
+      {% if has_customer %}
+      <form method="POST" action="{{ url_for('billing_portal') }}" class="m-0">
+        <button type="submit" class="btn btn-link btn-sm text-decoration-none p-0"><i class="bi bi-gear me-1"></i>Manage subscription</button>
+      </form>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+{% endblock %}

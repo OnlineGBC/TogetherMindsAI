@@ -126,6 +126,14 @@ class Clinician(db.Model):
     email            = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
     created_at       = db.Column(db.DateTime, nullable=False)
     last_login_at    = db.Column(db.DateTime, nullable=True)
+    # Subscription billing (Phase 4 Step 4 — Stripe). plan is the entitlement tier:
+    # "free" | "plus" ($10, AI analysis) | "pro" ($25, + recording). A NULL/absent
+    # plan is treated as "free". subscription_status mirrors Stripe (active,
+    # trialing, past_due, canceled, …); only active/trialing grant the paid tier.
+    stripe_customer_id  = db.Column(db.String(64), nullable=True)
+    plan                = db.Column(db.String(16), nullable=True)
+    subscription_status = db.Column(db.String(24), nullable=True)
+    current_period_end  = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("provider", "provider_subject", name="uq_clinician_provider_subject"),

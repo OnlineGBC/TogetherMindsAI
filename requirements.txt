@@ -44,3 +44,6 @@ fastembed==0.8.0
 # Recordings-bucket access (Phase 4 Step 3) — stream the MP4 for the therapist's
 # download and delete it at the 30-day retention deadline, via ADC on Cloud Run.
 google-cloud-storage>=2.16.0
+# Subscription billing (Phase 4 Step 4) — Stripe Checkout + billing portal +
+# signed webhooks. No card data touches the app.
+stripe>=9.0.0

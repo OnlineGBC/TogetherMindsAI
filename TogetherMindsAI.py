@@ -32,6 +32,7 @@ from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
 import clinical_summary
 import recording
+import billing
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 from log_filter import install_log_filter
@@ -493,6 +494,21 @@ if not config.IS_TESTING:
         except Exception:
             db.session.rollback()  # column already exists
 
+    # Subscription billing columns on clinicians (Phase 4 Step 4). Idempotent.
+    with app.app_context():
+        from sqlalchemy import text
+        for ddl in (
+            "ALTER TABLE clinicians ADD COLUMN stripe_customer_id VARCHAR(64)",
+            "ALTER TABLE clinicians ADD COLUMN plan VARCHAR(16)",
+            "ALTER TABLE clinicians ADD COLUMN subscription_status VARCHAR(24)",
+            "ALTER TABLE clinicians ADD COLUMN current_period_end DATETIME",
+        ):
+            try:
+                db.session.execute(text(ddl))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # column already exists
+
     # Add the recording 24h-before-deletion reminder timestamp (Phase 4 Step 3).
     with app.app_context():
         from sqlalchemy import text
@@ -775,6 +791,163 @@ def logout():
         log_event("client_logout", user_id=client_id)
     session.clear()
     return redirect(url_for("welcome"))
+
+
+# ---------------------------------------------------------------------------
+# Subscription entitlements (Phase 4 Step 4). While BILLING_ENABLED is OFF every
+# clinician keeps full access. When ON, only an active/trialing paid plan grants
+# the tier: "plus" -> AI analysis, "pro" -> AI analysis + recording.
+# ---------------------------------------------------------------------------
+
+def _effective_plan(clinician):
+    """The clinician's currently-entitled tier ("free"|"plus"|"pro")."""
+    if not config.BILLING_ENABLED:
+        return "pro"                       # billing disabled -> full access
+    if clinician is None:
+        return "free"
+    if (clinician.subscription_status or "").lower() not in ("active", "trialing"):
+        return "free"
+    return clinician.plan or "free"
+
+
+def _has_ai_analysis(clinician):
+    return _effective_plan(clinician) in ("plus", "pro")
+
+
+def _has_recording(clinician):
+    return _effective_plan(clinician) == "pro"
+
+
+def _session_clinician(session_id):
+    """The Clinician who owns a session (its therapist), or None."""
+    ts = db.session.get(TherapySession, session_id)
+    if ts and ts.therapist_id:
+        return db.session.get(Clinician, ts.therapist_id)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Billing routes — Stripe Checkout + hosted billing portal + webhook. No card
+# data ever reaches this app; subscription state arrives via signed webhooks.
+# ---------------------------------------------------------------------------
+
+@app.route("/billing")
+def billing_page():
+    cid = _current_clinician_id()
+    if not cid:
+        return redirect(url_for("login"))
+    clin = db.session.get(Clinician, cid)
+    return render_template(
+        "billing.html",
+        billing_enabled=config.BILLING_ENABLED,
+        current_plan=(clin.plan or "free") if clin else "free",
+        subscription_status=(clin.subscription_status if clin else None),
+        has_customer=bool(clin and clin.stripe_customer_id),
+    )
+
+
+@app.route("/billing/checkout/<plan>", methods=["POST"])
+def billing_checkout(plan):
+    cid = _current_clinician_id()
+    if not cid:
+        abort(403)
+    if not config.BILLING_ENABLED or plan not in billing.PAID_PLANS:
+        abort(404)
+    clin = db.session.get(Clinician, cid)
+    base = url_for("billing_page", _external=True, _scheme="https")
+    url = billing.create_checkout_url(clin, plan, base + "?success=1", base + "?canceled=1")
+    db.session.commit()                    # persist any newly-created stripe_customer_id
+    if not url:
+        flash("Could not start checkout. Please try again.", "warning")
+        return redirect(url_for("billing_page"))
+    log_event("billing_checkout_started", user_id=cid, plan=plan)
+    return redirect(url, code=303)
+
+
+@app.route("/billing/portal", methods=["POST"])
+def billing_portal():
+    cid = _current_clinician_id()
+    if not cid:
+        abort(403)
+    clin = db.session.get(Clinician, cid)
+    if not (clin and clin.stripe_customer_id):
+        return redirect(url_for("billing_page"))
+    url = billing.create_portal_url(clin.stripe_customer_id,
+                                    url_for("billing_page", _external=True, _scheme="https"))
+    if not url:
+        flash("Could not open the billing portal. Please try again.", "warning")
+        return redirect(url_for("billing_page"))
+    return redirect(url, code=303)
+
+
+def _clinician_for_event_object(obj):
+    """Resolve the Clinician a Stripe event object belongs to — by stored customer
+    id first, falling back to client_reference_id / metadata. Backfills the
+    customer id when learned from checkout."""
+    cust = obj.get("customer")
+    clin = Clinician.query.filter_by(stripe_customer_id=cust).first() if cust else None
+    if clin is None:
+        ref = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("clinician_id")
+        if ref:
+            clin = db.session.get(Clinician, ref)
+            if clin and cust and not clin.stripe_customer_id:
+                clin.stripe_customer_id = cust
+    return clin
+
+
+def _apply_checkout_completed(obj):
+    clin = _clinician_for_event_object(obj)
+    if clin is None:
+        return
+    plan = (obj.get("metadata") or {}).get("plan") or "free"
+    clin.plan = plan
+    clin.subscription_status = "active"
+    db.session.commit()
+    log_event("billing_subscribed", user_id=clin.id, plan=plan)
+
+
+def _apply_subscription_change(obj):
+    clin = _clinician_for_event_object(obj)
+    if clin is None:
+        return
+    plan, status = billing.subscription_plan_and_status(obj)
+    clin.plan = plan
+    clin.subscription_status = status
+    cpe = obj.get("current_period_end")
+    if cpe:
+        clin.current_period_end = datetime.fromtimestamp(cpe, tz=timezone.utc)
+    db.session.commit()
+    log_event("billing_subscription_updated", user_id=clin.id, plan=plan, status=status)
+
+
+def _apply_subscription_deleted(obj):
+    clin = _clinician_for_event_object(obj)
+    if clin is None:
+        return
+    clin.plan = "free"
+    clin.subscription_status = "canceled"
+    db.session.commit()
+    log_event("billing_subscription_canceled", user_id=clin.id)
+
+
+@app.route("/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    event = billing.verify_webhook(request.get_data(), request.headers.get("Stripe-Signature", ""))
+    if event is None:
+        return jsonify({"error": "invalid_signature"}), 400
+    etype = event.get("type", "")
+    obj = (event.get("data") or {}).get("object") or {}
+    try:
+        if etype == "checkout.session.completed":
+            _apply_checkout_completed(obj)
+        elif etype in ("customer.subscription.created", "customer.subscription.updated"):
+            _apply_subscription_change(obj)
+        elif etype == "customer.subscription.deleted":
+            _apply_subscription_deleted(obj)
+    except Exception:
+        db.session.rollback()
+        app.logger.error("stripe webhook handling error (%s)", etype)
+    return jsonify({"received": True}), 200
 
 
 # ---------------------------------------------------------------------------
