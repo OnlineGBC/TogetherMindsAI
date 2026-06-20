@@ -42,7 +42,7 @@ steps:
       - --cache-from
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
       - --build-arg
-      - REBUILD_DEPS=5
+      - REBUILD_DEPS=6
       - --tag
       - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_AR_REPO}/${_SERVICE_NAME}:${_TAG}
       - .

@@ -139,6 +139,39 @@ def test_oauth_callback_existing_clinician_reused(client):
         assert s.get("clinician_id") == "existing-id"
 
 
+def test_oauth_callback_captures_clinician_email(client):
+    """Phase 4 Step 3: the clinician's email claim is captured (encrypted) so we
+    can send them their own recording links + retention notices."""
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {
+        "userinfo": {"sub": "subj-email", "email": "Dr.Smith@Example.com"}
+    }
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        client.get("/auth/google/callback")
+
+    clin = Clinician.query.filter_by(provider="google", provider_subject="subj-email").first()
+    assert clin is not None
+    assert clin.email == "dr.smith@example.com"   # normalised to lower-case
+
+
+def test_oauth_callback_backfills_email_for_existing_clinician(client):
+    existing = Clinician(id="existing-2", provider="google", provider_subject="g-2",
+                         created_at=datetime.now(timezone.utc))
+    db.session.add(existing)
+    db.session.commit()
+    assert existing.email is None
+
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {
+        "userinfo": {"sub": "g-2", "email": "back@fill.com"}
+    }
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        client.get("/auth/google/callback")
+
+    refreshed = db.session.get(Clinician, "existing-2")
+    assert refreshed.email == "back@fill.com"
+
+
 # ---------------------------------------------------------------------------
 # Microsoft multi-tenant issuer validation
 # ---------------------------------------------------------------------------

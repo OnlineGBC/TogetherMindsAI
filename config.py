@@ -162,6 +162,9 @@ RTC_ENABLED: bool = bool(LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET 
 
 RECORDING_ENABLED: bool = os.environ.get("RECORDING_ENABLED", "false").lower() in ("1", "true", "yes")
 RECORDINGS_BUCKET: str = os.environ.get("RECORDINGS_BUCKET", "togethermindsai-recordings")
+# Public origin used to build absolute links in emails sent outside a request
+# context (e.g. the recording download link in retention notices).
+PUBLIC_BASE_URL: str = os.environ.get("PUBLIC_BASE_URL", "https://tm.onlinegbc.com").rstrip("/")
 
 # ---------------------------------------------------------------------------
 # Feedback form — Gmail SMTP send (no DB storage, no audit log)

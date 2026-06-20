@@ -120,6 +120,10 @@ class Clinician(db.Model):
     id               = db.Column(db.String(36), primary_key=True)            # our UUID
     provider         = db.Column(db.String(20),  nullable=False)             # "google" | "microsoft"
     provider_subject = db.Column(db.String(255), nullable=False)             # provider's stable user id ("sub")
+    # Encrypted at rest. Captured from the OAuth "email" claim, used only to send
+    # the clinician their own session-recording links + retention notices (Phase 4
+    # Step 3). Nullable: pre-existing accounts have none until they next log in.
+    email            = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
     created_at       = db.Column(db.DateTime, nullable=False)
     last_login_at    = db.Column(db.DateTime, nullable=True)
 
@@ -306,11 +310,12 @@ class SessionRecording(db.Model):
     session_id  = db.Column(db.String(36), index=True, nullable=False)
     egress_id   = db.Column(db.String(64), nullable=True)     # LiveKit egress job id
     gcs_object  = db.Column(db.String(512), nullable=True)    # path within the recordings bucket
-    status      = db.Column(db.String(20), nullable=False)    # active | stopped | failed
+    status      = db.Column(db.String(20), nullable=False)    # active | stopped | failed | deleted
     started_by  = db.Column(db.String(36), nullable=True)     # clinician user_id
     started_at  = db.Column(db.DateTime, nullable=False)
     stopped_at  = db.Column(db.DateTime, nullable=True)
     retention_expires_at = db.Column(db.DateTime, nullable=True)  # 30-day delete (Phase 4 Step 3)
+    reminder_sent_at     = db.Column(db.DateTime, nullable=True)  # 24h-before-deletion email sent (exactly once)
 
     def __repr__(self):
         return f"<SessionRecording id={self.id} session={self.session_id} status={self.status}>"

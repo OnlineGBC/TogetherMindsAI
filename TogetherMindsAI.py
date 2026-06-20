@@ -17,7 +17,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file, abort
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file, abort, Response, stream_with_context
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, join_room, emit
@@ -483,6 +483,25 @@ if not config.IS_TESTING:
         except Exception:
             db.session.rollback()  # column already exists (rollback clears the aborted txn)
 
+    # Add the encrypted clinician email column (Phase 4 Step 3) — used to send
+    # clinicians their own recording links + retention notices. Idempotent.
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text("ALTER TABLE clinicians ADD COLUMN email TEXT"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
+
+    # Add the recording 24h-before-deletion reminder timestamp (Phase 4 Step 3).
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text("ALTER TABLE session_recordings ADD COLUMN reminder_sent_at DATETIME"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
+
     # Remove prompt/response columns from exercises — conversation text is now
     # stored only in chat_messages (encrypted). Metadata-only exercise records
     # are sufficient for the progress chart.
@@ -651,19 +670,23 @@ def login():
 # each role's route owns only "which account to create and where to send them".
 # ---------------------------------------------------------------------------
 
-def _oauth_start(provider, callback_endpoint):
+def _oauth_start(provider, callback_endpoint, scope=None):
     """Redirect the user to the provider's consent screen, returning to
-    `callback_endpoint`. Returns a Flask response (redirect or error)."""
+    `callback_endpoint`. Returns a Flask response (redirect or error).
+
+    `scope` overrides the registered scope for this flow only (the clinician
+    flow requests "openid email"; the client flow keeps the default "openid")."""
     if provider not in _OAUTH_PROVIDERS:
         return _redirect_invalid_session()
     client = oauth.create_client(provider)
     redirect_uri = url_for(callback_endpoint, provider=provider, _external=True, _scheme="https")
-    return client.authorize_redirect(redirect_uri)
+    kwargs = {"scope": scope} if scope else {}
+    return client.authorize_redirect(redirect_uri, **kwargs)
 
 
-def _oauth_subject(provider):
-    """Complete the OAuth exchange and return the provider's stable subject id,
-    or None on failure (the caller decides where to redirect). Never raises."""
+def _oauth_userinfo(provider):
+    """Complete the OAuth exchange and return the provider's userinfo dict, or
+    None on failure (the caller decides where to redirect). Never raises."""
     client = oauth.create_client(provider)
     # Microsoft multi-tenant returns a tenant-substituted issuer that fails
     # Authlib's default issuer check — validate it the way Microsoft documents.
@@ -675,8 +698,14 @@ def _oauth_subject(provider):
     except Exception as exc:
         app.logger.error("OAuth callback failed (%s): %s: %s", provider, type(exc).__name__, exc)
         return None
-    userinfo = token.get("userinfo") or {}
-    return userinfo.get("sub")
+    return token.get("userinfo") or {}
+
+
+def _oauth_subject(provider):
+    """Complete the OAuth exchange and return the provider's stable subject id,
+    or None on failure. Never raises."""
+    info = _oauth_userinfo(provider)
+    return info.get("sub") if info else None
 
 
 def _safe_next(target):
@@ -693,17 +722,21 @@ def _safe_next(target):
 
 @app.route("/auth/<provider>/login")
 def oauth_login(provider):
-    return _oauth_start(provider, "oauth_callback")
+    # Clinicians grant "email" so we can send them their own recording links +
+    # retention notices (Phase 4 Step 3). The client flow stays at "openid".
+    return _oauth_start(provider, "oauth_callback", scope="openid email")
 
 
 @app.route("/auth/<provider>/callback")
 def oauth_callback(provider):
     if provider not in _OAUTH_PROVIDERS:
         return _redirect_invalid_session()
-    subject = _oauth_subject(provider)
+    info = _oauth_userinfo(provider)
+    subject = info.get("sub") if info else None
     if not subject:
         flash("Sign-in did not complete. Please try again.", "warning")
         return redirect(url_for("login"))
+    email = (info.get("email") or "").strip().lower() or None
 
     now = datetime.now(timezone.utc)
     clinician = (
@@ -714,12 +747,14 @@ def oauth_callback(provider):
     if clinician is None:
         clinician = Clinician(
             id=str(uuid.uuid4()), provider=provider, provider_subject=subject,
-            created_at=now, last_login_at=now,
+            email=email, created_at=now, last_login_at=now,
         )
         db.session.add(clinician)
         log_event("clinician_registered", user_id=clinician.id, provider=provider)
     else:
         clinician.last_login_at = now
+        if email and clinician.email != email:
+            clinician.email = email   # backfill / keep current for existing accounts
     db.session.commit()
 
     # The clinician's account id is their identity everywhere (session owner).
@@ -1331,6 +1366,22 @@ def _send_feedback_email(subject: str, plain_body: str, html_body: str) -> None:
     msg["Subject"] = subject
     msg["From"] = config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER
     msg["To"] = ", ".join(config.FEEDBACK_TO_EMAILS)
+    msg.set_content(plain_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    with smtplib.SMTP(config.FEEDBACK_SMTP_HOST, config.FEEDBACK_SMTP_PORT, timeout=5) as smtp:
+        smtp.starttls()
+        smtp.login(config.FEEDBACK_SMTP_USER, config.FEEDBACK_SMTP_PASSWORD)
+        smtp.send_message(msg)
+
+
+def _send_email(to_emails, subject: str, plain_body: str, html_body: str) -> None:
+    """Send a multipart/alternative email to an arbitrary recipient list via the
+    same Gmail SMTP path. Raises on failure (callers decide how to handle)."""
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER
+    msg["To"] = ", ".join(to_emails)
     msg.set_content(plain_body)
     msg.add_alternative(html_body, subtype="html")
 
@@ -1979,8 +2030,187 @@ def recording_stop(session_id):
         row.status = "stopped"
         row.stopped_at = datetime.now(timezone.utc)
         db.session.commit()
+        _finalize_stopped_recording(row)   # stamp 30-day retention + email the link
         log_event("recording_stopped", session_id=session_id, user_id=session.get("user_id"))
     return jsonify({"stopped": ok}), 200
+
+
+# ---------------------------------------------------------------------------
+# Recording retention (Phase 4 Step 3) — 30-day lifecycle.
+#   • On stop: stamp retention_expires_at and email the clinician the link.
+#   • Daily sweep: 24h-before-deletion reminder, then delete the object at expiry.
+# All paths are no-ops unless RECORDING_ENABLED. None of these ever raise into
+# their callers (a notification problem must never break a live session).
+# ---------------------------------------------------------------------------
+
+RECORDING_RETENTION_DAYS = 30
+
+
+def _recording_download_url(row) -> str:
+    """Absolute link to the in-app, therapist-gated download route. The link
+    requires the clinician to be logged in, so it is safe to put in an email."""
+    return (f"{config.PUBLIC_BASE_URL}/session/{row.session_id}"
+            f"/recording/{row.id}/download")
+
+
+def _recording_email_content(row, kind: str):
+    """Return (subject, plain, html) for the 'ready' or 'reminder' email."""
+    from html import escape as h
+    url = _recording_download_url(row)
+    expires = row.retention_expires_at
+    expires_str = expires.strftime("%d %b %Y") if expires else "30 days from recording"
+    if kind == "reminder":
+        subject = "TogetherMindsAI — your session recording is deleted tomorrow"
+        lead = ("This is a final reminder: the session recording below is scheduled to be "
+                f"permanently deleted on {expires_str}. Download it now if you still need it.")
+    else:
+        subject = "TogetherMindsAI — your session recording is ready"
+        lead = ("Your session recording is ready to download. For privacy it is kept for "
+                f"{RECORDING_RETENTION_DAYS} days and then permanently deleted "
+                f"(on or about {expires_str}).")
+    plain = (
+        f"{lead}\n\n"
+        f"Session: {row.session_id}\n"
+        f"Download (sign in as the session's clinician): {url}\n\n"
+        "Only you, signed in as this session's clinician, can open this link.\n"
+    )
+    html_body = (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
+        f'<h2 style="color:#2e7d32;">{h(subject.split("— ")[-1].capitalize())}</h2>'
+        f'<p style="color:#212121;line-height:1.5;">{h(lead)}</p>'
+        f'<p style="margin:18px 0;"><a href="{h(url)}" '
+        'style="background:#2e7d32;color:#fff;text-decoration:none;padding:10px 18px;'
+        'border-radius:8px;display:inline-block;">Download recording</a></p>'
+        f'<p style="color:#555;font-size:13px;">Session <strong>{h(row.session_id)}</strong>. '
+        'Only you, signed in as this session\'s clinician, can open this link.</p>'
+        '<p style="color:#888;font-size:12px;margin-top:20px;">Sent automatically by TogetherMindsAI.</p>'
+        "</div>"
+    )
+    return subject, plain, html_body
+
+
+def _email_recording(row, kind: str) -> bool:
+    """Email the owning clinician the 'ready' or 'reminder' notice. Returns True
+    on a successful send, False if skipped (no email/SMTP) or on failure. Assumes
+    an active app context. Never raises."""
+    try:
+        if not (config.FEEDBACK_SMTP_USER and config.FEEDBACK_SMTP_PASSWORD):
+            return False
+        clinician = db.session.get(Clinician, row.started_by) if row.started_by else None
+        email = getattr(clinician, "email", None)
+        if not email:
+            return False
+        subject, plain, html_body = _recording_email_content(row, kind)
+        _send_email([email], subject, plain, html_body)
+        return True
+    except Exception:
+        app.logger.warning("recording %s email failed (id=%s)", kind, getattr(row, "id", "?"))
+        return False
+
+
+def _dispatch_recording_ready(rec_id: int) -> None:
+    """Send the 'ready' email off the request path (SMTP can take seconds)."""
+    if not config.RECORDING_ENABLED:
+        return
+
+    def _run():
+        with app.app_context():
+            row = db.session.get(SessionRecording, rec_id)
+            if row and row.status == "stopped":
+                _email_recording(row, "ready")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _finalize_stopped_recording(row) -> None:
+    """Stamp the 30-day retention deadline on a just-stopped recording and email
+    the clinician the download link. Never raises into the caller."""
+    try:
+        base = row.stopped_at or datetime.now(timezone.utc)
+        row.retention_expires_at = base + timedelta(days=RECORDING_RETENTION_DAYS)
+        db.session.commit()
+        _dispatch_recording_ready(row.id)
+    except Exception:
+        db.session.rollback()
+        app.logger.warning("finalize recording failed (id=%s)", getattr(row, "id", "?"))
+
+
+def _recording_retention_sweep() -> None:
+    """Daily: send due 24h-before-deletion reminders, then delete recordings past
+    their retention deadline. Idempotent and safe to run repeatedly. Never raises."""
+    if not config.RECORDING_ENABLED:
+        return
+    try:
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+            soon = now + timedelta(hours=24)
+
+            # 1) Reminders — expiring within 24h, not yet reminded, not deleted.
+            due = (SessionRecording.query
+                   .filter(SessionRecording.status == "stopped",
+                           SessionRecording.retention_expires_at.isnot(None),
+                           SessionRecording.retention_expires_at <= soon,
+                           SessionRecording.retention_expires_at > now,
+                           SessionRecording.reminder_sent_at.is_(None))
+                   .all())
+            for row in due:
+                if _email_recording(row, "reminder"):
+                    row.reminder_sent_at = now
+                    db.session.commit()
+
+            # 2) Deletions — past the retention deadline.
+            expired = (SessionRecording.query
+                       .filter(SessionRecording.status == "stopped",
+                               SessionRecording.retention_expires_at.isnot(None),
+                               SessionRecording.retention_expires_at <= now)
+                       .all())
+            for row in expired:
+                if recording.delete_object(row.gcs_object):
+                    row.status = "deleted"
+                    db.session.commit()
+                    log_event("recording_deleted", session_id=row.session_id,
+                              user_id=row.started_by, recording_id=row.id,
+                              trigger="retention_expired")
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error("recording retention sweep error: %s", type(exc).__name__)
+
+
+@app.route("/session/<session_id>/recording/<int:rec_id>/download")
+def recording_download(session_id, rec_id):
+    """Therapist-only streamed download of a session recording. The object is
+    streamed through the app so the existing login/authorization applies (no raw
+    signed URL is ever handed out)."""
+    if not config.RECORDING_ENABLED:
+        abort(404)
+    if _is_session_therapist(session_id) is None:
+        abort(403)
+    row = db.session.get(SessionRecording, rec_id)
+    if row is None or row.session_id != session_id:
+        abort(404)
+    if row.status == "deleted" or not row.gcs_object:
+        abort(410)   # Gone — past its 30-day retention
+    gen, size, ctype = recording.download_stream(row.gcs_object)
+    if gen is None:
+        abort(502)
+    log_event("recording_downloaded", session_id=session_id,
+              user_id=session.get("user_id"), recording_id=rec_id)
+    resp = Response(stream_with_context(gen), mimetype=ctype or "video/mp4")
+    resp.headers["Content-Disposition"] = f'attachment; filename="recording-{session_id}-{rec_id}.mp4"'
+    if size:
+        resp.headers["Content-Length"] = str(size)
+    return resp
+
+
+# Wire the daily recording-retention sweep now that its function is defined (the
+# `_scheduler` global was created in the startup block above). Registered here,
+# not in that block, because the sweep is defined further down this module.
+if not config.IS_TESTING:
+    _scheduler.add_job(
+        _recording_retention_sweep, "interval", hours=24, id="recording_retention_sweep",
+    )
+    # Catch up on any reminders/deletions that came due while the app was down.
+    threading.Thread(target=_recording_retention_sweep, daemon=True).start()
 
 
 def _render_summary_pdf(pdf, summary: dict) -> None:
@@ -2718,6 +2948,7 @@ def _evaluate_recording(session_id: str) -> None:
                 row.status = "stopped"
                 row.stopped_at = datetime.now(timezone.utc)
                 db.session.commit()
+                _finalize_stopped_recording(row)   # stamp retention + email the link
             session_recording_active[session_id] = None
             log_event("recording_stopped", session_id=session_id,
                       user_id=session_therapist_id.get(session_id),

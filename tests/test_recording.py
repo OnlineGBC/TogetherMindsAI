@@ -25,8 +25,9 @@ os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 from datetime import datetime, timezone, timedelta
 
 import config
+import TogetherMindsAI as tm
 from TogetherMindsAI import app, socketio
-from models import db, init_encryption, TherapySession, SessionRecording
+from models import db, init_encryption, TherapySession, SessionRecording, Clinician
 from session_id import generate_session_id
 
 init_encryption(TEST_KEY)
@@ -189,3 +190,124 @@ def test_unconsented_newcomer_pauses_recording(enc_client):
 
         _join(enc_client, sid, "client-2", mode="group")   # new, unconsented
         assert stop.call_count == 1           # recording pauses until they consent too
+
+
+# ---------------------------------------------------------------------------
+# Retention (Step 3): 30-day lifecycle — stamp on stop, reminder, auto-delete.
+# ---------------------------------------------------------------------------
+
+def _seed_recording(sid, status="stopped", expires_in=None, reminded=False,
+                    started_by="ther-1", gcs="obj.mp4"):
+    now = datetime.now(timezone.utc)
+    row = SessionRecording(
+        session_id=sid, egress_id="EG", gcs_object=gcs, status=status,
+        started_by=started_by, started_at=now, stopped_at=now,
+        retention_expires_at=(now + expires_in) if expires_in is not None else None,
+        reminder_sent_at=(now if reminded else None),
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row.id
+
+
+def test_stop_stamps_30day_retention(enc_client):
+    with app.app_context():
+        sid = _seed()
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.start_recording", return_value="EG_1"), \
+         patch("recording.stop_recording", return_value=True), \
+         patch.object(tm, "_dispatch_recording_ready"):     # don't spawn the email thread
+        enc_client.post(f"/session/{sid}/recording/start")
+        enc_client.post(f"/session/{sid}/recording/stop")
+    with app.app_context():
+        row = SessionRecording.query.filter_by(session_id=sid).first()
+        assert row.retention_expires_at is not None
+        delta = row.retention_expires_at - row.stopped_at
+        assert abs(delta - timedelta(days=30)) < timedelta(minutes=1)
+
+
+def test_sweep_sends_reminder_once(enc_client):
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid, expires_in=timedelta(hours=12))
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_email_recording", return_value=True) as mail, \
+         patch("recording.delete_object", return_value=True):
+        tm._recording_retention_sweep()
+        tm._recording_retention_sweep()                      # idempotent
+    assert mail.call_count == 1                              # reminded exactly once
+    with app.app_context():
+        assert db.session.get(SessionRecording, rid).reminder_sent_at is not None
+
+
+def test_sweep_deletes_expired_recording_once(enc_client):
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid, expires_in=timedelta(hours=-1), gcs="gone.mp4")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_email_recording", return_value=True), \
+         patch("recording.delete_object", return_value=True) as rm:
+        tm._recording_retention_sweep()
+        tm._recording_retention_sweep()                      # already deleted → no-op
+    rm.assert_called_once_with("gone.mp4")
+    with app.app_context():
+        assert db.session.get(SessionRecording, rid).status == "deleted"
+
+
+def test_sweep_keeps_object_if_delete_fails(enc_client):
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid, expires_in=timedelta(hours=-1))
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.delete_object", return_value=False):
+        tm._recording_retention_sweep()
+    with app.app_context():
+        assert db.session.get(SessionRecording, rid).status == "stopped"   # not marked deleted
+
+
+def _make_therapist_session(client, sid, uid="ther-1"):
+    with client.session_transaction() as s:
+        s["user_id"] = uid
+
+
+def test_download_streams_for_therapist(enc_client):
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid)
+    _make_therapist_session(enc_client, sid)
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.download_stream", return_value=(iter([b"abc"]), 3, "video/mp4")):
+        rv = enc_client.get(f"/session/{sid}/recording/{rid}/download")
+    assert rv.status_code == 200
+    assert rv.data == b"abc"
+    assert "attachment" in rv.headers.get("Content-Disposition", "")
+
+
+def test_download_forbidden_for_non_therapist(enc_client):
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid)
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "intruder"
+    with patch.object(config, "RECORDING_ENABLED", True):
+        assert enc_client.get(f"/session/{sid}/recording/{rid}/download").status_code == 403
+
+
+def test_download_gone_when_deleted(enc_client):
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid, status="deleted")
+    _make_therapist_session(enc_client, sid)
+    with patch.object(config, "RECORDING_ENABLED", True):
+        assert enc_client.get(f"/session/{sid}/recording/{rid}/download").status_code == 410
+
+
+def test_download_404_when_disabled(enc_client):
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid)
+    _make_therapist_session(enc_client, sid)
+    with patch.object(config, "RECORDING_ENABLED", False):
+        assert enc_client.get(f"/session/{sid}/recording/{rid}/download").status_code == 404

@@ -79,3 +79,59 @@ def stop_recording(egress_id: str) -> bool:
     except Exception as exc:
         logger.warning("stop_recording failed: %s", exc)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Recordings-bucket access (Phase 4 Step 3) — download + retention deletion.
+# Uses google-cloud-storage with Application Default Credentials (the Cloud Run
+# service account). The client is built lazily so importing this module never
+# requires GCS credentials (tests mock these functions). Never raises.
+# ---------------------------------------------------------------------------
+
+def _bucket():
+    from google.cloud import storage
+    return storage.Client().bucket(config.RECORDINGS_BUCKET)
+
+
+def download_stream(object_path: str):
+    """Stream a recordings-bucket object in chunks for an in-app download.
+
+    Returns (generator, size_bytes, content_type), or (None, 0, None) on failure
+    (missing object, no credentials, etc.). The bytes are read in chunks so a
+    large MP4 is never fully buffered in memory.
+    """
+    try:
+        blob = _bucket().blob(object_path)
+        blob.reload()   # populates size/content_type; raises if the object is gone
+        size = blob.size or 0
+        ctype = blob.content_type or "video/mp4"
+
+        def _gen():
+            with blob.open("rb") as fh:
+                while True:
+                    chunk = fh.read(256 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        return _gen(), size, ctype
+    except Exception as exc:
+        logger.warning("download_stream failed: %s", exc)
+        return None, 0, None
+
+
+def delete_object(object_path: str) -> bool:
+    """Delete a recordings-bucket object (retention expiry). Returns True on
+    success, or True if it was already gone; False only on a real error."""
+    if not object_path:
+        return False
+    try:
+        from google.cloud.exceptions import NotFound
+        try:
+            _bucket().blob(object_path).delete()
+        except NotFound:
+            return True   # already deleted — the desired end state
+        return True
+    except Exception as exc:
+        logger.warning("delete_object failed: %s", exc)
+        return False
