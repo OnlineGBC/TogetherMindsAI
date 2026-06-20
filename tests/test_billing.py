@@ -190,6 +190,22 @@ def test_webhook_subscription_updated_sets_plan_from_price(client):
         assert db.session.get(Clinician, "clin-1").plan == "premium"
 
 
+# ---- migration DDL safety -------------------------------------------------
+
+def test_new_timestamp_migrations_are_postgres_safe():
+    """Regression: DATETIME is not a valid Postgres type, so an
+    'ALTER TABLE ... ADD COLUMN <ts> DATETIME' fails on Cloud SQL and the column
+    is silently never created (which 500'd every Clinician query / OAuth login).
+    The billing/recording timestamp columns must use TIMESTAMP."""
+    import os
+    src_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "TogetherMindsAI.py")
+    src = open(src_path, encoding="utf-8").read()
+    assert "current_period_end TIMESTAMP" in src
+    assert "reminder_sent_at TIMESTAMP" in src
+    assert "current_period_end DATETIME" not in src
+    assert "reminder_sent_at DATETIME" not in src
+
+
 # ---- entitlements ---------------------------------------------------------
 
 def test_billing_off_grants_full_access(client):

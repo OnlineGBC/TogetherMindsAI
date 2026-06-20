@@ -505,7 +505,9 @@ if not config.IS_TESTING:
             "ALTER TABLE clinicians ADD COLUMN stripe_customer_id VARCHAR(64)",
             "ALTER TABLE clinicians ADD COLUMN plan VARCHAR(16)",
             "ALTER TABLE clinicians ADD COLUMN subscription_status VARCHAR(24)",
-            "ALTER TABLE clinicians ADD COLUMN current_period_end DATETIME",
+            # TIMESTAMP (not DATETIME): DATETIME is not a valid Postgres type, so the
+            # ALTER would fail there and the column would silently never be created.
+            "ALTER TABLE clinicians ADD COLUMN current_period_end TIMESTAMP",
         ):
             try:
                 db.session.execute(text(ddl))
@@ -517,7 +519,7 @@ if not config.IS_TESTING:
     with app.app_context():
         from sqlalchemy import text
         try:
-            db.session.execute(text("ALTER TABLE session_recordings ADD COLUMN reminder_sent_at DATETIME"))
+            db.session.execute(text("ALTER TABLE session_recordings ADD COLUMN reminder_sent_at TIMESTAMP"))
             db.session.commit()
         except Exception:
             db.session.rollback()  # column already exists
