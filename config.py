@@ -155,6 +155,15 @@ ASSEMBLYAI_API_KEY: str = os.environ.get("ASSEMBLYAI_API_KEY", "")
 RTC_ENABLED: bool = bool(LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET and ASSEMBLYAI_API_KEY)
 
 # ---------------------------------------------------------------------------
+# Session recording (Phase 4 — optional paid A/V recording). OFF by default.
+# When enabled, recordings are made by the self-hosted LiveKit Egress service and
+# uploaded to the private recordings bucket.
+# ---------------------------------------------------------------------------
+
+RECORDING_ENABLED: bool = os.environ.get("RECORDING_ENABLED", "false").lower() in ("1", "true", "yes")
+RECORDINGS_BUCKET: str = os.environ.get("RECORDINGS_BUCKET", "togethermindsai-recordings")
+
+# ---------------------------------------------------------------------------
 # Feedback form — Gmail SMTP send (no DB storage, no audit log)
 # ---------------------------------------------------------------------------
 

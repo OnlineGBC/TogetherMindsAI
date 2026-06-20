@@ -26,11 +26,12 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
 import clinical_summary
+import recording
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
 from log_filter import install_log_filter
@@ -400,6 +401,9 @@ def _purge_expired_sessions():
                 CopilotCard.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 SessionSummary.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 SessionHidden.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
+                # DB rows only — the GCS recording objects are governed by their own
+                # 30-day retention (Phase 4 Step 3).
+                SessionRecording.query.filter_by(session_id=ts.id).delete(synchronize_session=False)
                 Exercise.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 RateLimitEntry.query.filter_by(user_id=ts.created_by).delete(synchronize_session=False)
                 db.session.delete(ts)
@@ -1919,6 +1923,58 @@ def session_summary(session_id):
     if ts is None:
         return jsonify({"error": "Forbidden"}), 403
     return jsonify(_session_summary_payload(session_id, ts))
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — session recording (therapist-only, behind RECORDING_ENABLED flag).
+# Records the live room via self-hosted LiveKit Egress → MP4 in the recordings
+# bucket. Step 2 adds the all-party consent gate; Step 3 adds 30-day retention.
+# ---------------------------------------------------------------------------
+
+@app.route("/session/<session_id>/recording/start", methods=["POST"])
+def recording_start(session_id):
+    if not config.RECORDING_ENABLED:
+        return jsonify({"error": "recording_disabled"}), 403
+    if _is_session_therapist(session_id) is None:
+        return jsonify({"error": "Forbidden"}), 403
+    # NOTE: all-party consent gating is added in Phase 4 Step 2.
+    now = datetime.now(timezone.utc)
+    filepath = f"{session_id}/{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
+    egress_id = recording.start_recording(session_id, filepath)
+    row = SessionRecording(
+        session_id=session_id, egress_id=egress_id, gcs_object=filepath,
+        status="active" if egress_id else "failed",
+        started_by=session.get("user_id"), started_at=now,
+    )
+    db.session.add(row)
+    db.session.commit()
+    if not egress_id:
+        return jsonify({"error": "recording_start_failed"}), 502
+    log_event("recording_started", session_id=session_id, user_id=session.get("user_id"))
+    return jsonify({"recording_id": row.id, "status": "active"}), 200
+
+
+@app.route("/session/<session_id>/recording/stop", methods=["POST"])
+def recording_stop(session_id):
+    if not config.RECORDING_ENABLED:
+        return jsonify({"error": "recording_disabled"}), 403
+    if _is_session_therapist(session_id) is None:
+        return jsonify({"error": "Forbidden"}), 403
+    row = (
+        SessionRecording.query
+        .filter_by(session_id=session_id, status="active")
+        .order_by(SessionRecording.id.desc())
+        .first()
+    )
+    if row is None:
+        return jsonify({"error": "no_active_recording"}), 404
+    ok = recording.stop_recording(row.egress_id)
+    if ok:
+        row.status = "stopped"
+        row.stopped_at = datetime.now(timezone.utc)
+        db.session.commit()
+        log_event("recording_stopped", session_id=session_id, user_id=session.get("user_id"))
+    return jsonify({"stopped": ok}), 200
 
 
 def _render_summary_pdf(pdf, summary: dict) -> None:

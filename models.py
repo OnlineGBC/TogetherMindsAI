@@ -291,3 +291,26 @@ class SessionHidden(db.Model):
 
     def __repr__(self):
         return f"<SessionHidden session={self.session_id} user={self.user_id}>"
+
+
+class SessionRecording(db.Model):
+    """Metadata for a recorded session (Phase 4 — optional paid A/V recording).
+
+    The video file itself lives in the private recordings GCS bucket; this row
+    tracks the recording's lifecycle (status, the LiveKit egress job id, the
+    object path, who started it, and when). No PHI content is stored here.
+    """
+    __tablename__ = "session_recordings"
+
+    id          = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    session_id  = db.Column(db.String(36), index=True, nullable=False)
+    egress_id   = db.Column(db.String(64), nullable=True)     # LiveKit egress job id
+    gcs_object  = db.Column(db.String(512), nullable=True)    # path within the recordings bucket
+    status      = db.Column(db.String(20), nullable=False)    # active | stopped | failed
+    started_by  = db.Column(db.String(36), nullable=True)     # clinician user_id
+    started_at  = db.Column(db.DateTime, nullable=False)
+    stopped_at  = db.Column(db.DateTime, nullable=True)
+    retention_expires_at = db.Column(db.DateTime, nullable=True)  # 30-day delete (Phase 4 Step 3)
+
+    def __repr__(self):
+        return f"<SessionRecording id={self.id} session={self.session_id} status={self.status}>"
