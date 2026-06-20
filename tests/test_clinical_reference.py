@@ -105,6 +105,21 @@ def test_build_reference_cards_caps_count():
     assert len(cards) <= cref.MAX_REFERENCE_CARDS
 
 
+def test_reference_card_requires_keyword_corroboration():
+    """A semantic match alone must NOT surface a card. The embedding model treats
+    common disorders (MDD/PTSD/…) as generic attractors that any emotionally-toned
+    text scores moderately against, so a corpus keyword must also appear in the
+    transcript. Regression for MDD shown on a benign/ambiguous group transcript."""
+    entry = {"label": "Major depressive disorder", "icd10": "F32", "icd11": "6A70",
+             "keywords": ["hopeless", "worthless", "no energy"], "_sim": 0.62}
+    with patch.object(cref, "retrieve", return_value=[dict(entry)]):
+        # Strong semantic match but no keyword present -> suppressed.
+        assert cref.build_reference_cards("hello everyone, great to see you all here") == []
+        # Keyword corroboration present -> the card surfaces.
+        cards = cref.build_reference_cards("lately I feel hopeless and worthless")
+        assert cards and "Major depressive disorder" in cards[0]["text"]
+
+
 # ---------------------------------------------------------------------------
 # format_reference_block
 # ---------------------------------------------------------------------------

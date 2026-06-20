@@ -265,8 +265,17 @@ def build_reference_cards(text: str, max_cards: int = MAX_REFERENCE_CARDS) -> li
 
     Codes are read straight from the curated corpus, so they can never be
     fabricated. Returns [] when nothing clears the relevance threshold.
+
+    A surfaced card additionally requires LEXICAL keyword corroboration: the
+    embedding model treats common disorders (MDD, PTSD, …) as "generic
+    attractors" that any emotionally-toned text scores moderately against, with
+    near-tied margins — so semantic similarity alone produces confident-sounding
+    false positives. Requiring at least one corpus keyword to actually appear in
+    the transcript means meaning AND wording must agree before a card is shown.
     """
     entries = retrieve(text, k=max_cards, min_score=_MIN_CARD_SCORE, min_sim=_MIN_SIM_CARD)
+    text_lower = (text or "").lower()
+    entries = [e for e in entries if _score(text_lower, e) >= 1]
     cards = []
     for e in entries:
         codes = f"ICD-10 {e.get('icd10', '?')}"
