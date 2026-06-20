@@ -219,10 +219,14 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
         transcript = _build_transcript(session_id)
         notes = "\n".join(session_therapist_notes.get(session_id, []))
         cards = []
+        # Safety risk alerts are ALWAYS on (never gated behind a paywall).
         if trigger_text:
             cards.extend(copilot.build_risk_cards(trigger_text))
-        cards.extend(copilot.build_reference_cards(transcript))
-        cards.extend(copilot.generate_suggestions(transcript, mode=mode, therapist_notes=notes))
+        # The AI advisory (reference + LLM suggestions) is the paid "AI analysis"
+        # tier — Plus or Pro. Free clinicians still get the safety alerts above.
+        if _has_ai_analysis(_session_clinician(session_id)):
+            cards.extend(copilot.build_reference_cards(transcript))
+            cards.extend(copilot.generate_suggestions(transcript, mode=mode, therapist_notes=notes))
 
         recent = session_recent_cards.setdefault(session_id, [])
         cards = copilot.dedupe_cards(cards, recent)
@@ -2152,6 +2156,12 @@ def session_summary(session_id):
     ts = _is_session_therapist(session_id)
     if ts is None:
         return jsonify({"error": "Forbidden"}), 403
+    if not _has_ai_analysis(_session_clinician(session_id)):
+        return jsonify({
+            "locked": True,
+            "message": "The AI session summary is part of the Plus plan.",
+            "upgrade_url": url_for("billing_page"),
+        }), 402
     return jsonify(_session_summary_payload(session_id, ts))
 
 
@@ -2167,6 +2177,8 @@ def recording_start(session_id):
         return jsonify({"error": "recording_disabled"}), 403
     if _is_session_therapist(session_id) is None:
         return jsonify({"error": "Forbidden"}), 403
+    if not _has_recording(_session_clinician(session_id)):
+        return jsonify({"error": "recording_requires_pro"}), 402
     # NOTE: all-party consent gating is added in Phase 4 Step 2.
     now = datetime.now(timezone.utc)
     filepath = f"{session_id}/{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
@@ -2530,8 +2542,9 @@ def download_transcript_pdf(session_id):
     pdf.ln(6)
 
     # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    # The AI summary is a paid (Plus/Pro) feature; the transcript itself is free.
     _ts_therapist = _is_session_therapist(session_id)
-    if _ts_therapist is not None:
+    if _ts_therapist is not None and _has_ai_analysis(_session_clinician(session_id)):
         _render_summary_pdf(pdf, _session_summary_payload(session_id, _ts_therapist))
 
     # Assign a distinct RGB color to each human participant
@@ -2625,8 +2638,9 @@ def download_transcript_docx(session_id):
     doc.add_paragraph("─" * 40)
 
     # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    # The AI summary is a paid (Plus/Pro) feature; the transcript itself is free.
     _ts_therapist = _is_session_therapist(session_id)
-    if _ts_therapist is not None:
+    if _ts_therapist is not None and _has_ai_analysis(_session_clinician(session_id)):
         _render_summary_docx(doc, _session_summary_payload(session_id, _ts_therapist))
 
     # Assign a distinct color to each human participant (AI is always green)
@@ -3097,8 +3111,11 @@ def _evaluate_recording(session_id: str) -> None:
         consent = session_recording_consent.get(session_id, {})
         all_consent = bool(participants) and all(consent.get(u) is True for u in participants)
         active_id = session_recording_active.get(session_id)
+        # Entitlement is the ultimate guard: recording never starts unless the
+        # session's clinician holds the Pro plan (a no-op while billing is off).
+        entitled = _has_recording(_session_clinician(session_id))
 
-        if requested and all_consent and not active_id:
+        if requested and all_consent and entitled and not active_id:
             session_recording_active[session_id] = -1   # pending — blocks re-entry
             now = datetime.now(timezone.utc)
             filepath = f"{session_id}/{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
@@ -3141,6 +3158,9 @@ def on_recording_request(data):
         return
     if session_therapist_id.get(session_id) != user_id:
         return   # only the session's clinician may start recording
+    if not _has_recording(_session_clinician(session_id)):
+        emit("recording_unavailable", {"message": "Recording is a Pro-plan feature. Upgrade in Plans & billing."})
+        return
     session_recording_requested[session_id] = True
     session_recording_consent[session_id][user_id] = True   # the clinician consents by requesting
     emit("recording_consent_prompt", {"requested_by": "Therapist"}, to=session_id)

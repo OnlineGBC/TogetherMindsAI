@@ -286,12 +286,23 @@ function _tcLoadSummary(sessionId) {
     })
         .then(function (r) {
             if (r.status === 403) { throw new Error("forbidden"); }
+            // 402 — feature locked to a paid plan; render the returned upsell.
+            if (r.status === 402) { return r.json().then(function (d) { throw { locked: true, data: d }; }); }
             if (!r.ok) { throw new Error("http " + r.status); }
             return r.json();
         })
         .then(function (data) { _tcRenderSummary(body, data); })
         .catch(function (err) {
             body.innerHTML = "";
+            if (err && err.locked) {
+                var d = err.data || {};
+                body.appendChild(_tcEl("div", "tcs-note", d.message || "The AI session summary is a Plus feature."));
+                var a = _tcEl("a", "tcs-upgrade", "Upgrade in Plans & billing");
+                a.href = d.upgrade_url || "/billing";
+                a.target = "_blank"; a.rel = "noopener noreferrer";
+                body.appendChild(a);
+                return;
+            }
             var msg = err && err.message === "forbidden"
                 ? "This summary is available only to the session's therapist."
                 : "Could not generate the summary right now. Please try again.";
@@ -388,6 +399,8 @@ function _tcSummaryOverlay() {
         "#tcSummaryOverlay .tcs-disclaimer{font-size:.78rem;font-style:italic;color:#92400e;" +
         "background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px 10px;margin-bottom:6px;}" +
         "#tcSummaryOverlay .tcs-note{color:#555;font-size:.85rem;margin:4px 0;}" +
+        "#tcSummaryOverlay .tcs-upgrade{display:inline-block;margin-top:8px;font-weight:600;" +
+        "color:#00796b;text-decoration:underline;}" +
         "#tcSummaryOverlay .tcs-warn{color:#92400e;font-weight:600;}" +
         "#tcSummaryOverlay .tcs-client{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;}";
 

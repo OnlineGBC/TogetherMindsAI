@@ -23,11 +23,13 @@ os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 from datetime import datetime, timezone
 
+from datetime import timedelta
+
 import config
 import billing
 import TogetherMindsAI as tm
 from TogetherMindsAI import app
-from models import db, init_encryption, Clinician
+from models import db, init_encryption, Clinician, TherapySession
 
 init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
@@ -186,3 +188,96 @@ def test_webhook_subscription_updated_sets_plan_from_price(client):
     assert rv.status_code == 200
     with app.app_context():
         assert db.session.get(Clinician, "clin-1").plan == "pro"
+
+
+# ---- entitlements ---------------------------------------------------------
+
+def test_billing_off_grants_full_access(client):
+    with app.app_context():
+        _clinician(plan="free", status=None)
+        c = db.session.get(Clinician, "clin-1")
+        with patch.object(config, "BILLING_ENABLED", False):
+            assert tm._effective_plan(c) == "pro"
+            assert tm._has_ai_analysis(c) and tm._has_recording(c)
+
+
+def test_entitlements_enforced_when_billing_on(client):
+    with app.app_context():
+        _clinician(plan="plus", status="active")
+        c = db.session.get(Clinician, "clin-1")
+        with patch.object(config, "BILLING_ENABLED", True):
+            assert tm._effective_plan(c) == "plus"
+            assert tm._has_ai_analysis(c)
+            assert not tm._has_recording(c)
+
+
+def test_canceled_paid_plan_is_free(client):
+    with app.app_context():
+        _clinician(plan="pro", status="canceled")
+        c = db.session.get(Clinician, "clin-1")
+        with patch.object(config, "BILLING_ENABLED", True):
+            assert tm._effective_plan(c) == "free"
+
+
+def _seed_session(sid="s1", therapist="doc"):
+    now = datetime.now(timezone.utc)
+    db.session.add(TherapySession(
+        id=sid, mode="solo", created_by=therapist, created_at=now,
+        retention_expires_at=now + timedelta(days=30), therapist_id=therapist))
+    db.session.commit()
+
+
+# ---- AI-analysis gating: session summary ----------------------------------
+
+def test_summary_locked_for_free_clinician(client):
+    with app.app_context():
+        _clinician("doc", plan="free", status="active")
+        _seed_session("s1", "doc")
+    _login(client, "doc")
+    with patch.object(config, "BILLING_ENABLED", True):
+        rv = client.get("/session/s1/summary")
+    assert rv.status_code == 402
+    assert rv.get_json()["locked"] is True
+
+
+def test_summary_available_for_plus_clinician(client):
+    with app.app_context():
+        _clinician("doc", plan="plus", status="active")
+        _seed_session("s1", "doc")
+    _login(client, "doc")
+    with patch.object(config, "BILLING_ENABLED", True), \
+         patch.object(tm, "_session_summary_payload", return_value={"clinical": "ok"}):
+        rv = client.get("/session/s1/summary")
+    assert rv.status_code == 200
+    assert rv.get_json()["clinical"] == "ok"
+
+
+# ---- AI-analysis gating: co-pilot (safety stays free) ---------------------
+
+def test_copilot_gates_ai_but_keeps_safety_for_free(client):
+    with app.app_context():
+        _clinician("doc", plan="free", status="active")
+        _seed_session("s1", "doc")
+    with patch.object(config, "BILLING_ENABLED", True), \
+         patch("copilot.build_risk_cards", return_value=[]) as risk, \
+         patch("copilot.build_reference_cards", return_value=[]) as ref, \
+         patch("copilot.generate_suggestions", return_value=[]) as sug:
+        with app.app_context():
+            tm._run_copilot("s1", "solo", trigger_text="I feel hopeless")
+    risk.assert_called_once()          # safety alerts always run
+    ref.assert_not_called()            # AI advisory gated
+    sug.assert_not_called()
+
+
+def test_copilot_runs_ai_for_plus(client):
+    with app.app_context():
+        _clinician("doc", plan="plus", status="active")
+        _seed_session("s1", "doc")
+    with patch.object(config, "BILLING_ENABLED", True), \
+         patch("copilot.build_risk_cards", return_value=[]), \
+         patch("copilot.build_reference_cards", return_value=[]) as ref, \
+         patch("copilot.generate_suggestions", return_value=[]) as sug:
+        with app.app_context():
+            tm._run_copilot("s1", "solo", trigger_text="I feel hopeless")
+    ref.assert_called_once()
+    sug.assert_called_once()

@@ -311,3 +311,43 @@ def test_download_404_when_disabled(enc_client):
     _make_therapist_session(enc_client, sid)
     with patch.object(config, "RECORDING_ENABLED", False):
         assert enc_client.get(f"/session/{sid}/recording/{rid}/download").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Entitlement gating (Step 4): recording requires the Pro plan once billing is on.
+# ---------------------------------------------------------------------------
+
+def _seed_clinician(cid, plan, status="active"):
+    db.session.add(Clinician(
+        id=cid, provider="google", provider_subject="s-" + cid,
+        created_at=datetime.now(timezone.utc), plan=plan, subscription_status=status))
+    db.session.commit()
+
+
+def test_recording_start_requires_pro_when_billing_on(enc_client):
+    with app.app_context():
+        sid = _seed("doc")
+        _seed_clinician("doc", plan="plus")     # has AI analysis but not recording
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "doc"
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(config, "BILLING_ENABLED", True), \
+         patch("recording.start_recording", return_value="EG") as start:
+        rv = enc_client.post(f"/session/{sid}/recording/start")
+    assert rv.status_code == 402
+    start.assert_not_called()
+
+
+def test_recording_start_allowed_for_pro(enc_client):
+    with app.app_context():
+        sid = _seed("doc")
+        _seed_clinician("doc", plan="pro")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "doc"
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(config, "BILLING_ENABLED", True), \
+         patch("recording.start_recording", return_value="EG"), \
+         patch("recording.stop_recording", return_value=True), \
+         patch.object(tm, "_dispatch_recording_ready"):
+        rv = enc_client.post(f"/session/{sid}/recording/start")
+    assert rv.status_code == 200 and rv.get_json()["status"] == "active"
