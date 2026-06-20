@@ -306,6 +306,112 @@ function joinRoom(sessionId, userId, mode, soloMode) {
 }
 
 /**
+ * Phase 4 — recording consent controls.
+ *
+ * Recording runs ONLY while every current participant consents. It stops the
+ * instant anyone declines or withdraws, or an un-consented participant joins,
+ * and resumes once everyone consents again. The clinician initiates; the server
+ * is the source of truth and broadcasts "recording_state" on every change.
+ *
+ * @param {string}  sessionId
+ * @param {string}  userId
+ * @param {boolean} isTherapist
+ */
+function initRecordingControls(sessionId, userId, isTherapist) {
+    if (!socket) return;
+    var bar         = document.getElementById("recBar");
+    if (!bar) return;
+
+    var badge       = document.getElementById("recBadge");
+    var statusText  = document.getElementById("recStatusText");
+    var requestBtn  = document.getElementById("recRequestBtn");    // therapist
+    var stopBtn     = document.getElementById("recStopBtn");       // therapist
+    var allowBtn    = document.getElementById("recAllowBtn");      // client
+    var withdrawBtn = document.getElementById("recWithdrawBtn");   // client
+    var consentBtn  = document.getElementById("recConsentBtn");    // modal
+    var declineBtn  = document.getElementById("recDeclineBtn");    // modal
+    var modalEl     = document.getElementById("recConsentModal");
+
+    bar.classList.remove("d-none");
+
+    // Local hint only — the server's "awaiting" list is authoritative for button
+    // state; this just stops the consent modal from re-popping once answered.
+    var _answered = isTherapist;
+
+    function show(el) { if (el) el.classList.remove("d-none"); }
+    function hide(el) { if (el) el.classList.add("d-none"); }
+
+    function sendConsent(value) {
+        _answered = true;
+        socket.emit("recording_consent", { session_id: sessionId, user_id: userId, consent: value });
+    }
+    function hideModal() {
+        if (modalEl && typeof bootstrap !== "undefined") {
+            bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        }
+    }
+
+    // ---- Clinician controls ----
+    if (requestBtn) requestBtn.addEventListener("click", function () {
+        socket.emit("recording_request", { session_id: sessionId, user_id: userId });
+    });
+    if (stopBtn) stopBtn.addEventListener("click", function () {
+        socket.emit("recording_cancel", { session_id: sessionId, user_id: userId });
+    });
+
+    // ---- Client controls ----
+    if (allowBtn)    allowBtn.addEventListener("click", function () { sendConsent(true); });
+    if (withdrawBtn) withdrawBtn.addEventListener("click", function () { sendConsent(false); });
+    if (consentBtn)  consentBtn.addEventListener("click", function () { sendConsent(true); hideModal(); });
+    if (declineBtn)  declineBtn.addEventListener("click", function () { sendConsent(false); });
+
+    // ---- Server → client events ----
+    socket.on("recording_unavailable", function (data) {
+        if (statusText) statusText.textContent = (data && data.message) || "Recording is not available.";
+    });
+
+    socket.on("recording_consent_prompt", function () {
+        // Prompt this client to consent — once — unless they've already answered.
+        if (isTherapist || _answered) return;
+        if (modalEl && typeof bootstrap !== "undefined") {
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        }
+    });
+
+    socket.on("recording_state", function (st) {
+        st = st || {};
+        var requested  = !!st.requested;
+        var active     = !!st.active;
+        var awaiting   = st.awaiting || [];
+        var iAmAwaited = awaiting.indexOf(userId) !== -1;
+        if (!requested) _answered = isTherapist;   // reset for the next request round
+
+        // REC badge — only while actually recording.
+        if (active) { show(badge); if (badge) badge.classList.add("d-inline-flex"); }
+        else        { hide(badge); if (badge) badge.classList.remove("d-inline-flex"); }
+
+        if (statusText) {
+            if (active)         statusText.textContent = "Recording in progress — everyone has consented.";
+            else if (requested) statusText.textContent = "Recording requested — waiting for all participants to consent ("
+                                    + awaiting.length + " pending).";
+            else                statusText.textContent = "Recording is off.";
+        }
+
+        if (isTherapist) {
+            if (requested) { hide(requestBtn); show(stopBtn); }
+            else           { show(requestBtn); hide(stopBtn); }
+        } else if (requested) {
+            // Allow while still un-consented; Withdraw once consenting.
+            if (iAmAwaited) { show(allowBtn);  hide(withdrawBtn); }
+            else            { hide(allowBtn);  show(withdrawBtn); }
+        } else {
+            hide(allowBtn); hide(withdrawBtn);
+            hideModal();
+        }
+    });
+}
+
+/**
  * Send a message through SocketIO.
  * @param {string} sessionId - Room identifier
  * @param {string} userId    - Sender's UUID

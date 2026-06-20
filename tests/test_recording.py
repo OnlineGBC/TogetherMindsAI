@@ -25,7 +25,7 @@ os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 from datetime import datetime, timezone, timedelta
 
 import config
-from TogetherMindsAI import app
+from TogetherMindsAI import app, socketio
 from models import db, init_encryption, TherapySession, SessionRecording
 from session_id import generate_session_id
 
@@ -49,14 +49,21 @@ def enc_client():
         db.drop_all()
 
 
-def _seed(therapist="ther-1"):
+def _seed(therapist="ther-1", mode="solo"):
     sid = generate_session_id()
     now = datetime.now(timezone.utc)
     db.session.add(TherapySession(
-        id=sid, mode="solo", created_by=therapist, created_at=now,
+        id=sid, mode=mode, created_by=therapist, created_at=now,
         retention_expires_at=now + timedelta(days=30), therapist_id=therapist))
     db.session.commit()
     return sid
+
+
+def _join(client, sid, uid, mode="solo"):
+    sio = socketio.test_client(app, flask_test_client=client)
+    sio.emit("join", {"session_id": sid, "user_id": uid, "mode": mode})
+    sio.get_received()
+    return sio
 
 
 def test_start_blocked_when_recording_disabled(enc_client):
@@ -117,3 +124,68 @@ def test_stop_with_no_active_recording(enc_client):
         s["user_id"] = "ther-1"
     with patch.object(config, "RECORDING_ENABLED", True):
         assert enc_client.post(f"/session/{sid}/recording/stop").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Consent state machine (Step 2): records ONLY while every participant consents
+# ---------------------------------------------------------------------------
+
+def test_records_only_while_all_consent(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.start_recording", return_value="EG1") as start, \
+         patch("recording.stop_recording", return_value=True) as stop:
+        t = _join(enc_client, sid, "ther-1")
+        c = _join(enc_client, sid, "client-1")
+
+        t.emit("recording_request", {"session_id": sid, "user_id": "ther-1"})
+        assert start.call_count == 0          # client hasn't consented yet → not recording
+
+        c.emit("recording_consent", {"session_id": sid, "user_id": "client-1", "consent": True})
+        assert start.call_count == 1          # all consent → recording starts
+
+        c.emit("recording_consent", {"session_id": sid, "user_id": "client-1", "consent": False})
+        assert stop.call_count == 1           # one withdrawal → stops
+
+        c.emit("recording_consent", {"session_id": sid, "user_id": "client-1", "consent": True})
+        assert start.call_count == 2          # everyone consents again → resumes
+
+
+def test_request_unavailable_when_disabled(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    with patch.object(config, "RECORDING_ENABLED", False), \
+         patch("recording.start_recording", return_value="EG1") as start:
+        t = _join(enc_client, sid, "ther-1")
+        t.emit("recording_request", {"session_id": sid, "user_id": "ther-1"})
+        names = [e["name"] for e in t.get_received()]
+        assert "recording_unavailable" in names
+        assert start.call_count == 0
+
+
+def test_request_ignored_from_non_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.start_recording", return_value="EG1") as start:
+        _join(enc_client, sid, "ther-1")
+        c = _join(enc_client, sid, "client-1")
+        c.emit("recording_request", {"session_id": sid, "user_id": "client-1"})
+        assert start.call_count == 0          # a client cannot start recording
+
+
+def test_unconsented_newcomer_pauses_recording(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1", mode="group")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.start_recording", return_value="EG1") as start, \
+         patch("recording.stop_recording", return_value=True) as stop:
+        t = _join(enc_client, sid, "ther-1", mode="group")
+        c1 = _join(enc_client, sid, "client-1", mode="group")
+        t.emit("recording_request", {"session_id": sid, "user_id": "ther-1"})
+        c1.emit("recording_consent", {"session_id": sid, "user_id": "client-1", "consent": True})
+        assert start.call_count == 1          # recording
+
+        _join(enc_client, sid, "client-2", mode="group")   # new, unconsented
+        assert stop.call_count == 1           # recording pauses until they consent too

@@ -143,6 +143,11 @@ session_therapist_id: dict    = {}  # session_id → therapist user_id (set only
 session_therapist_notes: dict = {}  # session_id → list[str] of the therapist's private notes (co-pilot context)
 session_recent_cards: dict    = {}  # session_id → list[str] of recently shown card texts (dedup memory)
 
+# Phase 4 recording consent state — ephemeral, reset on restart.
+session_recording_requested: dict = {}                  # session_id → bool (therapist wants to record)
+session_recording_consent: dict   = defaultdict(dict)   # session_id → {user_id: bool}
+session_recording_active: dict     = {}                  # session_id → SessionRecording.id (or None/-1 pending)
+
 
 def _record_participation(session_id: str, user_id: str) -> None:
     """Idempotently record that `user_id` joined `session_id`.
@@ -966,6 +971,7 @@ def _render_session_room(session_id, mode):
         is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
         is_therapist_led=bool(ts and ts.therapist_id),
         rtc_enabled=config.RTC_ENABLED,
+        recording_enabled=config.RECORDING_ENABLED,
     )
 
 
@@ -2463,6 +2469,13 @@ def on_join(data):
              {"participants": list(room_participants[session_id])},
              to=session_id)
         emit("participant_joined", {"user_id": user_id}, to=session_id)
+
+        # If a recording is in progress/requested, a newcomer must consent too —
+        # prompt them, and re-evaluate (an unconsented newcomer pauses recording).
+        if session_recording_requested.get(session_id):
+            emit("recording_consent_prompt", {"requested_by": "Therapist"})
+            _evaluate_recording(session_id)
+        _emit_recording_state(session_id)
     except Exception as e:
         app.logger.error("on_join error: %s", type(e).__name__)
         emit("error", {"message": "Failed to join session. Please refresh."})
@@ -2485,6 +2498,11 @@ def on_disconnect():
         emit("participant_list",
              {"participants": list(room_participants[session_id])},
              to=session_id)
+        # Drop their consent and re-evaluate: if the person who was blocking
+        # recording just left, the remaining all-consenting participants resume.
+        session_recording_consent.get(session_id, {}).pop(user_id, None)
+        _evaluate_recording(session_id)
+        _emit_recording_state(session_id)
 
 
 @socketio.on("send_message")
@@ -2644,6 +2662,110 @@ def on_rename(data):
     _claim_display_name(session_id, user_id, new_name)
     # old_name stays in taken_names — it can never be reclaimed
     emit("name_changed", {"user_id": user_id, "old_name": old_name, "new_name": new_name}, to=session_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — recording consent (all-party, reactive). Recording runs ONLY while
+# every current participant consents; it stops the instant anyone declines,
+# withdraws, or an unconsented participant is present — and resumes when all
+# consent again. The clinician initiates; the AI/egress never records silently.
+# ---------------------------------------------------------------------------
+
+def _recording_state(session_id: str) -> dict:
+    participants = list(room_participants.get(session_id, set()))
+    consent = session_recording_consent.get(session_id, {})
+    return {
+        "requested": bool(session_recording_requested.get(session_id)),
+        "active": bool(session_recording_active.get(session_id)),
+        "awaiting": [u for u in participants if consent.get(u) is not True],
+    }
+
+
+def _emit_recording_state(session_id: str) -> None:
+    socketio.emit("recording_state", _recording_state(session_id), to=session_id)
+
+
+def _evaluate_recording(session_id: str) -> None:
+    """Start/stop egress to match the live consent state. Records only while every
+    current participant consents; never raises into the caller."""
+    try:
+        requested = bool(session_recording_requested.get(session_id))
+        participants = set(room_participants.get(session_id, set()))
+        consent = session_recording_consent.get(session_id, {})
+        all_consent = bool(participants) and all(consent.get(u) is True for u in participants)
+        active_id = session_recording_active.get(session_id)
+
+        if requested and all_consent and not active_id:
+            session_recording_active[session_id] = -1   # pending — blocks re-entry
+            now = datetime.now(timezone.utc)
+            filepath = f"{session_id}/{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
+            egress_id = recording.start_recording(session_id, filepath)
+            row = SessionRecording(
+                session_id=session_id, egress_id=egress_id, gcs_object=filepath,
+                status="active" if egress_id else "failed",
+                started_by=session_therapist_id.get(session_id), started_at=now,
+            )
+            db.session.add(row)
+            db.session.commit()
+            session_recording_active[session_id] = row.id if egress_id else None
+            if egress_id:
+                log_event("recording_started", session_id=session_id,
+                          user_id=session_therapist_id.get(session_id), trigger="all_consented")
+        elif active_id and active_id != -1 and (not requested or not all_consent):
+            row = db.session.get(SessionRecording, active_id)
+            if row and row.egress_id:
+                recording.stop_recording(row.egress_id)
+                row.status = "stopped"
+                row.stopped_at = datetime.now(timezone.utc)
+                db.session.commit()
+            session_recording_active[session_id] = None
+            log_event("recording_stopped", session_id=session_id,
+                      user_id=session_therapist_id.get(session_id),
+                      trigger="stopped_or_consent_withdrawn")
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error("recording evaluate error: %s", type(e).__name__)
+
+
+@socketio.on("recording_request")
+def on_recording_request(data):
+    """Clinician asks to record — everyone is then prompted to consent."""
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    if not config.RECORDING_ENABLED:
+        emit("recording_unavailable", {"message": "Recording is not available for this service."})
+        return
+    if session_therapist_id.get(session_id) != user_id:
+        return   # only the session's clinician may start recording
+    session_recording_requested[session_id] = True
+    session_recording_consent[session_id][user_id] = True   # the clinician consents by requesting
+    emit("recording_consent_prompt", {"requested_by": "Therapist"}, to=session_id)
+    _evaluate_recording(session_id)
+    _emit_recording_state(session_id)
+
+
+@socketio.on("recording_consent")
+def on_recording_consent(data):
+    """A participant grants or withdraws consent (can change at any time)."""
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    if user_id not in room_participants.get(session_id, set()):
+        return
+    session_recording_consent[session_id][user_id] = bool(data.get("consent"))
+    _evaluate_recording(session_id)
+    _emit_recording_state(session_id)
+
+
+@socketio.on("recording_cancel")
+def on_recording_cancel(data):
+    """Clinician turns recording off entirely (stops it and clears the request)."""
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    if session_therapist_id.get(session_id) != user_id:
+        return
+    session_recording_requested[session_id] = False
+    _evaluate_recording(session_id)
+    _emit_recording_state(session_id)
 
 
 if __name__ == "__main__":
