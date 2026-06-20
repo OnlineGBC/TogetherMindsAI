@@ -2383,7 +2383,12 @@ def on_join(data):
         if user_id not in joined:
             joined.append(user_id)
         join_position = joined.index(user_id) + 1
-        default_name  = _default_display_name(mode, join_position)
+        # The clinician leading the session defaults to "Therapist" (in all modes)
+        # so their role is clear to everyone; clients keep the mode-based name.
+        if therapist_id and user_id == therapist_id:
+            default_name = "Therapist"
+        else:
+            default_name = _default_display_name(mode, join_position)
 
         messages = (
             ChatMessage.query

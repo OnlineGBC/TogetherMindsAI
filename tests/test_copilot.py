@@ -526,6 +526,30 @@ def test_therapist_led_solo_cards_isolated_and_no_autoreply(enc_client):
     assert all(m["user_id"] != "AI" for m in c_new)
 
 
+def test_therapist_default_display_name_is_therapist(enc_client):
+    """The clinician's default name is 'Therapist' in every mode, so their role is clear."""
+    for mode in ("solo", "couple", "group"):
+        therapist_id = str(uuid.uuid4())
+        sid = _insert_session(mode=mode, therapist_id=therapist_id, created_by=therapist_id)
+        t_sio = socketio.test_client(app, flask_test_client=enc_client)
+        t_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": mode})
+        hist = _args_of(t_sio.get_received(), "history")
+        assert hist and hist[0]["default_name"] == "Therapist", mode
+
+
+def test_client_default_name_keeps_mode_prefix(enc_client):
+    """A client (not the therapist) still gets the mode-based default name."""
+    therapist_id, client_user = str(uuid.uuid4()), str(uuid.uuid4())
+    sid = _insert_session(mode="group", therapist_id=therapist_id, created_by=therapist_id)
+    t_sio = socketio.test_client(app, flask_test_client=enc_client)
+    t_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": "group"})
+    t_sio.get_received()
+    c_sio = socketio.test_client(app, flask_test_client=enc_client)
+    c_sio.emit("join", {"session_id": sid, "user_id": client_user, "mode": "group"})
+    hist = _args_of(c_sio.get_received(), "history")
+    assert hist and hist[0]["default_name"].startswith("GroupMember")
+
+
 # ---------------------------------------------------------------------------
 # Card persistence + history replay (cards survive reload / restart)
 # ---------------------------------------------------------------------------
