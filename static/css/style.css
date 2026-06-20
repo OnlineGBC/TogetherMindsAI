@@ -14,6 +14,9 @@
     --text-dark:       #212121;
     --text-muted:      #757575;
     --border-radius:   16px;
+    /* App-wide page backdrop (soft sage-grey). Cards/content sit on top in white,
+       so all text contrast is unchanged. Change this one value to retune globally. */
+    --page-bg:         #DCE7E0;
 }
 
 /* ---- Persistent disclaimer bar ---- */
@@ -27,7 +30,7 @@
 
 /* ---- Global ---- */
 body {
-    background-color: #F7FAF7;
+    background-color: var(--page-bg);
     font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
     color: var(--text-dark);
     min-height: 100vh;
