@@ -6,7 +6,7 @@
 <div class="row justify-content-center">
     <div class="col-lg-8">
         <h1 class="fw-bold mb-1">Privacy Policy</h1>
-        <p class="text-muted small mb-4"><em>Last updated: April 16, 2026</em></p>
+        <p class="text-muted small mb-4"><em>Last updated: June 20, 2026</em></p>
 
         <h5 class="fw-bold mt-4">1. About This App</h5>
         <p>TogetherMindsAI is an AI assistant for licensed clinicians, operated by Global Business Consulting, Inc. (GBCai4org).
@@ -15,6 +15,7 @@
         <h5 class="fw-bold mt-4">2. What We Collect</h5>
         <ul>
             <li><strong>Session messages</strong> — the text you send during a session</li>
+            <li><strong>Spoken audio</strong> (only if you join audio) — transcribed to text in real time; the audio itself is not recorded or stored, only the resulting text</li>
             <li><strong>Session ID</strong> — a randomly generated code used to identify your session</li>
             <li><strong>Display name</strong> — the name you choose within a session (need not be your real name)</li>
             <li><strong>Usage metadata</strong> — timestamps, session mode (solo/couple/group), and rate-limiting data</li>
@@ -31,27 +32,59 @@
         consistent with clinical-record retention practices. Audit logs are also retained for
         <strong>6 years</strong> as required by applicable regulations.</p>
 
-        <h5 class="fw-bold mt-4">5. Who We Share It With</h5>
-        <p>We do not sell, rent, or share your data with third parties. The following third-party services
-        process data on our behalf:</p>
+        <h5 class="fw-bold mt-4">5. Service providers (sub-processors)</h5>
+        <p>We do not sell, rent, or share your data with third parties. The following service providers
+        process data on our behalf, each under a signed Business Associate Agreement (HIPAA):</p>
         <ul>
-            <li><strong>Google Cloud Platform</strong> — hosting and database
+            <li><strong>Google LLC (Google Cloud)</strong> — hosting, database, file storage, and our
+                self-hosted audio/video server. <em>Receives: all stored data.</em>
                 (<a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">google.com/privacy</a>)
             </li>
-            <li><strong>Anthropic</strong> — AI response generation; messages are sent to Anthropic's API to generate responses
+            <li><strong>AssemblyAI</strong> — converts session speech to text (live transcription).
+                <em>Receives: session audio.</em>
+                (<a href="https://www.assemblyai.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">assemblyai.com</a>)
+            </li>
+            <li><strong>Anthropic (Claude)</strong> — powers the AI co-pilot, session summaries, and
+                translation assistance. <em>Receives: session transcript text.</em>
                 (<a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener noreferrer">anthropic.com/privacy</a>)
             </li>
         </ul>
+        <p class="text-muted small">Our real-time audio/video runs on open-source software (LiveKit) that we
+        host ourselves on Google Cloud; the LiveKit company does not receive your data.</p>
 
-        <h5 class="fw-bold mt-4">6. Age Requirement</h5>
+        <h5 class="fw-bold mt-4" id="about-the-ai">6. About the AI (AI transparency)</h5>
+        <p>This service uses artificial intelligence to (1) transcribe spoken sessions to text, (2) provide a
+        private "co-pilot" that suggests questions, techniques, and reference information to your clinician,
+        and (3) generate session summaries.</p>
+        <p><strong>The AI supports your clinician — it does not diagnose, treat, or make decisions about your
+        care.</strong> A licensed professional reviews and controls everything; you are always interacting with
+        a human clinician, assisted by AI. In a crisis, contact your clinician or emergency services
+        (US: call or text 988).</p>
+        <ul>
+            <li><strong>Intended purpose:</strong> assistive decision support for a licensed clinician during a
+                session — not an autonomous or stand-alone medical device.</li>
+            <li><strong>Human oversight:</strong> a clinician supervises the session and reviews all AI output;
+                automated risk/crisis detection only surfaces resources to the client and an alert to the
+                clinician — it never acts on its own.</li>
+            <li><strong>Limitations:</strong> AI transcription and suggestions may be incomplete or contain
+                errors, and any reference codes are decision-support, not diagnoses; the clinician verifies them.</li>
+            <li><strong>Our role:</strong> we deploy a third-party general-purpose AI model (Anthropic) within
+                this service. Your data is never used to train any AI model.</li>
+            <li><strong>Record-keeping:</strong> AI-related events (suggestions generated, risk alerts,
+                transcript access) are recorded in a tamper-evident audit log.</li>
+            <li><strong>Monitoring &amp; concerns:</strong> we monitor the system and act on issues; report
+                concerns to <a href="mailto:privacy@onlinegbc.com">privacy@onlinegbc.com</a>.</li>
+        </ul>
+
+        <h5 class="fw-bold mt-4">7. Age Requirement</h5>
         <p>This app is intended for users aged 18 and older. We do not knowingly collect data from minors.</p>
 
-        <h5 class="fw-bold mt-4">7. Your Rights</h5>
+        <h5 class="fw-bold mt-4">8. Your Rights</h5>
         <p>To request access to or deletion of a session's data, contact the clinician who led the session
         (the record-holder), or us, and provide the Session ID. Note that clinical records may be subject
         to retention obligations that limit deletion.</p>
 
-        <h5 class="fw-bold mt-4">8. Crisis Resources</h5>
+        <h5 class="fw-bold mt-4">9. Crisis Resources</h5>
         <p>If you are in crisis, please contact a real person immediately:</p>
         <ul>
             <li><strong>US:</strong> call or text <strong>988</strong>, or text HOME to <strong>741741</strong></li>
@@ -61,12 +94,12 @@
             </li>
         </ul>
 
-        <h5 class="fw-bold mt-4">9. Contact</h5>
+        <h5 class="fw-bold mt-4">10. Contact</h5>
         <p>For privacy questions or data deletion requests:<br>
         Global Business Consulting, Inc. (GBCai4org)<br>
         <strong>Email:</strong> <a href="mailto:privacy@onlinegbc.com">privacy@onlinegbc.com</a></p>
 
-        <h5 class="fw-bold mt-4">10. Changes to This Policy</h5>
+        <h5 class="fw-bold mt-4">11. Changes to This Policy</h5>
         <p>We may update this policy from time to time. The "Last updated" date at the top will reflect any changes.</p>
     </div>
 </div>

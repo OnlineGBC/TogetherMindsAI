@@ -206,6 +206,13 @@ def test_progress_page_returns_200(client):
     assert client.get(f"/progress/{user_id}/solo").status_code == 200
 
 
+def test_privacy_page_has_ai_transparency_and_subprocessors(client):
+    body = client.get("/privacy").get_data(as_text=True)
+    assert "About the AI" in body                 # AIA transparency section
+    assert "AssemblyAI" in body                    # sub-processor disclosed
+    assert "sub-processor" in body.lower()
+
+
 # ---------------------------------------------------------------------------
 # DB schema — all expected columns are present
 # ---------------------------------------------------------------------------
