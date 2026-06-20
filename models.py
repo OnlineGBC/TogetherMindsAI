@@ -324,6 +324,10 @@ class SessionRecording(db.Model):
     stopped_at  = db.Column(db.DateTime, nullable=True)
     retention_expires_at = db.Column(db.DateTime, nullable=True)  # 30-day delete (Phase 4 Step 3)
     reminder_sent_at     = db.Column(db.DateTime, nullable=True)  # 24h-before-deletion email sent (exactly once)
+    # Opaque, unguessable download token. The download URL is keyed on this, NOT on
+    # the session id, so the session id never appears in a URL / email / browser
+    # history / referrer. Still therapist-gated on top of the token.
+    download_token       = db.Column(db.String(64), nullable=True, unique=True, index=True)
 
     def __repr__(self):
         return f"<SessionRecording id={self.id} session={self.session_id} status={self.status}>"

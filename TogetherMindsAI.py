@@ -523,6 +523,13 @@ if not config.IS_TESTING:
             db.session.commit()
         except Exception:
             db.session.rollback()  # column already exists
+        # Opaque download token (Phase 4 Step 3 security) — keeps the session id
+        # out of the download URL. Idempotent.
+        try:
+            db.session.execute(text("ALTER TABLE session_recordings ADD COLUMN download_token VARCHAR(64)"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
 
     # Remove prompt/response columns from exercises — conversation text is now
     # stored only in chat_messages (encrypted). Metadata-only exercise records
@@ -2191,6 +2198,7 @@ def recording_start(session_id):
         session_id=session_id, egress_id=egress_id, gcs_object=filepath,
         status="active" if egress_id else "failed",
         started_by=session.get("user_id"), started_at=now,
+        download_token=secrets.token_urlsafe(32),
     )
     db.session.add(row)
     db.session.commit()
@@ -2236,10 +2244,10 @@ RECORDING_RETENTION_DAYS = 30
 
 
 def _recording_download_url(row) -> str:
-    """Absolute link to the in-app, therapist-gated download route. The link
-    requires the clinician to be logged in, so it is safe to put in an email."""
-    return (f"{config.PUBLIC_BASE_URL}/session/{row.session_id}"
-            f"/recording/{row.id}/download")
+    """Absolute link to the in-app, therapist-gated download route. Keyed on the
+    recording's opaque token (NOT the session id), so the session id never appears
+    in the URL/email. Still requires the clinician to be logged in."""
+    return f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}"
 
 
 def _recording_email_content(row, kind: str):
@@ -2365,27 +2373,29 @@ def _recording_retention_sweep() -> None:
         app.logger.error("recording retention sweep error: %s", type(exc).__name__)
 
 
-@app.route("/session/<session_id>/recording/<int:rec_id>/download")
-def recording_download(session_id, rec_id):
-    """Therapist-only streamed download of a session recording. The object is
-    streamed through the app so the existing login/authorization applies (no raw
-    signed URL is ever handed out)."""
+@app.route("/recording/download/<token>")
+def recording_download(token):
+    """Therapist-only streamed download of a session recording, keyed on an opaque
+    token so the session id never appears in the URL. The object is streamed
+    through the app so the existing login/authorization applies (no raw signed URL
+    is ever handed out)."""
     if not config.RECORDING_ENABLED:
         abort(404)
-    if _is_session_therapist(session_id) is None:
-        abort(403)
-    row = db.session.get(SessionRecording, rec_id)
-    if row is None or row.session_id != session_id:
+    row = SessionRecording.query.filter_by(download_token=token).first() if token else None
+    if row is None:
         abort(404)
+    # Still therapist-gated: the logged-in user must be the session's clinician.
+    if _is_session_therapist(row.session_id) is None:
+        abort(403)
     if row.status == "deleted" or not row.gcs_object:
         abort(410)   # Gone — past its 30-day retention
     gen, size, ctype = recording.download_stream(row.gcs_object)
     if gen is None:
         abort(502)
-    log_event("recording_downloaded", session_id=session_id,
-              user_id=session.get("user_id"), recording_id=rec_id)
+    log_event("recording_downloaded", session_id=row.session_id,
+              user_id=session.get("user_id"), recording_id=row.id)
     resp = Response(stream_with_context(gen), mimetype=ctype or "video/mp4")
-    resp.headers["Content-Disposition"] = f'attachment; filename="recording-{session_id}-{rec_id}.mp4"'
+    resp.headers["Content-Disposition"] = f'attachment; filename="recording-{row.id}.mp4"'
     if size:
         resp.headers["Content-Length"] = str(size)
     return resp
@@ -3128,6 +3138,7 @@ def _evaluate_recording(session_id: str) -> None:
                 session_id=session_id, egress_id=egress_id, gcs_object=filepath,
                 status="active" if egress_id else "failed",
                 started_by=session_therapist_id.get(session_id), started_at=now,
+                download_token=secrets.token_urlsafe(32),
             )
             db.session.add(row)
             db.session.commit()

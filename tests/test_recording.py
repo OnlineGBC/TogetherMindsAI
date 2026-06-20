@@ -197,13 +197,14 @@ def test_unconsented_newcomer_pauses_recording(enc_client):
 # ---------------------------------------------------------------------------
 
 def _seed_recording(sid, status="stopped", expires_in=None, reminded=False,
-                    started_by="ther-1", gcs="obj.mp4"):
+                    started_by="ther-1", gcs="obj.mp4", token="dltok"):
     now = datetime.now(timezone.utc)
     row = SessionRecording(
         session_id=sid, egress_id="EG", gcs_object=gcs, status=status,
         started_by=started_by, started_at=now, stopped_at=now,
         retention_expires_at=(now + expires_in) if expires_in is not None else None,
         reminder_sent_at=(now if reminded else None),
+        download_token=token,
     )
     db.session.add(row)
     db.session.commit()
@@ -279,7 +280,7 @@ def test_download_streams_for_therapist(enc_client):
     _make_therapist_session(enc_client, sid)
     with patch.object(config, "RECORDING_ENABLED", True), \
          patch("recording.download_stream", return_value=(iter([b"abc"]), 3, "video/mp4")):
-        rv = enc_client.get(f"/session/{sid}/recording/{rid}/download")
+        rv = enc_client.get("/recording/download/dltok")
     assert rv.status_code == 200
     assert rv.data == b"abc"
     assert "attachment" in rv.headers.get("Content-Disposition", "")
@@ -292,7 +293,7 @@ def test_download_forbidden_for_non_therapist(enc_client):
     with enc_client.session_transaction() as s:
         s["user_id"] = "intruder"
     with patch.object(config, "RECORDING_ENABLED", True):
-        assert enc_client.get(f"/session/{sid}/recording/{rid}/download").status_code == 403
+        assert enc_client.get("/recording/download/dltok").status_code == 403
 
 
 def test_download_gone_when_deleted(enc_client):
@@ -301,7 +302,7 @@ def test_download_gone_when_deleted(enc_client):
         rid = _seed_recording(sid, status="deleted")
     _make_therapist_session(enc_client, sid)
     with patch.object(config, "RECORDING_ENABLED", True):
-        assert enc_client.get(f"/session/{sid}/recording/{rid}/download").status_code == 410
+        assert enc_client.get("/recording/download/dltok").status_code == 410
 
 
 def test_download_404_when_disabled(enc_client):
@@ -310,7 +311,29 @@ def test_download_404_when_disabled(enc_client):
         rid = _seed_recording(sid)
     _make_therapist_session(enc_client, sid)
     with patch.object(config, "RECORDING_ENABLED", False):
-        assert enc_client.get(f"/session/{sid}/recording/{rid}/download").status_code == 404
+        assert enc_client.get("/recording/download/dltok").status_code == 404
+
+
+def test_download_404_for_unknown_token(enc_client):
+    with app.app_context():
+        sid = _seed()
+        _seed_recording(sid)
+    _make_therapist_session(enc_client, sid)
+    with patch.object(config, "RECORDING_ENABLED", True):
+        assert enc_client.get("/recording/download/no-such-token").status_code == 404
+
+
+def test_download_url_has_no_session_id(enc_client):
+    """Security regression: the emailed download URL must be keyed on the opaque
+    token, never the session id."""
+    with app.app_context():
+        sid = _seed()
+        _seed_recording(sid, token="secrettoken")
+        row = SessionRecording.query.filter_by(session_id=sid).first()
+        url = tm._recording_download_url(row)
+    assert "secrettoken" in url
+    assert sid not in url
+    assert "/recording/download/" in url
 
 
 # ---------------------------------------------------------------------------
