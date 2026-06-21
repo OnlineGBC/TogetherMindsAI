@@ -1184,9 +1184,10 @@ hr, .dropdown-divider { border-color: var(--border-dk) !important; }
     color: #dcefe9 !important;
 }
 .alert-share small, .alert-share strong, .alert-share .font-monospace { color: #dcefe9 !important; }
+/* Privacy line is now nested inside the Session ID box — no own background, so
+   the whole box is one uniform colour. The divider comes from .border-top. */
 .privacy-banner {
-    background: rgba(0,150,136,.16) !important;
-    border-color: rgba(0,150,136,.40) !important;
+    background: transparent !important;
     color: #dcefe9 !important;
 }
 .privacy-banner .small, .privacy-banner small, .privacy-banner strong,
