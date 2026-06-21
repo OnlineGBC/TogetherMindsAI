@@ -213,6 +213,11 @@ def test_privacy_page_has_ai_transparency_and_subprocessors(client):
     assert "sub-processor" in body.lower()
 
 
+def test_privacy_page_discloses_recording_30day_deletion(client):
+    body = client.get("/privacy").get_data(as_text=True).lower()
+    assert "30 days" in body and "permanently deleted" in body
+
+
 # ---------------------------------------------------------------------------
 # DB schema — all expected columns are present
 # ---------------------------------------------------------------------------
