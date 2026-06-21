@@ -385,25 +385,35 @@ function initRecordingControls(sessionId, userId, isTherapist) {
         var awaiting   = st.awaiting || [];
         var iAmAwaited = awaiting.indexOf(userId) !== -1;
         if (!requested) _answered = isTherapist;   // reset for the next request round
-
-        // REC badge — only while actually recording.
-        if (active) { show(badge); if (badge) badge.classList.add("d-inline-flex"); }
-        else        { hide(badge); if (badge) badge.classList.remove("d-inline-flex"); }
-
-        if (statusText) {
-            if (active)         statusText.textContent = "Recording in progress — everyone has consented.";
-            else if (requested) statusText.textContent = "Recording requested — waiting for all participants to consent ("
-                                    + awaiting.length + " pending).";
-            else                statusText.textContent = "Recording is off.";
-        }
+        if (statusText) statusText.textContent = "";   // live status now lives on the button
 
         if (isTherapist) {
-            if (requested) { hide(requestBtn); show(stopBtn); }
-            else           { show(requestBtn); hide(stopBtn); }
+            if (!requested) {
+                show(requestBtn); hide(stopBtn);
+            } else {
+                hide(requestBtn); show(stopBtn);
+                if (active) {
+                    // Recording in progress — click to stop.
+                    stopBtn.innerHTML = '<span class="rec-blink" aria-hidden="true">●</span> Recording';
+                    stopBtn.className = "btn btn-sm btn-danger rounded-pill";
+                    stopBtn.title = "Recording — click to stop";
+                } else {
+                    // Requested but waiting for everyone to consent — click to cancel.
+                    stopBtn.innerHTML = "Awaiting consent (" + awaiting.length + ")";
+                    stopBtn.className = "btn btn-sm btn-warning rounded-pill";
+                    stopBtn.title = "Waiting for everyone to consent — click to cancel";
+                }
+            }
         } else if (requested) {
-            // Allow while still un-consented; Withdraw once consenting.
-            if (iAmAwaited) { show(allowBtn);  hide(withdrawBtn); }
-            else            { hide(allowBtn);  show(withdrawBtn); }
+            if (iAmAwaited) {
+                show(allowBtn); hide(withdrawBtn);
+            } else {
+                hide(allowBtn); show(withdrawBtn);
+                // Once consenting, the Withdraw button doubles as the live indicator.
+                withdrawBtn.innerHTML = active
+                    ? '<span class="rec-blink" aria-hidden="true">●</span> Recording — withdraw'
+                    : '<i class="bi bi-shield-x"></i> Withdraw';
+            }
         } else {
             hide(allowBtn); hide(withdrawBtn);
             hideModal();

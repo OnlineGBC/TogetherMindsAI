@@ -345,17 +345,12 @@ def test_group_page_has_end_session_button(client):
 # ---------------------------------------------------------------------------
 
 def _assert_privacy_section_merged(html: bytes):
-    """The clinical-record / privacy statement is merged into the Session ID
-    section (one box, id="sessionPrivacy") and is collapsible on phones via the
-    info toggle — it is no longer a separate dismissable alert."""
+    """The clinical-record / privacy statement is a short inline note on the single
+    compact Session ID line — no longer a separate dismissable or collapsible
+    banner."""
     body = html.decode()
-    assert 'id="sessionPrivacy"' in body, "merged privacy section not found"
-    assert "confidential clinical record" in body
-    assert "Never sold or used to train AI." in body
-    # Phone info toggle targets the merged privacy line; it uses the responsive
-    # collapse rules (.privacy-banner), not a dismissable alert.
-    assert 'data-bs-target="#sessionPrivacy"' in body
-    assert "collapse privacy-banner" in body
+    assert "Confidential clinical record" in body
+    assert "never sold or used to train AI" in body
 
 
 def test_couple_privacy_section_merged(client):
