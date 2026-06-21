@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
+from unittest.mock import patch
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -139,3 +140,60 @@ def test_join_syncs_existing_friendly_name(enc_client):
     fn = [e for e in sio.get_received() if e["name"] == "friendly_name_set"]
     assert fn and fn[0]["args"][0]["name"] == "Existing" and fn[0]["args"][0].get("silent") is True
     tm.session_friendly_name.pop(sid, None)
+
+
+# ---- Co-pilot chattiness (Batch B) ----
+
+def test_copilot_should_emit_respects_cadence(enc_client):
+    sid = "s-cad"
+    tm.session_copilot_cadence[sid] = "stop"
+    assert tm._copilot_should_emit(sid) is False
+    tm.session_copilot_cadence[sid] = "more"
+    assert tm._copilot_should_emit(sid) is True
+    tm.session_copilot_cadence[sid] = "less"
+    tm.session_copilot_emit_counter[sid] = 0
+    assert [tm._copilot_should_emit(sid) for _ in range(3)] == [False, False, True]
+    tm.session_copilot_cadence.pop(sid, None)
+    tm.session_copilot_emit_counter.pop(sid, None)
+
+
+def test_copilot_cadence_socket_therapist_only(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    t = _join(enc_client, sid, "ther-1")
+    c = _join(enc_client, sid, "client-1")
+    t.get_received(); c.get_received()
+    tm.session_copilot_cadence.pop(sid, None)
+    c.emit("copilot_cadence", {"session_id": sid, "user_id": "client-1", "mode": "stop"})
+    assert tm.session_copilot_cadence.get(sid) is None        # client ignored
+    t.emit("copilot_cadence", {"session_id": sid, "user_id": "ther-1", "mode": "stop"})
+    assert tm.session_copilot_cadence.get(sid) == "stop"      # therapist applies
+    tm.session_copilot_cadence.pop(sid, None)
+
+
+def test_session_copilot_cards_returns_persisted(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+        tm._persist_cards(sid, [{"type": "risk", "text": "Risk note", "code": ""},
+                                {"type": "reference", "text": "Ref", "code": "F32"}], "ther-1")
+        cards = tm._session_copilot_cards(sid)
+    assert len(cards) == 2
+    assert cards[0]["type"] == "risk" and cards[1]["code"] == "F32"
+
+
+def test_run_copilot_saves_even_when_stopped(enc_client):
+    from models import CopilotCard
+    with app.app_context():
+        sid = _seed("ther-1")
+        tm.session_copilot_cadence[sid] = "stop"
+        with patch("copilot.build_risk_cards", return_value=[{"type": "risk", "text": "R", "confidence": 0.9}]), \
+             patch("copilot.build_reference_cards", return_value=[]), \
+             patch("copilot.generate_suggestions", return_value=[]), \
+             patch("copilot.dedupe_cards", side_effect=lambda c, r: c), \
+             patch.object(tm.socketio, "emit") as emit_mock:
+            tm._run_copilot(sid, "group", trigger_text="hello", trigger_user_id="client-1")
+        n = CopilotCard.query.filter_by(session_id=sid).count()
+    assert n == 1                                            # saved to record despite "stop"
+    emitted = [c for c in emit_mock.call_args_list if c.args and c.args[0] == "suggestion_cards"]
+    assert not emitted                                      # but NOT shown live
+    tm.session_copilot_cadence.pop(sid, None)

@@ -144,6 +144,8 @@ session_therapist_id: dict    = {}  # session_id → therapist user_id (set only
 session_therapist_notes: dict = {}  # session_id → list[str] of the therapist's private notes (co-pilot context)
 session_recent_cards: dict    = {}  # session_id → list[str] of recently shown card texts (dedup memory)
 session_friendly_name: dict   = {}  # session_id → therapist-set shared session label (ephemeral)
+session_copilot_cadence: dict = {}  # session_id → "more"|"less"|"stop" live-display setting (default "more")
+session_copilot_emit_counter: dict = {}  # session_id → throttle counter used by the "less" cadence
 
 # Phase 4 recording consent state — ephemeral, reset on restart.
 session_recording_requested: dict = {}                  # session_id → bool (therapist wants to record)
@@ -237,11 +239,29 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
             recent.append(c["text"])
         del recent[:-30]   # cap dedup memory
 
-        socketio.emit("suggestion_cards", {"cards": cards}, to=_therapist_room(session_id))
-        log_event("suggestions_generated", session_id=session_id, count=len(cards))
+        # Cards (incl. safety/risk alerts) are ALWAYS saved to the record so the
+        # downloaded files are complete, regardless of the therapist's chattiness
+        # setting. The setting only controls what is shown LIVE in the panel.
         _persist_cards(session_id, cards, trigger_user_id)
+        log_event("suggestions_generated", session_id=session_id, count=len(cards))
+        if _copilot_should_emit(session_id):
+            socketio.emit("suggestion_cards", {"cards": cards}, to=_therapist_room(session_id))
     except Exception as e:
         app.logger.error("copilot error: %s", type(e).__name__)
+
+
+def _copilot_should_emit(session_id: str) -> bool:
+    """Whether to show co-pilot cards LIVE, per the therapist's chattiness setting:
+    more = every message (default), less = ~1 in 3, stop = never. Saving to the
+    record is unaffected (see _run_copilot)."""
+    cadence = session_copilot_cadence.get(session_id, "more")
+    if cadence == "stop":
+        return False
+    if cadence != "less":
+        return True
+    n = session_copilot_emit_counter.get(session_id, 0) + 1
+    session_copilot_emit_counter[session_id] = n
+    return (n % 3) == 0
 
 
 def _persist_cards(session_id: str, cards: list, trigger_user_id: str = None) -> None:
@@ -2100,6 +2120,26 @@ def _surfaced_codes(session_id: str) -> list:
     return out
 
 
+def _session_copilot_cards(session_id: str) -> list:
+    """Every persisted co-pilot card for the record (safety/risk alerts, ICD
+    references and AI suggestions), oldest first — so the downloaded files hold the
+    full alert history even when the live panel was throttled or stopped."""
+    import json as _json
+    rows = (CopilotCard.query
+            .filter_by(session_id=session_id)
+            .order_by(CopilotCard.created_at.asc(), CopilotCard.id.asc())
+            .all())
+    out = []
+    for r in rows:
+        code = ""
+        try:
+            code = (_json.loads(r.payload) or {}).get("code", "")
+        except Exception:
+            pass
+        out.append({"type": r.card_type or "observation", "text": r.text or "", "code": code})
+    return out
+
+
 def _session_summary_payload(session_id: str, ts) -> dict:
     """Therapist-only summary payload, cached per session and reused while the
     conversation is unchanged (keyed on message count) — generation is a slow LLM
@@ -2466,6 +2506,22 @@ def _render_summary_pdf(pdf, summary: dict) -> None:
         pdf.multi_cell(0, 5, summary["codes_rationale"], **mc)
     pdf.ln(2)
 
+    # Co-pilot alerts — the full saved record (incl. any not shown live).
+    cards = summary.get("copilot_cards") or []
+    if cards:
+        _CARD_LABEL = {"risk": "Risk", "reference": "Reference",
+                       "suggestion": "Suggestion", "observation": "Observation"}
+        pdf.set_font("DejaVu", "B", 11)
+        pdf.set_text_color(40, 40, 40)
+        pdf.multi_cell(0, 6, "Co-pilot alerts (full record)", **mc)
+        pdf.set_font("DejaVu", "", 10)
+        pdf.set_text_color(30, 30, 30)
+        for c in cards:
+            lbl = _CARD_LABEL.get(c.get("type"), (c.get("type") or "Note").title())
+            code = f"  [{c['code']}]" if c.get("code") else ""
+            pdf.multi_cell(0, 5, f"• [{lbl}] {c.get('text', '')}{code}", **mc)
+        pdf.ln(2)
+
     _section("Client-facing draft — share only at your discretion "
              "(the client cannot see this unless you give it to them)",
              summary.get("client_recap"))
@@ -2512,6 +2568,18 @@ def _render_summary_docx(doc, summary: dict) -> None:
         doc.add_paragraph("No ICD reference codes surfaced during this session.")
     if summary.get("codes_rationale"):
         doc.add_paragraph(summary["codes_rationale"])
+
+    # Co-pilot alerts — the full saved record (incl. any not shown live).
+    cards = summary.get("copilot_cards") or []
+    if cards:
+        _CARD_LABEL = {"risk": "Risk", "reference": "Reference",
+                       "suggestion": "Suggestion", "observation": "Observation"}
+        p = doc.add_paragraph()
+        p.add_run("Co-pilot alerts (full record)").bold = True
+        for c in cards:
+            lbl = _CARD_LABEL.get(c.get("type"), (c.get("type") or "Note").title())
+            code = f"  [{c['code']}]" if c.get("code") else ""
+            doc.add_paragraph(f"• [{lbl}] {c.get('text', '')}{code}")
 
     _section("Client-facing draft — share only at your discretion "
              "(the client cannot see this unless you give it to them)",
@@ -2563,7 +2631,9 @@ def download_transcript_pdf(session_id):
     # The AI summary is a paid (Pro/Premium) feature; the transcript itself is free.
     _ts_therapist = _is_session_therapist(session_id)
     if _ts_therapist is not None and _has_ai_analysis(_session_clinician(session_id)):
-        _render_summary_pdf(pdf, _session_summary_payload(session_id, _ts_therapist))
+        _sum = _session_summary_payload(session_id, _ts_therapist)
+        _sum["copilot_cards"] = _session_copilot_cards(session_id)   # full alert record
+        _render_summary_pdf(pdf, _sum)
 
     # Assign a distinct RGB color to each human participant
     _PDF_PARTICIPANT_COLORS = [
@@ -2659,7 +2729,9 @@ def download_transcript_docx(session_id):
     # The AI summary is a paid (Pro/Premium) feature; the transcript itself is free.
     _ts_therapist = _is_session_therapist(session_id)
     if _ts_therapist is not None and _has_ai_analysis(_session_clinician(session_id)):
-        _render_summary_docx(doc, _session_summary_payload(session_id, _ts_therapist))
+        _sum = _session_summary_payload(session_id, _ts_therapist)
+        _sum["copilot_cards"] = _session_copilot_cards(session_id)   # full alert record
+        _render_summary_docx(doc, _sum)
 
     # Assign a distinct color to each human participant (AI is always green)
     _PARTICIPANT_COLORS = [
@@ -3045,6 +3117,23 @@ def on_therapist_note(data):
     del notes[:-20]   # keep the most recent notes only
     _run_copilot(session_id, room_mode.get(session_id, "solo"), trigger_text=None,
                  trigger_user_id=user_id)
+
+
+@socketio.on("copilot_cadence")
+def on_copilot_cadence(data):
+    """Therapist sets how chatty the co-pilot is LIVE: more / less / stop. Alerts
+    are still always saved to the record (see _run_copilot). Therapist-only."""
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    mode       = (data.get("mode") or "").lower()
+    if mode not in ("more", "less", "stop"):
+        return
+    if session_therapist_id.get(session_id) != user_id:
+        return   # only the session therapist may change the cadence
+    session_copilot_cadence[session_id] = mode
+    session_copilot_emit_counter[session_id] = 0
+    log_event("copilot_cadence_set", session_id=session_id, user_id=user_id, mode=mode)
+    emit("copilot_cadence_set", {"mode": mode})   # back to the therapist console
 
 
 @socketio.on("set_display_name")

@@ -1218,3 +1218,19 @@ div.alert.alert-share i.bi { color: #eaf5f2 !important; }
 #privacyBanner span,
 #privacyBanner a { color: #eaf5f2 !important; }
 #privacyBanner a { text-decoration: underline; }
+
+/* ---- Co-pilot chattiness control (More / Less / Stop) ---- */
+.tc-cadence { display: flex; align-items: center; gap: 4px; padding: 4px 10px 0; font-size: .72rem; }
+.tc-cadence-label { color: #9DB0AA; margin-right: 2px; }
+.tc-cad-btn {
+    border: 1px solid var(--border-dk);
+    background: transparent;
+    color: #cdd8d4;
+    border-radius: 999px;
+    padding: 1px 10px;
+    font-size: .72rem;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+}
+.tc-cad-btn:hover { border-color: var(--teal-primary); }
+.tc-cad-btn.active { background: var(--teal-primary); color: #fff; border-color: var(--teal-primary); }

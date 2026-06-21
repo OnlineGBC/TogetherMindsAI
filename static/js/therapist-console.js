@@ -75,6 +75,27 @@ function initTherapistConsole(sessionId, userId) {
         }
     });
 
+    // Co-pilot chattiness — More / Less / Stop (live display only; alerts are
+    // always saved to the therapist's record regardless).
+    panel.querySelectorAll(".tc-cad-btn").forEach(function (b) {
+        b.addEventListener("click", function () {
+            if (window.socket) {
+                window.socket.emit("copilot_cadence", {
+                    session_id: sessionId, user_id: userId, mode: b.getAttribute("data-cadence"),
+                });
+            }
+        });
+    });
+    sock.on("copilot_cadence_set", function (data) {
+        var m = (data && data.mode) || "more";
+        panel.querySelectorAll(".tc-cad-btn").forEach(function (b) {
+            b.classList.toggle("active", b.getAttribute("data-cadence") === m);
+        });
+        _tcSetStatus(m === "stop" ? "Live comments paused (still saved to your record)."
+                   : m === "less" ? "Showing fewer comments live."
+                   : "Showing all comments.");
+    });
+
     // Session summary (private to the therapist) — generates on demand.
     document.getElementById("tcSummaryBtn").addEventListener("click", function () {
         _tcLoadSummary(sessionId);
@@ -161,6 +182,12 @@ function _tcBuildPanel() {
         '  <div class="tc-cards" id="tcCards">' +
         '    <div class="tc-empty" id="tcEmpty"><i class="bi bi-stars"></i>' +
         'Suggestions and risk alerts will appear here as the conversation unfolds.</div>' +
+        '  </div>' +
+        '  <div class="tc-cadence" id="tcCadence">' +
+        '    <span class="tc-cadence-label">Comments:</span>' +
+        '    <button type="button" class="tc-cad-btn active" data-cadence="more">More</button>' +
+        '    <button type="button" class="tc-cad-btn" data-cadence="less">Less</button>' +
+        '    <button type="button" class="tc-cad-btn" data-cadence="stop">Stop</button>' +
         '  </div>' +
         '  <div class="tc-notes">' +
         '    <textarea id="tcNoteInput" rows="1" class="form-control form-control-sm" ' +

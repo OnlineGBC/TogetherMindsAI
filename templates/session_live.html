@@ -257,7 +257,7 @@
     @media (prefers-reduced-motion: reduce) { .rec-blink { animation: none; } }
 </style>
 {% endif %}
-{% if is_therapist %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}"></script>{% endif %}
+{% if is_therapist %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}?v=2026-06-21-c"></script>{% endif %}
 <script>
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
