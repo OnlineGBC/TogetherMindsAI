@@ -54,68 +54,64 @@
             </div>
         </div>
 
-        <!-- Session ID banner (with inline recording controls) -->
-        <div class="alert alert-share rounded-4 mb-2 mb-md-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
-            <div class="d-flex align-items-center gap-2">
-                <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
-                <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
-                <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
-                    <i class="bi bi-clipboard"></i>
-                </button>
-                <!-- Privacy info toggle — phone only -->
-                <button class="btn btn-outline-green btn-sm rounded-pill py-0 d-sm-none"
-                        type="button" data-bs-toggle="collapse" data-bs-target="#privacyBanner"
-                        title="Privacy & session info">
-                    <i class="bi bi-info-circle"></i>
-                </button>
-            </div>
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-                {% if recording_enabled %}
-                <!-- Recording controls (Phase 4) — inline in this green row. Recording
-                     runs ONLY while every current participant consents; it stops the
-                     instant anyone declines/withdraws or an un-consented participant
-                     joins. JS (initRecordingControls) toggles the button states. -->
-                <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
-                    <span class="badge bg-danger d-none align-items-center gap-1" id="recBadge">
-                        <span class="rec-blink" aria-hidden="true">●</span> REC
+        <!-- Session ID + privacy, merged into one section (with inline recording controls) -->
+        <div class="alert alert-share rounded-4 mb-2 mb-md-3 py-2 px-3">
+            <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
+                    <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
+                    <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                    <!-- Privacy info toggle — phone only (toggles the privacy line below) -->
+                    <button class="btn btn-outline-green btn-sm rounded-pill py-0 d-sm-none"
+                            type="button" data-bs-toggle="collapse" data-bs-target="#sessionPrivacy"
+                            title="Privacy & session info">
+                        <i class="bi bi-info-circle"></i>
+                    </button>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    {% if recording_enabled %}
+                    <!-- Recording controls (Phase 4) — inline in this green row. Recording
+                         runs ONLY while every current participant consents; it stops the
+                         instant anyone declines/withdraws or an un-consented participant
+                         joins. JS (initRecordingControls) toggles the button states. -->
+                    <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
+                        <span class="badge bg-danger d-none align-items-center gap-1" id="recBadge">
+                            <span class="rec-blink" aria-hidden="true">●</span> REC
+                        </span>
+                        <small id="recStatusText" class="text-success d-none d-lg-inline">Recording is off.</small>
+                        {% if is_therapist %}
+                        <button class="btn btn-sm btn-success rounded-pill" id="recRequestBtn">
+                            <i class="bi bi-record-circle"></i><span class="ms-1">Record</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-light rounded-pill d-none" id="recStopBtn">
+                            <i class="bi bi-stop-circle"></i><span class="ms-1">Stop recording</span>
+                        </button>
+                        {% else %}
+                        <button class="btn btn-sm btn-success rounded-pill d-none" id="recAllowBtn">
+                            <i class="bi bi-check-circle"></i><span class="ms-1">Allow recording</span>
+                        </button>
+                        <button class="btn btn-sm btn-outline-light rounded-pill d-none" id="recWithdrawBtn">
+                            <i class="bi bi-shield-x"></i><span class="ms-1">Withdraw consent</span>
+                        </button>
+                        {% endif %}
                     </span>
-                    <small id="recStatusText" class="text-success d-none d-lg-inline">Recording is off.</small>
-                    {% if is_therapist %}
-                    <button class="btn btn-sm btn-success rounded-pill" id="recRequestBtn">
-                        <i class="bi bi-record-circle"></i><span class="ms-1">Record</span>
-                    </button>
-                    <button class="btn btn-sm btn-outline-light rounded-pill d-none" id="recStopBtn">
-                        <i class="bi bi-stop-circle"></i><span class="ms-1">Stop recording</span>
-                    </button>
-                    {% else %}
-                    <button class="btn btn-sm btn-success rounded-pill d-none" id="recAllowBtn">
-                        <i class="bi bi-check-circle"></i><span class="ms-1">Allow recording</span>
-                    </button>
-                    <button class="btn btn-sm btn-outline-light rounded-pill d-none" id="recWithdrawBtn">
-                        <i class="bi bi-shield-x"></i><span class="ms-1">Withdraw consent</span>
-                    </button>
+                    <span class="vr d-none d-sm-inline mx-1"></span>
                     {% endif %}
-                </span>
-                <span class="vr d-none d-sm-inline mx-1"></span>
-                {% endif %}
-                <small class="text-muted">You:</small>
-                <span id="displayNameLabel" class="font-monospace text-primary-green fw-semibold small">…</span>
-                <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameDisplayNameBtn" title="Change display name">
-                    <i class="bi bi-pencil" style="color:#fd7e14"></i>
-                </button>
+                    <small class="text-muted">You:</small>
+                    <span id="displayNameLabel" class="font-monospace text-primary-green fw-semibold small">…</span>
+                    <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameDisplayNameBtn" title="Change display name">
+                        <i class="bi bi-pencil" style="color:#fd7e14"></i>
+                    </button>
+                </div>
             </div>
-        </div>
-
-
-        <!-- Privacy / welcome banner — hidden by default on phones (toggle via info icon above);
-             always visible on ≥sm. Dismissible via the close button on tablet+. -->
-        <div class="alert alert-info alert-dismissible rounded-4 mb-2 mb-md-3 py-2 px-3 align-items-start gap-2 collapse privacy-banner" id="privacyBanner">
-            <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1"></i>
-            <div class="flex-grow-1 small">
-                <strong>Clinician-led session</strong> — your conversation is kept as part of your clinician's confidential clinical record (encrypted, retained up to six years, accessible to them). Never sold or used to train AI.
+            <!-- Privacy line — part of this same section. Collapsible on phones (info
+                 button above); always shown on ≥sm via the .privacy-banner rules. -->
+            <div class="small mt-2 pt-2 border-top collapse privacy-banner align-items-start gap-2" id="sessionPrivacy">
+                <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1 text-primary-green"></i>
+                <span><strong>Clinician-led session</strong> — your conversation is kept as part of your clinician's confidential clinical record (encrypted, retained up to six years, accessible to them). Never sold or used to train AI.</span>
             </div>
-            <button type="button" class="btn-close flex-shrink-0 ms-1" style="font-size:0.75rem"
-                    data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
 
         <!-- Work area: chat (left, scrollable) | divider | video (center).

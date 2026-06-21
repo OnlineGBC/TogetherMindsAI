@@ -344,60 +344,21 @@ def test_group_page_has_end_session_button(client):
 # Privacy banner — close button must be wired up so clicking X actually dismisses
 # ---------------------------------------------------------------------------
 
-def _assert_privacy_banner_dismissable(html: bytes):
-    """The privacy banner must use Bootstrap's standard alert-dismissible pattern,
-    and must persist its dismissed state across silent reloads (form POST → 302 → GET
-    when sending a message in solo mode) via sessionStorage, while reappearing on
-    a manual F5 (detected via PerformanceNavigationTiming).
-
-    Regression 1: a previous inline onclick="dismissPrivacyBanner()" handler did
-    nothing when clicked, so the X never closed the banner.
-    Regression 2: with no persistence at all, the banner reappeared after every
-    sent message in solo mode (because the page reloads on form POST).
-    """
+def _assert_privacy_section_merged(html: bytes):
+    """The clinical-record / privacy statement is merged into the Session ID
+    section (one box, id="sessionPrivacy") and is collapsible on phones via the
+    info toggle — it is no longer a separate dismissable alert."""
     body = html.decode()
-    banner_idx = body.find('id="privacyBanner"')
-    assert banner_idx != -1, "privacy banner element not found in rendered page"
-
-    # Find the opening tag of the alert div
-    div_start = body.rfind("<div", 0, banner_idx)
-    div_end = body.find(">", banner_idx)
-    alert_tag = body[div_start:div_end + 1]
-    assert "alert-dismissible" in alert_tag, (
-        f"privacyBanner div must include 'alert-dismissible' so Bootstrap recognises "
-        f"the close button. Got: {alert_tag!r}"
-    )
-
-    # The close button must use Bootstrap's data-bs-dismiss attribute,
-    # not an inline onclick that depends on a custom JS function.
-    banner_section = body[banner_idx:banner_idx + 1500]
-    close_btn_idx = banner_section.find('class="btn-close')
-    assert close_btn_idx != -1, "privacy banner must contain a btn-close element"
-    close_btn_end = banner_section.find(">", close_btn_idx)
-    close_btn_tag = banner_section[close_btn_idx:close_btn_end + 1]
-    assert 'data-bs-dismiss="alert"' in close_btn_tag, (
-        f"privacy banner close button must have data-bs-dismiss=\"alert\" so Bootstrap "
-        f"dismisses the banner on click. Got: {close_btn_tag!r}"
-    )
-    assert "dismissPrivacyBanner" not in close_btn_tag, (
-        "the dead inline onclick=\"dismissPrivacyBanner()\" handler must be removed"
-    )
-
-    # The page must wire the dismissal to sessionStorage so it survives the
-    # silent reload triggered by sending a message, and must clear that flag
-    # on a manual reload so the banner reappears on F5.
-    assert "sessionStorage" in body, (
-        "privacy banner dismissal must use sessionStorage to persist across silent reloads"
-    )
-    assert 'localStorage.setItem("privacyBannerDismissed_' not in body, (
-        "privacy banner must not store dismissal in localStorage (long-lived) — sessionStorage only"
-    )
-    assert 'localStorage.getItem("privacyBannerDismissed_' not in body, (
-        "privacy banner must not read dismissal from localStorage (long-lived) — sessionStorage only"
-    )
+    assert 'id="sessionPrivacy"' in body, "merged privacy section not found"
+    assert "confidential clinical record" in body
+    assert "Never sold or used to train AI." in body
+    # Phone info toggle targets the merged privacy line; it uses the responsive
+    # collapse rules (.privacy-banner), not a dismissable alert.
+    assert 'data-bs-target="#sessionPrivacy"' in body
+    assert "collapse privacy-banner" in body
 
 
-def test_couple_privacy_banner_dismiss_button_wired(client):
+def test_couple_privacy_section_merged(client):
     from datetime import datetime, timezone
     with app.app_context():
         from models import TherapySession
@@ -413,10 +374,10 @@ def test_couple_privacy_banner_dismiss_button_wired(client):
         sess["user_id"] = user_id
     rv = client.get(f"/therapy/couple/{session_id}")
     assert rv.status_code == 200
-    _assert_privacy_banner_dismissable(rv.data)
+    _assert_privacy_section_merged(rv.data)
 
 
-def test_group_privacy_banner_dismiss_button_wired(client):
+def test_group_privacy_section_merged(client):
     from datetime import datetime, timezone
     with app.app_context():
         from models import TherapySession
@@ -432,7 +393,7 @@ def test_group_privacy_banner_dismiss_button_wired(client):
         sess["user_id"] = user_id
     rv = client.get(f"/therapy/group/{session_id}")
     assert rv.status_code == 200
-    _assert_privacy_banner_dismissable(rv.data)
+    _assert_privacy_section_merged(rv.data)
 
 
 # ---------------------------------------------------------------------------
