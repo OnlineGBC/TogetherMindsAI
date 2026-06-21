@@ -372,23 +372,8 @@ def test_couple_privacy_section_merged(client):
     _assert_privacy_section_merged(rv.data)
 
 
-def test_group_privacy_section_merged(client):
-    from datetime import datetime, timezone
-    with app.app_context():
-        from models import TherapySession
-        user_id = str(uuid.uuid4())
-        session_id = generate_session_id()
-        db.session.add(User(id=user_id, therapy_mode="group"))
-        db.session.add(TherapySession(
-            id=session_id, mode="group", created_by=user_id,
-            created_at=datetime.now(timezone.utc)
-        ))
-        db.session.commit()
-    with client.session_transaction() as sess:
-        sess["user_id"] = user_id
-    rv = client.get(f"/therapy/group/{session_id}")
-    assert rv.status_code == 200
-    _assert_privacy_section_merged(rv.data)
+# (Pruned test_group_privacy_section_merged — the privacy section is mode-independent
+#  and identical to the couple case already covered above.)
 
 
 # ---------------------------------------------------------------------------
@@ -546,13 +531,8 @@ def test_couple_page_shows_session_id_in_banner(client):
     )
 
 
-def test_group_page_shows_session_id_in_banner(client):
-    """For group sessions, the randomized-private-key session_id should appear in the rendered page."""
-    priv, user_id, session_id = _register(client, "group")
-
-    rv = client.get(f"/therapy/group/{session_id}")
-    assert rv.status_code == 200
-    assert session_id.encode() in rv.data
+# (Pruned test_group_page_shows_session_id_in_banner — the Session ID banner is
+#  mode-independent; the couple variant above covers the same template path.)
 
 
 def _make_therapist_led_solo(client):

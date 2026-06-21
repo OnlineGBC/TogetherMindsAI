@@ -184,7 +184,7 @@ function _tcBuildPanel() {
         'Suggestions and risk alerts will appear here as the conversation unfolds.</div>' +
         '  </div>' +
         '  <div class="tc-cadence" id="tcCadence">' +
-        '    <span class="tc-cadence-label">Comments:</span>' +
+        '    <span class="tc-cadence-label">Chattiness:</span>' +
         '    <button type="button" class="tc-cad-btn active" data-cadence="more">More</button>' +
         '    <button type="button" class="tc-cad-btn" data-cadence="less">Less</button>' +
         '    <button type="button" class="tc-cad-btn" data-cadence="stop">Stop</button>' +

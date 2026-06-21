@@ -489,14 +489,21 @@ body.sw-resizing, body.sw-resizing * { user-select: none; cursor: col-resize !im
 body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !important; }
 
 /* Larger, centered video tiles so people feel face-to-face. */
+/* Responsive video grid — fits ≥4 tiles (2×2) in the visible pane on a laptop,
+   and the pane scrolls vertically for 5+. */
+#rtcVideoGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    align-content: start;
+}
 .rtc-tile {
     position: relative;
-    width: clamp(220px, 30vw, 440px);
+    width: 100%;
     aspect-ratio: 4 / 3;
     background: #000;
     border-radius: 0.6rem;
     overflow: hidden;
-    flex: 0 1 auto;
     box-shadow: 0 6px 18px rgba(15, 60, 55, 0.18);
 }
 
@@ -1219,16 +1226,18 @@ div.alert.alert-share i.bi { color: #eaf5f2 !important; }
 #privacyBanner a { color: #eaf5f2 !important; }
 #privacyBanner a { text-decoration: underline; }
 
-/* ---- Co-pilot chattiness control (More / Less / Stop) ---- */
-.tc-cadence { display: flex; align-items: center; gap: 4px; padding: 4px 10px 0; font-size: .72rem; }
-.tc-cadence-label { color: #9DB0AA; margin-right: 2px; }
+/* ---- Co-pilot chattiness control (Chattiness: More / Less / Stop) ---- */
+/* The co-pilot panel is light (#f7faf9), so these are bold black for visibility. */
+.tc-cadence { display: flex; align-items: center; gap: 4px; padding: 4px 10px 0; font-size: .74rem; }
+.tc-cadence-label { color: #000; font-weight: 700; margin-right: 2px; }
 .tc-cad-btn {
-    border: 1px solid var(--border-dk);
+    border: 1px solid #999;
     background: transparent;
-    color: #cdd8d4;
+    color: #000;
+    font-weight: 700;
     border-radius: 999px;
     padding: 1px 10px;
-    font-size: .72rem;
+    font-size: .74rem;
     cursor: pointer;
     transition: background .15s, color .15s, border-color .15s;
 }
