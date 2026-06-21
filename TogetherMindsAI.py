@@ -857,6 +857,11 @@ def oauth_callback(provider):
     session["clinician_id"] = clinician.id
     session.permanent = True
     log_event("clinician_login", user_id=clinician.id, provider=provider)
+    # If they were sent here from a therapist-only link (e.g. a recording download
+    # opened on a phone), return them to it. Same-site relative paths only.
+    nxt = session.pop("post_login_redirect", None)
+    if nxt and nxt.startswith("/") and not nxt.startswith("//"):
+        return redirect(nxt)
     return redirect(url_for("therapist_start"))
 
 
@@ -2262,6 +2267,20 @@ def _is_session_therapist(session_id: str):
     return None
 
 
+def _therapist_gate_or_login(session_id: str):
+    """Gate a therapist-only download link. Returns None when the current user is
+    the session's clinician (access OK). When NObody is signed in (e.g. the
+    recording email opened on a phone), stash this URL and return a redirect to
+    /login so they sign in and land right back on the download. When someone else
+    is signed in, it's a genuine 403."""
+    if _is_session_therapist(session_id) is not None:
+        return None
+    if not session.get("user_id"):
+        session["post_login_redirect"] = request.full_path
+        return redirect(url_for("login"))
+    abort(403)
+
+
 @app.route("/session/<session_id>/summary")
 def session_summary(session_id):
     """Therapist-only: generate and return the private session summary as JSON."""
@@ -2494,8 +2513,10 @@ def recording_download(token):
     if row is None:
         abort(404)
     # Still therapist-gated: the logged-in user must be the session's clinician.
-    if _is_session_therapist(row.session_id) is None:
-        abort(403)
+    # When nobody is signed in (email link opened on a phone), bounce to login.
+    _gate = _therapist_gate_or_login(row.session_id)
+    if _gate is not None:
+        return _gate
     if row.status == "deleted" or not row.gcs_object:
         abort(410)   # Gone — past its 30-day retention
     gen, size, ctype = recording.download_stream(row.gcs_object)
@@ -2873,8 +2894,9 @@ def recording_download_doc(token, fmt):
     row = SessionRecording.query.filter_by(download_token=token).first() if token else None
     if row is None:
         abort(404)
-    if _is_session_therapist(row.session_id) is None:
-        abort(403)
+    _gate = _therapist_gate_or_login(row.session_id)
+    if _gate is not None:
+        return _gate
     log_event("transcript_downloaded", session_id=row.session_id,
               user_id=session.get("user_id"), format=fmt, via="recording_token")
     if fmt == "pdf":
@@ -3415,6 +3437,11 @@ def on_end_session(data):
     if session_therapist_id.get(session_id) != user_id:
         return   # only the clinician can end the session
     log_event("session_ended", session_id=session_id, user_id=user_id, trigger="therapist")
+    # Ending the session ends the recording for everyone too: drop the request and
+    # re-evaluate, which stops egress, stamps 30-day retention and emails the link.
+    if config.RECORDING_ENABLED:
+        session_recording_requested[session_id] = False
+        _evaluate_recording(session_id)
     emit("session_ended", {"by": "Therapist"}, to=session_id, include_self=False)
 
 
