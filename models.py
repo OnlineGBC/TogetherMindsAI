@@ -185,6 +185,9 @@ class TherapySession(db.Model):
     # so a participant can rejoin by it (or by the Session ID). Persisted so it
     # survives restarts.
     friendly_name = db.Column(db.String(60), nullable=True, unique=True, index=True)
+    # Opaque token for tokenized transcript download links in the end-session email,
+    # so the session id never appears in the URL (like SessionRecording.download_token).
+    download_token = db.Column(db.String(64), nullable=True, index=True)
 
 
 class SessionParticipant(db.Model):

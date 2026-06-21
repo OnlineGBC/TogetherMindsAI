@@ -91,7 +91,8 @@ def test_therapist_end_session_notifies_clients(enc_client):
     t = _join(enc_client, sid, "ther-1")
     c = _join(enc_client, sid, "client-1")
     t.get_received(); c.get_received()
-    t.emit("end_session", {"session_id": sid, "user_id": "ther-1"})
+    with patch.object(tm, "_dispatch_session_transcript"):
+        t.emit("end_session", {"session_id": sid, "user_id": "ther-1"})
     assert "session_ended" in _names(c)        # client is notified
     assert "session_ended" not in _names(t)    # not echoed to the ender
 
@@ -102,8 +103,76 @@ def test_non_therapist_cannot_end_session(enc_client):
     t = _join(enc_client, sid, "ther-1")
     c = _join(enc_client, sid, "client-1")
     t.get_received(); c.get_received()
-    c.emit("end_session", {"session_id": sid, "user_id": "client-1"})
+    resp = c.emit("end_session", {"session_id": sid, "user_id": "client-1"}, callback=True)
+    assert resp == {"ended": False}
     assert "session_ended" not in _names(t)
+
+
+def test_end_session_emails_transcript_notifies_and_acks(enc_client):
+    # No recording → email the transcript PDF/Word, notify clients, ack the ender.
+    with app.app_context():
+        sid = _seed("ther-1")
+    t = _join(enc_client, sid, "ther-1")
+    c = _join(enc_client, sid, "client-1")   # therapist present first → real join
+    t.get_received(); c.get_received()
+    with patch.object(tm, "_dispatch_session_transcript") as dispatch:
+        resp = t.emit("end_session", {"session_id": sid, "user_id": "ther-1"}, callback=True)
+    assert resp == {"ended": True}
+    dispatch.assert_called_once_with(sid)
+    assert "session_ended" in _names(c)
+
+
+# ---- Waiting room (no client conversation without a clinician present) ----
+
+def _raw_join(client, sid, uid, mode="couple"):
+    sio = socketio.test_client(app, flask_test_client=client)
+    sio.emit("join", {"session_id": sid, "user_id": uid, "mode": mode})
+    return sio
+
+
+def test_client_held_in_waiting_room_without_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1", mode="couple")
+    c = _raw_join(enc_client, sid, "client-1")
+    names = _names(c)
+    assert "waiting_room" in names
+    assert "history" not in names            # not admitted to the live session
+
+
+def test_therapist_arrival_admits_waiting_clients(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1", mode="couple")
+    c = _raw_join(enc_client, sid, "client-1"); c.get_received()
+    _raw_join(enc_client, sid, "ther-1")     # clinician arrives
+    assert "session_open" in _names(c)       # waiting client told to enter
+
+
+def test_client_message_blocked_without_therapist(enc_client):
+    from models import ChatMessage
+    with app.app_context():
+        sid = _seed("ther-1", mode="couple")
+    c = _raw_join(enc_client, sid, "client-1"); c.get_received()
+    c.emit("send_message", {"session_id": sid, "user_id": "client-1", "text": "anyone?"})
+    names = _names(c)
+    assert "waiting_room" in names
+    assert "new_message" not in names
+    with app.app_context():
+        assert ChatMessage.query.filter_by(session_id=sid).count() == 0
+
+
+# ---- Tokenized end-session transcript download ----
+
+def test_session_transcript_token_route(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+        ts = db.session.get(TherapySession, sid); ts.download_token = "stok"; db.session.commit()
+    assert enc_client.get("/session/transcript/stok/pdf").status_code == 403   # not signed in
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
+    assert enc_client.get("/session/transcript/stok/pdf").status_code == 200
+    assert enc_client.get("/session/transcript/stok/docx").status_code == 200
+    assert enc_client.get("/session/transcript/nope/pdf").status_code == 404
+    assert enc_client.get("/session/transcript/stok/txt").status_code == 404
 
 
 # ---- Friendly name ----
@@ -135,6 +204,7 @@ def test_join_syncs_existing_friendly_name(enc_client):
     with app.app_context():
         sid = _seed("ther-1")
     tm.session_friendly_name[sid] = "Existing"
+    _join(enc_client, sid, "ther-1")    # clinician present so the newcomer is admitted
     sio = socketio.test_client(app, flask_test_client=enc_client)
     sio.emit("join", {"session_id": sid, "user_id": "c2", "mode": "group"})
     fn = [e for e in sio.get_received() if e["name"] == "friendly_name_set"]

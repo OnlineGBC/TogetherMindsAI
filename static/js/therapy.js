@@ -571,66 +571,28 @@ var _sessionEnded = false;
  * @param {string} sessionId   - Session ID to display in the modal
  * @param {string} redirectUrl - URL to navigate to after confirming end
  */
-function initEndSessionGuard(sessionId, redirectUrl) {
-    var _storageKey = "session_nickname_" + sessionId;
-
-    // Populate modal display
-    var display = document.getElementById("endSessionIdDisplay");
-    if (display) {
-        display.textContent = sessionId;
-    }
-
-    // Restore any previously saved nickname
-    var nicknameInput = document.getElementById("endSessionNickname");
-    if (nicknameInput) {
-        var saved = localStorage.getItem(_storageKey);
-        if (saved) { nicknameInput.value = saved; }
-        nicknameInput.addEventListener("input", function () {
-            var val = nicknameInput.value.trim();
-            if (val) {
-                localStorage.setItem(_storageKey, val);
-            } else {
-                localStorage.removeItem(_storageKey);
-            }
-        });
-    }
-
-    // Copy button inside modal
-    var copyBtn = document.getElementById("endSessionCopyBtn");
-    if (copyBtn) {
-        copyBtn.addEventListener("click", function () {
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(sessionId).then(function () {
-                    copyBtn.innerHTML = '<i class="bi bi-clipboard-check"></i>';
-                    setTimeout(function () {
-                        copyBtn.innerHTML = '<i class="bi bi-clipboard"></i>';
-                    }, 1500);
-                });
-            } else {
-                var el = document.createElement("textarea");
-                el.value = sessionId;
-                document.body.appendChild(el);
-                el.select();
-                document.execCommand("copy");
-                document.body.removeChild(el);
-            }
-        });
-    }
-
-    // Confirm button — save nickname to localStorage then redirect
+function initEndSessionGuard(sessionId, userId, redirectUrl) {
+    // Plain confirm: the modal just asks "end for everyone?". The server ends any
+    // recording, emails the clinician the session record, and notifies clients.
     var confirmBtn = document.getElementById("endSessionConfirmBtn");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
-            if (nicknameInput && nicknameInput.value.trim()) {
-                localStorage.setItem(_storageKey, nicknameInput.value.trim());
-            }
-            // Notify everyone else that the therapist has ended the session. The
-            // server enforces that only the session's clinician may end it.
-            if (socket && socket.connected) {
-                socket.emit("end_session", { session_id: sessionId, user_id: _currentUserId });
-            }
             _sessionEnded = true;
-            window.location.href = redirectUrl;
+            var navigated = false;
+            var go = function () {
+                if (navigated) return;
+                navigated = true;
+                window.location.href = redirectUrl;
+            };
+            // Emit with an ack and navigate only once the server has processed the
+            // end (so clients get notified + the email fires), with a short fallback.
+            if (socket && socket.connected) {
+                socket.emit("end_session",
+                    { session_id: sessionId, user_id: userId }, go);
+                setTimeout(go, 1500);
+            } else {
+                go();
+            }
         });
     }
 
@@ -678,6 +640,31 @@ function _showSessionEndedOverlay() {
     var go = function () { _sessionEnded = true; window.location.href = "/"; };
     document.getElementById("_sessEndOk").addEventListener("click", go);
     setTimeout(go, 5000);   // auto-leave after 5s
+}
+
+// Waiting room — a client joined (or tried to talk) while no clinician is present.
+// Cover the session and disable the composer until the therapist arrives. No
+// client-only conversation is allowed without a qualified clinician.
+function _showWaitingRoomOverlay(msg) {
+    var input = document.getElementById("messageInput");
+    var send  = document.getElementById("sendBtn");
+    if (input) { input.disabled = true; }
+    if (send)  { send.disabled = true; }
+    if (document.getElementById("_waitingOverlay")) return;
+    var o = document.createElement("div");
+    o.id = "_waitingOverlay";
+    o.style.cssText = "position:fixed;inset:0;z-index:6000;display:flex;align-items:center;" +
+        "justify-content:center;background:rgba(0,0,0,.6);";
+    o.innerHTML = '<div style="background:#1E2A28;color:#E8EEEC;border-radius:14px;padding:24px 28px;' +
+        'max-width:380px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.5);">' +
+        '<i class="bi bi-hourglass-split" style="font-size:2rem;color:#4CAF50"></i>' +
+        '<h5 class="mt-2 mb-1">Waiting room</h5>' +
+        '<p class="small mb-3" style="color:#9DB0AA">' + (msg || "Please wait — your clinician will start the session.") + '</p>' +
+        '<button id="_waitLeave" class="btn btn-outline-light rounded-pill btn-sm">Leave</button></div>';
+    document.body.appendChild(o);
+    document.getElementById("_waitLeave").addEventListener("click", function () {
+        _sessionEnded = true; window.location.href = "/";
+    });
 }
 
 /**
@@ -757,6 +744,15 @@ function initSessionControls(sessionId, userId, isTherapist) {
 
     socket.on("session_ended", function () {
         _showSessionEndedOverlay();
+    });
+
+    // Waiting room: held out until the clinician is present; admitted on arrival.
+    socket.on("waiting_room", function (data) {
+        data = data || {};
+        _showWaitingRoomOverlay(data.message);
+    });
+    socket.on("session_open", function () {
+        window.location.reload();   // re-join now that the clinician is present
     });
 }
 

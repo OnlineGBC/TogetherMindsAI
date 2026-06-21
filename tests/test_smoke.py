@@ -450,9 +450,9 @@ def test_end_session_modal_present_in_base(client):
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
     rv = client.get(f"/therapy/couple/{session_id}")
-    assert b"endSessionIdDisplay" in rv.data
+    assert b'id="endSessionModal"' in rv.data
     assert b"endSessionConfirmBtn" in rv.data
-    assert b"endSessionCopyBtn" in rv.data
+    assert b"End this session for everyone?" in rv.data
 
 
 # ---------------------------------------------------------------------------

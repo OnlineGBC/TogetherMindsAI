@@ -124,7 +124,7 @@
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <!-- Custom JS -->
-<script src="{{ url_for('static', filename='js/therapy.js') }}?v=2026-06-21-d"></script>
+<script src="{{ url_for('static', filename='js/therapy.js') }}?v=2026-06-21-h"></script>
 <!-- Service Worker (PWA) -->
 <script>
   if ("serviceWorker" in navigator) {
@@ -273,28 +273,17 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body pt-2">
-                <p class="mb-3">Save your Session ID before you leave — you'll need it to rejoin later.</p>
-                <div class="alert alert-share rounded-4 py-2 px-3 d-flex align-items-center justify-content-between gap-2 mb-2">
-                    <div class="d-flex align-items-center gap-2">
-                        <i class="bi bi-hash text-primary-green"></i>
-                        <span class="fw-semibold font-monospace" id="endSessionIdDisplay"></span>
-                    </div>
-                    <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="endSessionCopyBtn" title="Copy Session ID">
-                        <i class="bi bi-clipboard"></i>
-                    </button>
-                </div>
-                <div class="mb-0">
-                    <label for="endSessionNickname" class="form-label small text-muted mb-1">
-                        <i class="bi bi-tag me-1"></i>Give this session a friendly name <span class="text-muted">(optional)</span>
-                    </label>
-                    <input type="text" class="form-control form-control-sm rounded-3" id="endSessionNickname"
-                           placeholder="e.g. Monday check-in" maxlength="60">
-                </div>
+                <p class="mb-1">End this session for everyone?</p>
+                <p class="small text-muted mb-0">
+                    Clients will be returned to the waiting screen, any recording in progress
+                    is stopped, and you'll be emailed the session record (transcript PDF &amp;
+                    Word — plus the video if it was recorded). The session is always saved.
+                </p>
             </div>
             <div class="modal-footer border-0 pt-2 flex-wrap gap-2">
                 <button type="button" class="btn btn-primary-green rounded-pill me-auto" data-bs-dismiss="modal">Stay in session</button>
-                <button type="button" id="endSessionConfirmBtn" class="btn btn-primary-green rounded-pill">
-                    <i class="bi bi-check2 me-1"></i>I've saved my ID — end session
+                <button type="button" id="endSessionConfirmBtn" class="btn btn-danger rounded-pill">
+                    <i class="bi bi-door-open-fill me-1"></i>End session
                 </button>
             </div>
         </div>

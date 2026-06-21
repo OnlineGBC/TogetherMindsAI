@@ -9,6 +9,7 @@ if config.ASYNC_MODE == "eventlet":
 import base64
 import re
 import secrets
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -151,6 +152,10 @@ session_copilot_emit_counter: dict = {}  # session_id → throttle counter used 
 session_recording_requested: dict = {}                  # session_id → bool (therapist wants to record)
 session_recording_consent: dict   = defaultdict(dict)   # session_id → {user_id: bool}
 session_recording_active: dict     = {}                  # session_id → SessionRecording.id (or None/-1 pending)
+
+# Waiting room — clients who joined while no clinician was present. They are held
+# out of the live session (no history, can't send) until the therapist arrives.
+session_waiting: dict = defaultdict(set)                 # session_id → {user_id, …}
 
 
 def _record_participation(session_id: str, user_id: str) -> None:
@@ -523,6 +528,7 @@ if not config.IS_TESTING:
         for ddl in (
             "ALTER TABLE therapy_sessions ADD COLUMN friendly_name VARCHAR(60)",
             "ALTER TABLE session_participants ADD COLUMN display_name VARCHAR(60)",
+            "ALTER TABLE therapy_sessions ADD COLUMN download_token VARCHAR(64)",
         ):
             try:
                 db.session.execute(text(ddl))
@@ -2886,6 +2892,100 @@ def recording_download_doc(token, fmt):
         as_attachment=True, download_name=f"session-{row.id}.docx")
 
 
+@app.route("/session/transcript/<token>/<fmt>")
+def session_transcript_doc(token, fmt):
+    """Token-keyed transcript download (PDF/Word) for a session that was NOT
+    recorded, used by the end-session email so the link carries no session id.
+    Therapist-gated, mirrors recording_download_doc."""
+    if fmt not in ("pdf", "docx"):
+        abort(404)
+    ts = TherapySession.query.filter_by(download_token=token).first() if token else None
+    if ts is None:
+        abort(404)
+    if _is_session_therapist(ts.id) is None:
+        abort(403)
+    log_event("transcript_downloaded", session_id=ts.id,
+              user_id=session.get("user_id"), format=fmt, via="session_token")
+    if fmt == "pdf":
+        return send_file(_transcript_pdf_buf(ts.id), mimetype="application/pdf",
+                         as_attachment=True, download_name="session.pdf")
+    return send_file(
+        _transcript_docx_buf(ts.id),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True, download_name="session.docx")
+
+
+def _ensure_session_token(ts) -> str:
+    """Lazily mint the session's opaque download token (used in the end-session
+    transcript email). Persisted so the link stays valid."""
+    if not ts.download_token:
+        ts.download_token = secrets.token_urlsafe(32)
+        db.session.commit()
+    return ts.download_token
+
+
+def _session_email_content(ts):
+    """Return (subject, plain, html) for the end-session transcript email — the
+    transcript-only counterpart of _recording_email_content (no video)."""
+    from html import escape as h
+    token    = ts.download_token
+    pdf_url  = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/pdf"
+    docx_url = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/docx"
+    subject = "TogetherMindsAI — your session transcript is ready"
+    lead = ("Your session has ended. The transcript, AI analysis and ICD codes are "
+            "ready to download.")
+    plain = (
+        f"{lead}\n\n"
+        "Sign in as this session's clinician to open these:\n"
+        f"  • Transcript + AI analysis + ICD codes (PDF): {pdf_url}\n"
+        f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n\n"
+        "Only you, signed in as this session's clinician, can open these links.\n"
+    )
+    _link = "color:#2e7d32;text-decoration:none;font-weight:600;"
+    html_body = (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
+        '<h2 style="color:#2e7d32;">Your session transcript is ready</h2>'
+        f'<p style="color:#212121;line-height:1.5;">{h(lead)}</p>'
+        f'<p style="margin:6px 0;"><a href="{h(pdf_url)}" style="{_link}">📄 Transcript, AI analysis &amp; ICD codes (PDF)</a></p>'
+        f'<p style="margin:6px 0;"><a href="{h(docx_url)}" style="{_link}">📝 Transcript, AI analysis &amp; ICD codes (Word)</a></p>'
+        '<p style="color:#555;font-size:13px;margin-top:14px;">'
+        'Only you, signed in as this session\'s clinician, can open these links.</p>'
+        '<p style="color:#888;font-size:12px;margin-top:20px;">Sent automatically by TogetherMindsAI.</p>'
+        "</div>"
+    )
+    return subject, plain, html_body
+
+
+def _email_session_transcript(session_id) -> bool:
+    """Email the owning clinician the end-session transcript links. Returns True on
+    a successful send, False if skipped (no email/SMTP). Assumes an app context."""
+    try:
+        if not (config.FEEDBACK_SMTP_USER and config.FEEDBACK_SMTP_PASSWORD):
+            return False
+        ts = db.session.get(TherapySession, session_id)
+        if ts is None:
+            return False
+        clinician = db.session.get(Clinician, ts.therapist_id) if ts.therapist_id else None
+        email = getattr(clinician, "email", None)
+        if not email:
+            return False
+        _ensure_session_token(ts)
+        subject, plain, html_body = _session_email_content(ts)
+        _send_email([email], subject, plain, html_body)
+        return True
+    except Exception:
+        app.logger.warning("session transcript email failed (sid=%s)", session_id)
+        return False
+
+
+def _dispatch_session_transcript(session_id) -> None:
+    """Send the end-session transcript email off the request path."""
+    def _run():
+        with app.app_context():
+            _email_session_transcript(session_id)
+    threading.Thread(target=_run, daemon=True).start()
+
+
 # ---------------------------------------------------------------------------
 # Routes — public-key authentication API
 # ---------------------------------------------------------------------------
@@ -3011,6 +3111,10 @@ def on_join(data):
         ts = db.session.get(TherapySession, session_id)
         therapist_id = ts.therapist_id if ts else None
         eff_mode = ts.mode if (ts and ts.mode) else mode
+        # Remember the clinician early (before any waiting-room early return) so the
+        # send_message guard and presence checks always know this is therapist-led.
+        if therapist_id:
+            session_therapist_id[session_id] = therapist_id
 
         # Hard capacity gate: reject a client that would exceed the mode's cap
         # (solo=1, couple=2, group=unlimited). The therapist is never blocked.
@@ -3019,6 +3123,20 @@ def on_join(data):
             emit("error", {"message":
                  "This session is full — it allows up to %d participant%s."
                  % (cap, "" if cap == 1 else "s")})
+            return
+
+        # Waiting room: a client may not be in a live therapist-led session unless
+        # the clinician is present. Hold them out (no history, can't send) until the
+        # therapist arrives, which broadcasts 'session_open' to admit them.
+        if therapist_id and user_id != therapist_id \
+                and therapist_id not in room_participants.get(session_id, set()):
+            join_room(session_id)                       # so they receive 'session_open'
+            sid_to_user[request.sid]    = user_id
+            sid_to_session[request.sid] = session_id
+            session_waiting[session_id].add(user_id)
+            _record_participation(session_id, user_id)  # still counts for "my sessions"
+            emit("waiting_room",
+                 {"message": "Please wait — your clinician will start the session."})
             return
 
         join_room(session_id)
@@ -3046,6 +3164,11 @@ def on_join(data):
                 # Replay any stored cards so the console shows full history, not
                 # just whatever arrived live since this connection opened.
                 _emit_card_history(session_id)
+                # The clinician has arrived — admit anyone in the waiting room.
+                # include_self=False so the therapist's own page doesn't reload.
+                if session_waiting.get(session_id):
+                    session_waiting.pop(session_id, None)
+                    emit("session_open", {}, to=session_id, include_self=False)
 
         # Assign join position (used for default display names)
         joined = session_joined_users.setdefault(session_id, [])
@@ -3100,6 +3223,7 @@ def on_disconnect():
     session_id = sid_to_session.pop(request.sid, None)
     if user_id and session_id:
         room_participants[session_id].discard(user_id)
+        session_waiting.get(session_id, set()).discard(user_id)
         # session_display_names is intentionally NOT cleared on disconnect.
         # Socket.IO long-polling causes frequent disconnect/reconnect cycles;
         # clearing the name here causes the display name modal to re-appear
@@ -3144,6 +3268,13 @@ def on_send_message(data):
         # as a private co-pilot, emitting suggestion cards to the therapist only.
         therapist_id = session_therapist_id.get(session_id)
         if therapist_id is not None:
+            # No client-only conversation: drop a client's message if the clinician
+            # is not currently present (they'd be in the waiting room).
+            if user_id != therapist_id \
+                    and therapist_id not in room_participants.get(session_id, set()):
+                emit("waiting_room",
+                     {"message": "Please wait — your clinician isn't in the session yet."})
+                return
             display_name = session_display_names.get(session_id, {}).get(user_id)
             user_msg = ChatMessage(
                 session_id=session_id, user_id=user_id, text=text,
@@ -3408,14 +3539,29 @@ def on_recording_cancel(data):
 
 @socketio.on("end_session")
 def on_end_session(data):
-    """Only the session's clinician may end it. Notifies everyone else so their
-    client shows a 'session ended' popup and returns them out."""
+    """Only the session's clinician may end it. Ends any running recording too,
+    emails the clinician the session record, and notifies clients so their client
+    shows a 'session ended' popup and returns them out. Returns an ack so the
+    therapist's client navigates only once the server has processed it."""
     session_id = data.get("session_id", "")
     user_id    = data.get("user_id", "")
-    if session_therapist_id.get(session_id) != user_id:
-        return   # only the clinician can end the session
+    # Therapist check against the durable DB owner (robust across restarts).
+    ts = db.session.get(TherapySession, session_id)
+    if ts is None or not ts.therapist_id or ts.therapist_id != user_id:
+        return {"ended": False}
     log_event("session_ended", session_id=session_id, user_id=user_id, trigger="therapist")
+    # Ending the session also ends an active recording for everyone: stop egress and
+    # finalize, which emails the recording (video + transcript PDF/Word token links).
+    # With no recording, email the transcript-only PDF/Word links instead.
+    active = session_recording_active.get(session_id)
+    if config.RECORDING_ENABLED and active and active != -1:
+        session_recording_requested[session_id] = False
+        _evaluate_recording(session_id)            # stop + finalize + email recording
+        _emit_recording_state(session_id)
+    else:
+        _dispatch_session_transcript(session_id)   # email transcript PDF/Word
     emit("session_ended", {"by": "Therapist"}, to=session_id, include_self=False)
+    return {"ended": True}
 
 
 def _friendly_name_owner(name: str):

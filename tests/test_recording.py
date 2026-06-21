@@ -432,3 +432,23 @@ def test_recording_email_has_three_token_links(enc_client):
         assert "/recording/download/tok9/pdf" in body      # PDF
         assert "/recording/download/tok9/docx" in body     # Word
     assert sid not in plain.split("Session:")[0]           # no session id in the links
+
+
+def test_end_session_stops_active_recording_then_emails_recording(enc_client):
+    # Ending a session with a recording running stops egress + finalizes (which
+    # emails the recording) and does NOT send the transcript-only email.
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_recording(sid, status="active")
+    t = _join(enc_client, sid, "ther-1")
+    tm.session_recording_requested[sid] = True
+    tm.session_recording_active[sid] = rid
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.stop_recording", return_value=True) as stop, \
+         patch.object(tm, "_finalize_stopped_recording"), \
+         patch.object(tm, "_dispatch_session_transcript") as transcript:
+        resp = t.emit("end_session", {"session_id": sid, "user_id": "ther-1"}, callback=True)
+    assert resp == {"ended": True}
+    assert stop.call_count == 1
+    transcript.assert_not_called()
+    assert tm.session_recording_active.get(sid) is None
