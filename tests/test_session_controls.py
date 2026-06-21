@@ -83,43 +83,32 @@ def test_hide_my_data_shown_for_client(enc_client):
     assert b"Hide my data" in rv.data
 
 
-# ---- End session ----
+# ---- End session — over HTTP (reliable, cookie-authenticated; the only end path) ----
 
-def test_therapist_end_session_notifies_clients(enc_client):
+def test_end_session_http_notifies_clients_and_emails(enc_client):
     with app.app_context():
         sid = _seed("ther-1")
     t = _join(enc_client, sid, "ther-1")
     c = _join(enc_client, sid, "client-1")
     t.get_received(); c.get_received()
-    with patch.object(tm, "_dispatch_session_transcript"):
-        t.emit("end_session", {"session_id": sid, "user_id": "ther-1"})
-    assert "session_ended" in _names(c)        # client is notified
-    assert "session_ended" not in _names(t)    # not echoed to the ender
-
-
-def test_non_therapist_cannot_end_session(enc_client):
-    with app.app_context():
-        sid = _seed("ther-1")
-    t = _join(enc_client, sid, "ther-1")
-    c = _join(enc_client, sid, "client-1")
-    t.get_received(); c.get_received()
-    resp = c.emit("end_session", {"session_id": sid, "user_id": "client-1"}, callback=True)
-    assert resp == {"ended": False}
-    assert "session_ended" not in _names(t)
-
-
-def test_end_session_emails_transcript_notifies_and_acks(enc_client):
-    # No recording → email the transcript PDF/Word, notify clients, ack the ender.
-    with app.app_context():
-        sid = _seed("ther-1")
-    t = _join(enc_client, sid, "ther-1")
-    c = _join(enc_client, sid, "client-1")   # therapist present first → real join
-    t.get_received(); c.get_received()
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"                       # signed in as the clinician
     with patch.object(tm, "_dispatch_session_transcript") as dispatch:
-        resp = t.emit("end_session", {"session_id": sid, "user_id": "ther-1"}, callback=True)
-    assert resp == {"ended": True}
+        rv = enc_client.post(f"/session/{sid}/end")
+    assert rv.status_code == 200 and rv.get_json()["ended"] is True
     dispatch.assert_called_once_with(sid)
-    assert "session_ended" in _names(c)
+    assert "session_ended" in _names(c)               # client notified over its socket
+
+
+def test_end_session_http_forbidden_for_non_owner(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    # not signed in
+    assert enc_client.post(f"/session/{sid}/end").status_code == 403
+    # signed in as someone else
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "intruder"
+    assert enc_client.post(f"/session/{sid}/end").status_code == 403
 
 
 # ---- Waiting room (no client conversation without a clinician present) ----

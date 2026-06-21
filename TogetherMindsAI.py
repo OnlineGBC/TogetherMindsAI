@@ -3564,25 +3564,11 @@ def on_recording_cancel(data):
     _emit_recording_state(session_id)
 
 
-@socketio.on("end_session")
-def on_end_session(data):
-    """Only the session's clinician may end it. Ends any running recording too,
-    emails the clinician the session record, and notifies clients so their client
-    shows a 'session ended' popup and returns them out. Returns an ack so the
-    therapist's client navigates only once the server has processed it."""
-    session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
-    # Therapist check against the durable DB owner (robust across restarts).
-    ts = db.session.get(TherapySession, session_id)
-    _owner = ts.therapist_id if ts else None
-    app.logger.info("end_session attempt: sid=%s sent_user=%r owner=%r match=%s",
-                    session_id, user_id, _owner, bool(_owner and _owner == user_id))
-    if ts is None or not ts.therapist_id or ts.therapist_id != user_id:
-        return {"ended": False}
-    # Notify clients FIRST so the "session ended" popup always shows, even if the
-    # recording/email steps below were to fail.
-    emit("session_ended", {"by": "Therapist"}, to=session_id, include_self=False)
-    log_event("session_ended", session_id=session_id, user_id=user_id, trigger="therapist")
+def _finish_session(session_id: str, user_id: str, trigger: str) -> None:
+    """Shared end-of-session work after the caller has verified the clinician:
+    log it, stop any recording, and email the session record exactly once. The
+    caller handles client notification (it differs by socket vs HTTP)."""
+    log_event("session_ended", session_id=session_id, user_id=user_id, trigger=trigger)
     try:
         # Stop an active recording (no email here — the email is sent once, below).
         active = session_recording_active.get(session_id)
@@ -3603,7 +3589,21 @@ def on_end_session(data):
             _dispatch_session_transcript(session_id)
     except Exception:
         app.logger.warning("end_session post-steps failed (sid=%s)", session_id)
-    return {"ended": True}
+
+
+@app.route("/session/<session_id>/end", methods=["POST"])
+def end_session_http(session_id):
+    """End the session over plain HTTP — reliable and cookie-authenticated, with NO
+    dependency on the live socket (the socket emit was proving unreliable). Notifies
+    clients over their sockets, stops recording, and emails the clinician."""
+    ts = _is_session_therapist(session_id)
+    if ts is None:
+        return jsonify({"ended": False}), 403
+    # Notify clients over their live sockets (receiving works; only the therapist's
+    # outgoing end-emit was the weak link).
+    socketio.emit("session_ended", {"by": "Therapist"}, to=session_id)
+    _finish_session(session_id, session.get("user_id"), "therapist_http")
+    return jsonify({"ended": True})
 
 
 def _friendly_name_owner(name: str):

@@ -446,20 +446,22 @@ def test_recording_email_has_three_token_links(enc_client):
 
 
 def test_end_session_stops_active_recording_then_emails_recording(enc_client):
-    # Ending a session with a recording running stops egress and emails the RECORDING
-    # (once, on end), not the transcript-only email.
+    # Ending a session (over HTTP) with a recording running stops egress and emails
+    # the RECORDING (once, on end), not the transcript-only email.
     with app.app_context():
         sid = _seed("ther-1")
         rid = _seed_recording(sid, status="active")
-    t = _join(enc_client, sid, "ther-1")
+    _join(enc_client, sid, "ther-1")
     tm.session_recording_requested[sid] = True
     tm.session_recording_active[sid] = rid
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
     with patch.object(config, "RECORDING_ENABLED", True), \
          patch("recording.stop_recording", return_value=True) as stop, \
          patch.object(tm, "_dispatch_recording_ready") as recording_email, \
          patch.object(tm, "_dispatch_session_transcript") as transcript:
-        resp = t.emit("end_session", {"session_id": sid, "user_id": "ther-1"}, callback=True)
-    assert resp == {"ended": True}
+        rv = enc_client.post(f"/session/{sid}/end")
+    assert rv.status_code == 200 and rv.get_json()["ended"] is True
     assert stop.call_count == 1
     recording_email.assert_called_once_with(rid)   # emailed the recording
     transcript.assert_not_called()

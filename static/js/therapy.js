@@ -583,14 +583,8 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
 
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
-            _showEndError("");                       // clear any prior error
-            document.getElementById("endSessionError").classList.add("d-none");
-            // Confirm-before-navigate: only leave on a confirmed end. On failure or
-            // timeout, STAY and show the error — never leave the room silently.
-            if (!(socket && socket.connected)) {
-                _showEndError("You appear to be offline. Reconnect and try again.");
-                return;
-            }
+            var errEl = document.getElementById("endSessionError");
+            if (errEl) { errEl.classList.add("d-none"); }
             var original = confirmBtn.innerHTML;
             confirmBtn.disabled = true;
             confirmBtn.innerHTML = "Ending…";
@@ -604,10 +598,13 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
             };
             var timer = setTimeout(function () {
                 fail("Couldn't end the session — please try again.");
-            }, 5000);
-            socket.emit("end_session",
-                { session_id: sessionId, user_id: userId },
-                function (resp) {
+            }, 8000);
+            // End over plain HTTP — reliable, signed in via the session cookie, and
+            // NOT dependent on the live socket. Confirm-before-navigate: only leave
+            // on a confirmed end; on failure or timeout, STAY and show the error.
+            fetch("/session/" + encodeURIComponent(sessionId) + "/end", { method: "POST" })
+                .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+                .then(function (resp) {
                     if (done) { return; }
                     clearTimeout(timer);
                     if (resp && resp.ended) {
@@ -615,8 +612,12 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
                         _sessionEnded = true;        // success → suppress the leave warning
                         window.location.href = redirectUrl;
                     } else {
-                        fail("Couldn't end the session. You may not be its clinician, or the connection dropped — please try again.");
+                        fail("Couldn't end the session. You may not be its clinician.");
                     }
+                })
+                .catch(function () {
+                    clearTimeout(timer);
+                    fail("Couldn't end the session — please try again.");
                 });
         });
     }
