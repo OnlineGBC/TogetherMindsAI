@@ -3435,7 +3435,7 @@ def on_end_session(data):
     session_id = data.get("session_id", "")
     user_id    = data.get("user_id", "")
     if session_therapist_id.get(session_id) != user_id:
-        return {"ended": False}   # only the clinician can end the session
+        return   # only the clinician can end the session
     log_event("session_ended", session_id=session_id, user_id=user_id, trigger="therapist")
     # Ending the session ends the recording for everyone too: drop the request and
     # re-evaluate, which stops egress, stamps 30-day retention and emails the link.
@@ -3443,7 +3443,6 @@ def on_end_session(data):
         session_recording_requested[session_id] = False
         _evaluate_recording(session_id)
     emit("session_ended", {"by": "Therapist"}, to=session_id, include_self=False)
-    return {"ended": True}   # ack so the therapist's client navigates only now
 
 
 def _friendly_name_owner(name: str):
@@ -3472,37 +3471,30 @@ def on_set_friendly_name(data):
     """Clinician sets the shared session friendly name. It must be UNIQUE across
     sessions; on a collision the app SUGGESTS a bumped name (it does not auto-apply
     — the therapist accepts it or picks another). Persisted on the session row so a
-    participant can rejoin by it. Therapist-only.
-
-    The return value is also delivered as a socket ack, so a caller (e.g. the
-    end-session flow) can sequence on the result: {"status": "set"|"taken"|"error"}.
-    """
+    participant can rejoin by it. Therapist-only."""
     session_id = data.get("session_id", "")
     user_id    = data.get("user_id", "")
     if session_therapist_id.get(session_id) != user_id:
-        return {"status": "error"}
+        return
     name = (data.get("name") or "").strip()[:60]
     ts = db.session.get(TherapySession, session_id)
     if ts is None:
-        return {"status": "error"}
+        return
     if name:
         owner = _friendly_name_owner(name)
         if owner is not None and owner != session_id:
-            sugg = _suggest_friendly_name(name)
-            emit("friendly_name_taken", {"name": name, "suggestion": sugg})
-            return {"status": "taken", "name": name, "suggestion": sugg}
+            emit("friendly_name_taken", {"name": name, "suggestion": _suggest_friendly_name(name)})
+            return
     try:
         ts.friendly_name = name or None
         db.session.commit()
     except Exception:
         db.session.rollback()
-        sugg = _suggest_friendly_name(name)
-        emit("friendly_name_taken", {"name": name, "suggestion": sugg})
-        return {"status": "taken", "name": name, "suggestion": sugg}
+        emit("friendly_name_taken", {"name": name, "suggestion": _suggest_friendly_name(name)})
+        return
     session_friendly_name[session_id] = name
     log_event("friendly_name_set", session_id=session_id, user_id=user_id)
     emit("friendly_name_set", {"name": name, "by": "Therapist"}, to=session_id)
-    return {"status": "set", "name": name}
 
 
 if __name__ == "__main__":

@@ -6,12 +6,6 @@
 var socket = null;
 var _currentUserId = null;
 
-// Shared session-rename plumbing. initSessionControls (which owns the working
-// tag-button rename + the friendly_name_set/taken handlers) wires _requestRename;
-// other flows (e.g. end-session) call it so renaming is ONE mechanism, not two.
-var _requestRename = null;     // function(name, onSet, onTaken)
-var _renamePending = null;     // {onSet, onTaken} for an in-flight rename
-
 // ---------------------------------------------------------------------------
 // Translation gate — call before any chat send. If text is English the helper
 // invokes onProceed(text) immediately. If non-English, it pops a confirmation
@@ -577,7 +571,7 @@ var _sessionEnded = false;
  * @param {string} sessionId   - Session ID to display in the modal
  * @param {string} redirectUrl - URL to navigate to after confirming end
  */
-function initEndSessionGuard(sessionId, userId, redirectUrl) {
+function initEndSessionGuard(sessionId, redirectUrl) {
     var _storageKey = "session_nickname_" + sessionId;
 
     // Populate modal display
@@ -586,24 +580,11 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
         display.textContent = sessionId;
     }
 
-    // Pre-fill the name field. Prefer the shared friendly name already assigned to
-    // this session (e.g. "Coupletest"); fall back to any personal nickname saved on
-    // this device. Re-seeded each time the modal opens so it reflects the latest.
+    // Restore any previously saved nickname
     var nicknameInput = document.getElementById("endSessionNickname");
-    function _sharedFriendlyName() {
-        var el = document.getElementById("friendlyNameLabel");
-        if (el && !el.classList.contains("d-none")) {
-            return (el.textContent || "").trim();
-        }
-        return "";
-    }
-    function _seedEndName() {
-        if (!nicknameInput) return;
-        var saved = localStorage.getItem(_storageKey) || "";
-        nicknameInput.value = _sharedFriendlyName() || saved;
-    }
     if (nicknameInput) {
-        _seedEndName();
+        var saved = localStorage.getItem(_storageKey);
+        if (saved) { nicknameInput.value = saved; }
         nicknameInput.addEventListener("input", function () {
             var val = nicknameInput.value.trim();
             if (val) {
@@ -611,14 +592,6 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
             } else {
                 localStorage.removeItem(_storageKey);
             }
-        });
-    }
-    var endModalEl = document.getElementById("endSessionModal");
-    if (endModalEl) {
-        endModalEl.addEventListener("show.bs.modal", function () {
-            var note = document.getElementById("endSessionNameNote");
-            if (note) note.classList.add("d-none");
-            _seedEndName();
         });
     }
 
@@ -644,67 +617,20 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
         });
     }
 
-    // Show "name taken" inside the end-session modal and keep it open so the
-    // therapist can accept the suggested suffix or type another name.
-    function _showEndNameTaken(name, suggestion) {
-        var note = document.getElementById("endSessionNameNote");
-        if (!note) return;
-        note.innerHTML = '"' + name + '" is already taken. Try ' +
-            '<a href="#" id="_endNameSuggest">"' + (suggestion || "") + '"</a>, or pick another.';
-        note.classList.remove("d-none");
-        var s = document.getElementById("_endNameSuggest");
-        if (s) {
-            s.addEventListener("click", function (e) {
-                e.preventDefault();
-                if (nicknameInput) { nicknameInput.value = suggestion || ""; nicknameInput.focus(); }
-                note.classList.add("d-none");
-            });
-        }
-    }
-
-    // Actually end the session. Emit with an ack and navigate only once the
-    // server has processed it (broadcast session_ended + stop recording → email),
-    // with a short fallback so the therapist is never stuck if no ack arrives.
-    function _endSessionNow() {
-        if (nicknameInput && nicknameInput.value.trim()) {
-            localStorage.setItem(_storageKey, nicknameInput.value.trim());
-        }
-        _sessionEnded = true;
-        var navigated = false;
-        var go = function () {
-            if (navigated) return;
-            navigated = true;
-            window.location.href = redirectUrl;
-        };
-        if (socket && socket.connected) {
-            socket.emit("end_session",
-                { session_id: sessionId, user_id: userId }, go);
-            setTimeout(go, 1500);   // fallback if the ack never arrives
-        } else {
-            go();
-        }
-    }
-
-    // Confirm button. The field IS the session's shared friendly name (pre-filled
-    // with the current one). If the therapist CHANGED it, rename it through the SAME
-    // proven mechanism the in-session tag button uses (_requestRename → set_friendly_name
-    // with this page's userId, resolved by the friendly_name_set / friendly_name_taken
-    // handlers), and end only once it's accepted: a unique name ends the session; a
-    // taken name keeps the modal open with a suggestion. Unchanged/blank just ends.
+    // Confirm button — save nickname to localStorage then redirect
     var confirmBtn = document.getElementById("endSessionConfirmBtn");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
-            var typed = nicknameInput ? nicknameInput.value.trim() : "";
-            var note = document.getElementById("endSessionNameNote");
-            if (note) note.classList.add("d-none");
-
-            if (typed && typed !== _sharedFriendlyName() && _requestRename) {
-                _requestRename(typed, _endSessionNow, function (suggestion) {
-                    _showEndNameTaken(typed, suggestion);   // stay open
-                });
-                return;
+            if (nicknameInput && nicknameInput.value.trim()) {
+                localStorage.setItem(_storageKey, nicknameInput.value.trim());
             }
-            _endSessionNow();
+            // Notify everyone else that the therapist has ended the session. The
+            // server enforces that only the session's clinician may end it.
+            if (socket && socket.connected) {
+                socket.emit("end_session", { session_id: sessionId, user_id: _currentUserId });
+            }
+            _sessionEnded = true;
+            window.location.href = redirectUrl;
         });
     }
 
@@ -787,15 +713,6 @@ function initSessionControls(sessionId, userId, isTherapist) {
                 bootstrap.Modal.getOrCreateInstance(modalEl).show();
             });
         }
-        // The ONE rename entry point. Emits set_friendly_name with THIS page's
-        // userId (the value that works) and stashes optional callbacks resolved by
-        // the friendly_name_set / friendly_name_taken handlers below. Both the tag
-        // button and the end-session flow go through here — no duplicate path.
-        _requestRename = function (name, onSet, onTaken) {
-            _renamePending = { onSet: onSet || null, onTaken: onTaken || null };
-            if (socket) socket.emit("set_friendly_name",
-                { session_id: sessionId, user_id: userId, name: name });
-        };
         if (saveBtn) {
             saveBtn.addEventListener("click", function () {
                 var name = (input ? input.value : "").trim();
@@ -803,7 +720,7 @@ function initSessionControls(sessionId, userId, isTherapist) {
                 if (note) note.classList.add("d-none");
                 // No optimistic update: wait for friendly_name_set (applied) or
                 // friendly_name_taken (suggest a unique alternative).
-                _requestRename(name);
+                if (socket) socket.emit("set_friendly_name", { session_id: sessionId, user_id: userId, name: name });
             });
         }
     }
@@ -823,8 +740,6 @@ function initSessionControls(sessionId, userId, isTherapist) {
         if (!isTherapist && !data.silent && data.name) {
             _showSessionToast('This session is now called: ' + data.name);
         }
-        // Resolve a pending rename request (e.g. the end-session flow waiting to end).
-        if (_renamePending) { var cb = _renamePending.onSet; _renamePending = null; if (cb) cb(); }
     });
 
     // Name already taken — suggest a unique one; the therapist accepts or edits.
@@ -838,9 +753,6 @@ function initSessionControls(sessionId, userId, isTherapist) {
             note.classList.remove("d-none");
         }
         if (inp && data.suggestion) { inp.value = data.suggestion; inp.focus(); inp.select(); }
-        // Resolve a pending rename request (e.g. the end-session flow), so it can
-        // keep its own modal open and surface the suggestion there.
-        if (_renamePending) { var cb = _renamePending.onTaken; _renamePending = null; if (cb) cb(data.suggestion || ""); }
     });
 
     socket.on("session_ended", function () {

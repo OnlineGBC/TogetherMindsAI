@@ -360,7 +360,7 @@
         if (RECORDING_ENABLED) { initRecordingControls(SESSION_ID, USER_ID, IS_THERAPIST); }
         startWellnessCheck();
         initDisplayNameRename(SESSION_ID, USER_ID, false /* realtime */);
-        initEndSessionGuard(SESSION_ID, USER_ID, "/progress/" + USER_ID + "/{{ mode }}");
+        initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/{{ mode }}");
         initSessionControls(SESSION_ID, USER_ID, IS_THERAPIST);
     });
 
