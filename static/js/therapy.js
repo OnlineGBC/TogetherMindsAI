@@ -572,54 +572,12 @@ var _sessionEnded = false;
  * @param {string} redirectUrl - URL to navigate to after confirming end
  */
 function initEndSessionGuard(sessionId, userId, redirectUrl) {
-    // Plain confirm: the modal just asks "end for everyone?". The server ends any
-    // recording, emails the clinician the session record, and notifies clients.
-    var confirmBtn = document.getElementById("endSessionConfirmBtn");
-
-    function _showEndError(msg) {
-        var n = document.getElementById("endSessionError");
-        if (n) { n.textContent = msg; n.classList.remove("d-none"); }
-    }
-
-    if (confirmBtn) {
-        confirmBtn.addEventListener("click", function () {
-            var errEl = document.getElementById("endSessionError");
-            if (errEl) { errEl.classList.add("d-none"); }
-            var original = confirmBtn.innerHTML;
-            confirmBtn.disabled = true;
-            confirmBtn.innerHTML = "Ending…";
-            var done = false;
-            var fail = function (msg) {
-                if (done) { return; }
-                done = true;
-                confirmBtn.disabled = false;
-                confirmBtn.innerHTML = original;
-                _showEndError(msg);
-            };
-            var timer = setTimeout(function () {
-                fail("Couldn't end the session — please try again.");
-            }, 8000);
-            // End over plain HTTP — reliable, signed in via the session cookie, and
-            // NOT dependent on the live socket. Confirm-before-navigate: only leave
-            // on a confirmed end; on failure or timeout, STAY and show the error.
-            fetch("/session/" + encodeURIComponent(sessionId) + "/end", { method: "POST" })
-                .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-                .then(function (resp) {
-                    if (done) { return; }
-                    clearTimeout(timer);
-                    if (resp && resp.ended) {
-                        done = true;
-                        _sessionEnded = true;        // success → suppress the leave warning
-                        window.location.href = redirectUrl;
-                    } else {
-                        fail("Couldn't end the session. You may not be its clinician.");
-                    }
-                })
-                .catch(function () {
-                    clearTimeout(timer);
-                    fail("Couldn't end the session — please try again.");
-                });
-        });
+    // End Session is a plain HTML form POST (see the modal in base.html) — it reaches
+    // the server directly, with no dependence on this script, the socket, or the
+    // cache. Here we only suppress the unsaved-session warning when it's submitted.
+    var endForm = document.getElementById("endSessionForm");
+    if (endForm) {
+        endForm.addEventListener("submit", function () { _sessionEnded = true; });
     }
 
     // beforeunload warning — fires on tab close / navigation away

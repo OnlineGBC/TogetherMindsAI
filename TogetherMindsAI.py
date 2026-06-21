@@ -3593,17 +3593,18 @@ def _finish_session(session_id: str, user_id: str, trigger: str) -> None:
 
 @app.route("/session/<session_id>/end", methods=["POST"])
 def end_session_http(session_id):
-    """End the session over plain HTTP — reliable and cookie-authenticated, with NO
-    dependency on the live socket (the socket emit was proving unreliable). Notifies
+    """End the session via a plain HTML form POST — reaches the server directly,
+    with NO dependency on JavaScript, the live socket, or the service-worker cache
+    (the service worker ignores non-GET requests). Cookie-authenticated. Notifies
     clients over their sockets, stops recording, and emails the clinician."""
     ts = _is_session_therapist(session_id)
     if ts is None:
-        return jsonify({"ended": False}), 403
-    # Notify clients over their live sockets (receiving works; only the therapist's
-    # outgoing end-emit was the weak link).
+        abort(403)
+    # Notify clients over their live sockets (receiving works fine).
     socketio.emit("session_ended", {"by": "Therapist"}, to=session_id)
     _finish_session(session_id, session.get("user_id"), "therapist_http")
-    return jsonify({"ended": True})
+    # The form submit navigates the therapist to their dashboard.
+    return redirect(url_for("therapist_start"))
 
 
 def _friendly_name_owner(name: str):

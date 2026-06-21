@@ -95,7 +95,7 @@ def test_end_session_http_notifies_clients_and_emails(enc_client):
         s["user_id"] = "ther-1"                       # signed in as the clinician
     with patch.object(tm, "_dispatch_session_transcript") as dispatch:
         rv = enc_client.post(f"/session/{sid}/end")
-    assert rv.status_code == 200 and rv.get_json()["ended"] is True
+    assert rv.status_code in (302, 303)               # form post → redirect to dashboard
     dispatch.assert_called_once_with(sid)
     assert "session_ended" in _names(c)               # client notified over its socket
 

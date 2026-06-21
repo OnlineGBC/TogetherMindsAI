@@ -461,7 +461,7 @@ def test_end_session_stops_active_recording_then_emails_recording(enc_client):
          patch.object(tm, "_dispatch_recording_ready") as recording_email, \
          patch.object(tm, "_dispatch_session_transcript") as transcript:
         rv = enc_client.post(f"/session/{sid}/end")
-    assert rv.status_code == 200 and rv.get_json()["ended"] is True
+    assert rv.status_code in (302, 303)            # form post → redirect
     assert stop.call_count == 1
     recording_email.assert_called_once_with(rid)   # emailed the recording
     transcript.assert_not_called()
