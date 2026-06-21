@@ -2297,7 +2297,9 @@ def _recording_download_url(row) -> str:
 def _recording_email_content(row, kind: str):
     """Return (subject, plain, html) for the 'ready' or 'reminder' email."""
     from html import escape as h
-    url = _recording_download_url(row)
+    video_url = _recording_download_url(row)
+    pdf_url   = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/pdf"
+    docx_url  = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/docx"
     expires = row.retention_expires_at
     expires_str = expires.strftime("%d %b %Y") if expires else "30 days from recording"
     if kind == "reminder":
@@ -2312,18 +2314,24 @@ def _recording_email_content(row, kind: str):
     plain = (
         f"{lead}\n\n"
         f"Session: {row.session_id}\n"
-        f"Download (sign in as the session's clinician): {url}\n\n"
-        "Only you, signed in as this session's clinician, can open this link.\n"
+        "Sign in as this session's clinician to open these:\n"
+        f"  • Video recording: {video_url}\n"
+        f"  • Transcript + AI analysis + ICD codes (PDF): {pdf_url}\n"
+        f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n\n"
+        "Only you, signed in as this session's clinician, can open these links.\n"
     )
+    _link = "color:#2e7d32;text-decoration:none;font-weight:600;"
     html_body = (
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
         f'<h2 style="color:#2e7d32;">{h(subject.split("— ")[-1].capitalize())}</h2>'
         f'<p style="color:#212121;line-height:1.5;">{h(lead)}</p>'
-        f'<p style="margin:18px 0;"><a href="{h(url)}" '
+        f'<p style="margin:18px 0 6px;"><a href="{h(video_url)}" '
         'style="background:#2e7d32;color:#fff;text-decoration:none;padding:10px 18px;'
-        'border-radius:8px;display:inline-block;">Download recording</a></p>'
-        f'<p style="color:#555;font-size:13px;">Session <strong>{h(row.session_id)}</strong>. '
-        'Only you, signed in as this session\'s clinician, can open this link.</p>'
+        'border-radius:8px;display:inline-block;">▶ Download video</a></p>'
+        f'<p style="margin:6px 0;"><a href="{h(pdf_url)}" style="{_link}">📄 Transcript, AI analysis &amp; ICD codes (PDF)</a></p>'
+        f'<p style="margin:6px 0;"><a href="{h(docx_url)}" style="{_link}">📝 Transcript, AI analysis &amp; ICD codes (Word)</a></p>'
+        f'<p style="color:#555;font-size:13px;margin-top:14px;">Session <strong>{h(row.session_id)}</strong>. '
+        'Only you, signed in as this session\'s clinician, can open these links.</p>'
         '<p style="color:#888;font-size:12px;margin-top:20px;">Sent automatically by TogetherMindsAI.</p>'
         "</div>"
     )
@@ -2589,14 +2597,9 @@ def _render_summary_docx(doc, summary: dict) -> None:
     doc.add_heading("Transcript", level=2)
 
 
-@app.route("/transcript/<session_id>/pdf")
-def download_transcript_pdf(session_id):
-    if not _user_can_access_session(session_id, session.get("user_id")):
-        return jsonify({"error": "Forbidden"}), 403
-    # PHI disclosure — record it (HIPAA § 164.312(b) access logging).
-    log_event("transcript_downloaded", session_id=session_id,
-              user_id=session.get("user_id"), format="pdf")
-
+def _transcript_pdf_buf(session_id: str) -> io.BytesIO:
+    """Render the session transcript as a PDF in memory. Includes the therapist's
+    private summary + co-pilot alert record when the viewer is the clinician."""
     from fpdf import FPDF
     from fpdf.enums import XPos, YPos
 
@@ -2685,21 +2688,26 @@ def download_transcript_pdf(session_id):
 
     buf = io.BytesIO(pdf.output())
     buf.seek(0)
-    filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
-    # send_file streams via the WSGI file wrapper and supports range/conditional
-    # requests, so the browser's ranged download completes instead of resetting.
-    return send_file(buf, mimetype="application/pdf",
-                     as_attachment=True, download_name=filename)
+    return buf
 
 
-@app.route("/transcript/<session_id>/docx")
-def download_transcript_docx(session_id):
+@app.route("/transcript/<session_id>/pdf")
+def download_transcript_pdf(session_id):
     if not _user_can_access_session(session_id, session.get("user_id")):
         return jsonify({"error": "Forbidden"}), 403
     # PHI disclosure — record it (HIPAA § 164.312(b) access logging).
     log_event("transcript_downloaded", session_id=session_id,
-              user_id=session.get("user_id"), format="docx")
+              user_id=session.get("user_id"), format="pdf")
+    filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
+    # send_file streams via the WSGI file wrapper and supports range/conditional
+    # requests, so the browser's ranged download completes instead of resetting.
+    return send_file(_transcript_pdf_buf(session_id), mimetype="application/pdf",
+                     as_attachment=True, download_name=filename)
 
+
+def _transcript_docx_buf(session_id: str) -> io.BytesIO:
+    """Render the session transcript as a DOCX in memory. Includes the therapist's
+    private summary + co-pilot alert record when the viewer is the clinician."""
     from docx import Document
     from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -2779,11 +2787,46 @@ def download_transcript_docx(session_id):
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
+    return buf
+
+
+@app.route("/transcript/<session_id>/docx")
+def download_transcript_docx(session_id):
+    if not _user_can_access_session(session_id, session.get("user_id")):
+        return jsonify({"error": "Forbidden"}), 403
+    # PHI disclosure — record it (HIPAA § 164.312(b) access logging).
+    log_event("transcript_downloaded", session_id=session_id,
+              user_id=session.get("user_id"), format="docx")
     filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.docx"
     return send_file(
-        buf,
+        _transcript_docx_buf(session_id),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         as_attachment=True, download_name=filename)
+
+
+@app.route("/recording/download/<token>/<fmt>")
+def recording_download_doc(token, fmt):
+    """Token-keyed transcript download (PDF/Word) tied to a recording, so the
+    recording email can link the documents without exposing the session id.
+    Therapist-gated, same as the video download."""
+    if fmt not in ("pdf", "docx"):
+        abort(404)
+    if not config.RECORDING_ENABLED:
+        abort(404)
+    row = SessionRecording.query.filter_by(download_token=token).first() if token else None
+    if row is None:
+        abort(404)
+    if _is_session_therapist(row.session_id) is None:
+        abort(403)
+    log_event("transcript_downloaded", session_id=row.session_id,
+              user_id=session.get("user_id"), format=fmt, via="recording_token")
+    if fmt == "pdf":
+        return send_file(_transcript_pdf_buf(row.session_id), mimetype="application/pdf",
+                         as_attachment=True, download_name=f"session-{row.id}.pdf")
+    return send_file(
+        _transcript_docx_buf(row.session_id),
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True, download_name=f"session-{row.id}.docx")
 
 
 # ---------------------------------------------------------------------------

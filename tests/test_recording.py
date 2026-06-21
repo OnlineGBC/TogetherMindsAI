@@ -374,3 +374,61 @@ def test_recording_start_allowed_for_premium(enc_client):
          patch.object(tm, "_dispatch_recording_ready"):
         rv = enc_client.post(f"/session/{sid}/recording/start")
     assert rv.status_code == 200 and rv.get_json()["status"] == "active"
+
+
+# ---------------------------------------------------------------------------
+# Token-keyed transcript docs for the recording email (Batch C): video + PDF + Word.
+# ---------------------------------------------------------------------------
+
+import io as _io
+
+
+def test_recording_doc_pdf_for_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1"); _seed_recording(sid, token="dltok")
+    _make_therapist_session(enc_client, sid)
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_transcript_pdf_buf", return_value=_io.BytesIO(b"%PDF-1.4 x")):
+        rv = enc_client.get("/recording/download/dltok/pdf")
+    assert rv.status_code == 200
+    assert "attachment" in rv.headers.get("Content-Disposition", "")
+
+
+def test_recording_doc_docx_for_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1"); _seed_recording(sid, token="dltok")
+    _make_therapist_session(enc_client, sid)
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_transcript_docx_buf", return_value=_io.BytesIO(b"PK x")):
+        rv = enc_client.get("/recording/download/dltok/docx")
+    assert rv.status_code == 200
+
+
+def test_recording_doc_forbidden_for_non_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1"); _seed_recording(sid, token="dltok")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "intruder"
+    with patch.object(config, "RECORDING_ENABLED", True):
+        assert enc_client.get("/recording/download/dltok/pdf").status_code == 403
+
+
+def test_recording_doc_404_bad_token_or_format(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1"); _seed_recording(sid, token="dltok")
+    _make_therapist_session(enc_client, sid)
+    with patch.object(config, "RECORDING_ENABLED", True):
+        assert enc_client.get("/recording/download/nope/pdf").status_code == 404
+        assert enc_client.get("/recording/download/dltok/txt").status_code == 404
+
+
+def test_recording_email_has_three_token_links(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1"); _seed_recording(sid, token="tok9")
+        row = SessionRecording.query.filter_by(session_id=sid).first()
+        subject, plain, html = tm._recording_email_content(row, "ready")
+    for body in (plain, html):
+        assert "/recording/download/tok9" in body          # video
+        assert "/recording/download/tok9/pdf" in body      # PDF
+        assert "/recording/download/tok9/docx" in body     # Word
+    assert sid not in plain.split("Session:")[0]           # no session id in the links
