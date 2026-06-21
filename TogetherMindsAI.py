@@ -2529,16 +2529,17 @@ def recording_download(token):
         return _gate
     if row.status == "deleted" or not row.gcs_object:
         abort(410)   # Gone — past its 30-day retention
-    # Buffered download (not a streamed generator): streaming through the eventlet
-    # worker was crashing mid-response with a 500. download_bytes logs the real
-    # reason on failure so it is never a blank 500 again.
-    buf, size, ctype = recording.download_bytes(row.gcs_object)
-    if buf is None:
-        abort(502)   # see the 'download_bytes failed' log line for the cause
+    # Hand the browser a short-lived signed URL and redirect to it, so the video
+    # downloads DIRECTLY from storage. Routing 78 MB through the app hit Cloud Run's
+    # ~32 MiB response cap ("Response size was too large") — a direct download has
+    # no such limit. Access is still gated above (must be the session's clinician).
+    url = recording.signed_download_url(row.gcs_object, minutes=15,
+                                        filename=f"recording-{row.id}.mp4")
+    if not url:
+        abort(502)   # see the 'signed_download_url failed' log line for the cause
     log_event("recording_downloaded", session_id=row.session_id,
               user_id=session.get("user_id"), recording_id=row.id)
-    return send_file(buf, mimetype=ctype or "video/mp4", as_attachment=True,
-                     download_name=f"recording-{row.id}.mp4")
+    return redirect(url)
 
 
 # Wire the daily recording-retention sweep now that its function is defined (the

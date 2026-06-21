@@ -93,50 +93,35 @@ def _bucket():
     return storage.Client().bucket(config.RECORDINGS_BUCKET)
 
 
-def download_stream(object_path: str):
-    """Stream a recordings-bucket object in chunks for an in-app download.
+def signed_download_url(object_path: str, minutes: int = 15, filename: str = None):
+    """Return a short-lived V4 signed URL for downloading the object DIRECTLY from
+    GCS, or None on failure. The browser downloads straight from storage, so the
+    file never passes through the app — this avoids Cloud Run's ~32 MiB response
+    cap that was failing large recordings ('Response size was too large').
 
-    Returns (generator, size_bytes, content_type), or (None, 0, None) on failure
-    (missing object, no credentials, etc.). The bytes are read in chunks so a
-    large MP4 is never fully buffered in memory.
+    Signing uses IAM SignBlob (the Cloud Run service account signs the URL); the
+    service account needs the 'Service Account Token Creator' role on itself.
+    Never raises.
     """
     try:
-        blob = _bucket().blob(object_path)
-        blob.reload()   # populates size/content_type; raises if the object is gone
-        size = blob.size or 0
-        ctype = blob.content_type or "video/mp4"
+        from datetime import timedelta
+        import google.auth
+        from google.auth.transport import requests as ga_requests
 
-        def _gen():
-            with blob.open("rb") as fh:
-                while True:
-                    chunk = fh.read(256 * 1024)
-                    if not chunk:
-                        break
-                    yield chunk
-
-        return _gen(), size, ctype
+        creds, _ = google.auth.default()
+        creds.refresh(ga_requests.Request())   # ensure we have a fresh access token
+        disposition = f'attachment; filename="{filename}"' if filename else None
+        return _bucket().blob(object_path).generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=minutes),
+            method="GET",
+            service_account_email=getattr(creds, "service_account_email", None),
+            access_token=getattr(creds, "token", None),
+            response_disposition=disposition,
+        )
     except Exception as exc:
-        logger.warning("download_stream failed: %s", exc)
-        return None, 0, None
-
-
-def download_bytes(object_path: str):
-    """Load a recordings-bucket object fully into memory for a reliable in-app
-    download. Returns (BytesIO, size, content_type), or (None, 0, None) on failure.
-
-    Unlike download_stream (a generator), this avoids streaming the object through
-    the app's eventlet worker — that streaming was crashing mid-response (HTTP 500).
-    Fine for session-length recordings; revisit for multi-hour files.
-    """
-    import io
-    try:
-        blob = _bucket().blob(object_path)
-        data = blob.download_as_bytes()             # raises if the object is gone
-        ctype = blob.content_type or "video/mp4"
-        return io.BytesIO(data), len(data), ctype
-    except Exception as exc:
-        logger.warning("download_bytes failed (%s): %s", object_path, exc)
-        return None, 0, None
+        logger.warning("signed_download_url failed (%s): %s", object_path, exc)
+        return None
 
 
 def delete_object(object_path: str) -> bool:
