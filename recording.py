@@ -120,6 +120,25 @@ def download_stream(object_path: str):
         return None, 0, None
 
 
+def download_bytes(object_path: str):
+    """Load a recordings-bucket object fully into memory for a reliable in-app
+    download. Returns (BytesIO, size, content_type), or (None, 0, None) on failure.
+
+    Unlike download_stream (a generator), this avoids streaming the object through
+    the app's eventlet worker — that streaming was crashing mid-response (HTTP 500).
+    Fine for session-length recordings; revisit for multi-hour files.
+    """
+    import io
+    try:
+        blob = _bucket().blob(object_path)
+        data = blob.download_as_bytes()             # raises if the object is gone
+        ctype = blob.content_type or "video/mp4"
+        return io.BytesIO(data), len(data), ctype
+    except Exception as exc:
+        logger.warning("download_bytes failed (%s): %s", object_path, exc)
+        return None, 0, None
+
+
 def delete_object(object_path: str) -> bool:
     """Delete a recordings-bucket object (retention expiry). Returns True on
     success, or True if it was already gone; False only on a real error."""

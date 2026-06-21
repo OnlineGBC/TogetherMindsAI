@@ -623,7 +623,7 @@ function _showSessionEndedOverlay() {
     document.body.appendChild(o);
     var go = function () { _sessionEnded = true; window.location.href = "/"; };
     document.getElementById("_sessEndOk").addEventListener("click", go);
-    setTimeout(go, 5000);   // auto-leave after 5s
+    setTimeout(go, 300000);   // stays visible ~5 minutes; "Leave" exits sooner
 }
 
 // Waiting room — a client joined (or tried to talk) while no clinician is present.

@@ -274,12 +274,13 @@ def _make_therapist_session(client, sid, uid="ther-1"):
 
 
 def test_download_streams_for_therapist(enc_client):
+    import io
     with app.app_context():
         sid = _seed()
         rid = _seed_recording(sid)
     _make_therapist_session(enc_client, sid)
     with patch.object(config, "RECORDING_ENABLED", True), \
-         patch("recording.download_stream", return_value=(iter([b"abc"]), 3, "video/mp4")):
+         patch("recording.download_bytes", return_value=(io.BytesIO(b"abc"), 3, "video/mp4")):
         rv = enc_client.get("/recording/download/dltok")
     assert rv.status_code == 200
     assert rv.data == b"abc"

@@ -2529,16 +2529,16 @@ def recording_download(token):
         return _gate
     if row.status == "deleted" or not row.gcs_object:
         abort(410)   # Gone — past its 30-day retention
-    gen, size, ctype = recording.download_stream(row.gcs_object)
-    if gen is None:
-        abort(502)
+    # Buffered download (not a streamed generator): streaming through the eventlet
+    # worker was crashing mid-response with a 500. download_bytes logs the real
+    # reason on failure so it is never a blank 500 again.
+    buf, size, ctype = recording.download_bytes(row.gcs_object)
+    if buf is None:
+        abort(502)   # see the 'download_bytes failed' log line for the cause
     log_event("recording_downloaded", session_id=row.session_id,
               user_id=session.get("user_id"), recording_id=row.id)
-    resp = Response(stream_with_context(gen), mimetype=ctype or "video/mp4")
-    resp.headers["Content-Disposition"] = f'attachment; filename="recording-{row.id}.mp4"'
-    if size:
-        resp.headers["Content-Length"] = str(size)
-    return resp
+    return send_file(buf, mimetype=ctype or "video/mp4", as_attachment=True,
+                     download_name=f"recording-{row.id}.mp4")
 
 
 # Wire the daily recording-retention sweep now that its function is defined (the
