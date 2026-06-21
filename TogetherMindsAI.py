@@ -2435,13 +2435,13 @@ def _dispatch_recording_ready(rec_id: int) -> None:
 
 
 def _finalize_stopped_recording(row) -> None:
-    """Stamp the 30-day retention deadline on a just-stopped recording and email
-    the clinician the download link. Never raises into the caller."""
+    """Stamp the 30-day retention deadline on a just-stopped recording. Does NOT
+    email — the recording email is sent only when the session ends (see
+    on_end_session), not on every consent-driven pause. Never raises."""
     try:
         base = row.stopped_at or datetime.now(timezone.utc)
         row.retention_expires_at = base + timedelta(days=RECORDING_RETENTION_DAYS)
         db.session.commit()
-        _dispatch_recording_ready(row.id)
     except Exception:
         db.session.rollback()
         app.logger.warning("finalize recording failed (id=%s)", getattr(row, "id", "?"))
@@ -3549,18 +3549,30 @@ def on_end_session(data):
     ts = db.session.get(TherapySession, session_id)
     if ts is None or not ts.therapist_id or ts.therapist_id != user_id:
         return {"ended": False}
-    log_event("session_ended", session_id=session_id, user_id=user_id, trigger="therapist")
-    # Ending the session also ends an active recording for everyone: stop egress and
-    # finalize, which emails the recording (video + transcript PDF/Word token links).
-    # With no recording, email the transcript-only PDF/Word links instead.
-    active = session_recording_active.get(session_id)
-    if config.RECORDING_ENABLED and active and active != -1:
-        session_recording_requested[session_id] = False
-        _evaluate_recording(session_id)            # stop + finalize + email recording
-        _emit_recording_state(session_id)
-    else:
-        _dispatch_session_transcript(session_id)   # email transcript PDF/Word
+    # Notify clients FIRST so the "session ended" popup always shows, even if the
+    # recording/email steps below were to fail.
     emit("session_ended", {"by": "Therapist"}, to=session_id, include_self=False)
+    log_event("session_ended", session_id=session_id, user_id=user_id, trigger="therapist")
+    try:
+        # Stop an active recording (no email here — the email is sent once, below).
+        active = session_recording_active.get(session_id)
+        if config.RECORDING_ENABLED and active and active != -1:
+            session_recording_requested[session_id] = False
+            _evaluate_recording(session_id)
+            _emit_recording_state(session_id)
+        # Email exactly once, only on end: the recording (video + PDF/Word) if one
+        # was made this session, otherwise the transcript-only PDF/Word.
+        rec = None
+        if config.RECORDING_ENABLED:
+            rec = (SessionRecording.query
+                   .filter_by(session_id=session_id, status="stopped")
+                   .order_by(SessionRecording.id.desc()).first())
+        if rec is not None:
+            _dispatch_recording_ready(rec.id)
+        else:
+            _dispatch_session_transcript(session_id)
+    except Exception:
+        app.logger.warning("end_session post-steps failed (sid=%s)", session_id)
     return {"ended": True}
 
 

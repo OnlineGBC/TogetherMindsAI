@@ -435,8 +435,8 @@ def test_recording_email_has_three_token_links(enc_client):
 
 
 def test_end_session_stops_active_recording_then_emails_recording(enc_client):
-    # Ending a session with a recording running stops egress + finalizes (which
-    # emails the recording) and does NOT send the transcript-only email.
+    # Ending a session with a recording running stops egress and emails the RECORDING
+    # (once, on end), not the transcript-only email.
     with app.app_context():
         sid = _seed("ther-1")
         rid = _seed_recording(sid, status="active")
@@ -445,10 +445,28 @@ def test_end_session_stops_active_recording_then_emails_recording(enc_client):
     tm.session_recording_active[sid] = rid
     with patch.object(config, "RECORDING_ENABLED", True), \
          patch("recording.stop_recording", return_value=True) as stop, \
-         patch.object(tm, "_finalize_stopped_recording"), \
+         patch.object(tm, "_dispatch_recording_ready") as recording_email, \
          patch.object(tm, "_dispatch_session_transcript") as transcript:
         resp = t.emit("end_session", {"session_id": sid, "user_id": "ther-1"}, callback=True)
     assert resp == {"ended": True}
     assert stop.call_count == 1
+    recording_email.assert_called_once_with(rid)   # emailed the recording
     transcript.assert_not_called()
     assert tm.session_recording_active.get(sid) is None
+
+
+def test_recording_email_not_sent_on_consent_pause(enc_client):
+    # A newcomer who hasn't consented pauses recording — but that must NOT email
+    # (emails are sent only when the session ends).
+    with app.app_context():
+        sid = _seed("ther-1", mode="group")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.start_recording", return_value="EG1"), \
+         patch("recording.stop_recording", return_value=True), \
+         patch.object(tm, "_dispatch_recording_ready") as recording_email:
+        t  = _join(enc_client, sid, "ther-1", mode="group")
+        c1 = _join(enc_client, sid, "client-1", mode="group")
+        t.emit("recording_request", {"session_id": sid, "user_id": "ther-1"})
+        c1.emit("recording_consent", {"session_id": sid, "user_id": "client-1", "consent": True})
+        _join(enc_client, sid, "client-2", mode="group")   # unconsented newcomer → pause
+    recording_email.assert_not_called()
