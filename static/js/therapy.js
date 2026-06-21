@@ -575,24 +575,49 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
     // Plain confirm: the modal just asks "end for everyone?". The server ends any
     // recording, emails the clinician the session record, and notifies clients.
     var confirmBtn = document.getElementById("endSessionConfirmBtn");
+
+    function _showEndError(msg) {
+        var n = document.getElementById("endSessionError");
+        if (n) { n.textContent = msg; n.classList.remove("d-none"); }
+    }
+
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
-            _sessionEnded = true;
-            var navigated = false;
-            var go = function () {
-                if (navigated) return;
-                navigated = true;
-                window.location.href = redirectUrl;
-            };
-            // Emit with an ack and navigate only once the server has processed the
-            // end (so clients get notified + the email fires), with a short fallback.
-            if (socket && socket.connected) {
-                socket.emit("end_session",
-                    { session_id: sessionId, user_id: userId }, go);
-                setTimeout(go, 1500);
-            } else {
-                go();
+            _showEndError("");                       // clear any prior error
+            document.getElementById("endSessionError").classList.add("d-none");
+            // Confirm-before-navigate: only leave on a confirmed end. On failure or
+            // timeout, STAY and show the error — never leave the room silently.
+            if (!(socket && socket.connected)) {
+                _showEndError("You appear to be offline. Reconnect and try again.");
+                return;
             }
+            var original = confirmBtn.innerHTML;
+            confirmBtn.disabled = true;
+            confirmBtn.innerHTML = "Ending…";
+            var done = false;
+            var fail = function (msg) {
+                if (done) { return; }
+                done = true;
+                confirmBtn.disabled = false;
+                confirmBtn.innerHTML = original;
+                _showEndError(msg);
+            };
+            var timer = setTimeout(function () {
+                fail("Couldn't end the session — please try again.");
+            }, 5000);
+            socket.emit("end_session",
+                { session_id: sessionId, user_id: userId },
+                function (resp) {
+                    if (done) { return; }
+                    clearTimeout(timer);
+                    if (resp && resp.ended) {
+                        done = true;
+                        _sessionEnded = true;        // success → suppress the leave warning
+                        window.location.href = redirectUrl;
+                    } else {
+                        fail("Couldn't end the session. You may not be its clinician, or the connection dropped — please try again.");
+                    }
+                });
         });
     }
 

@@ -458,6 +458,7 @@ def test_end_session_modal_present_in_base(client):
     assert b'id="endSessionModal"' in rv.data
     assert b"endSessionConfirmBtn" in rv.data
     assert b"End this session for everyone?" in rv.data
+    assert b'id="endSessionError"' in rv.data   # confirm-or-stay error line
 
 
 # ---------------------------------------------------------------------------

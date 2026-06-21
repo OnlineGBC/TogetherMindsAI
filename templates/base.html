@@ -124,7 +124,7 @@
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <!-- Custom JS -->
-<script src="{{ url_for('static', filename='js/therapy.js') }}?v=2026-06-21-h"></script>
+<script src="{{ url_for('static', filename='js/therapy.js') }}?v=2026-06-21-i"></script>
 <!-- Service Worker (PWA) -->
 <script>
   if ("serviceWorker" in navigator) {
@@ -279,6 +279,7 @@
                     is stopped, and you'll be emailed the session record (transcript PDF &amp;
                     Word — plus the video if it was recorded). The session is always saved.
                 </p>
+                <div id="endSessionError" class="small text-danger mt-2 d-none"></div>
             </div>
             <div class="modal-footer border-0 pt-2 flex-wrap gap-2">
                 <button type="button" class="btn btn-primary-green rounded-pill me-auto" data-bs-dismiss="modal">Stay in session</button>
