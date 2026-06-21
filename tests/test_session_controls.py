@@ -290,3 +290,18 @@ def test_set_friendly_name_ack_taken_with_suggestion(enc_client):
     assert resp["status"] == "taken" and resp["suggestion"] == "CoupleTest1"
     with app.app_context():   # NOT applied to the colliding session
         assert db.session.get(TherapySession, sid_b).friendly_name is None
+
+
+def test_set_friendly_name_can_rename_existing(enc_client):
+    # A session that already has a name can change it to a new free name (the
+    # rename-at-exit path: editing the pre-filled name updates the shared name).
+    with app.app_context():
+        sid = _seed("ther-1")
+        ts = db.session.get(TherapySession, sid)
+        ts.friendly_name = "CoupleTest"; db.session.commit()
+    t = _join(enc_client, sid, "ther-1"); t.get_received()
+    resp = t.emit("set_friendly_name",
+                  {"session_id": sid, "user_id": "ther-1", "name": "CoupleTest1"}, callback=True)
+    assert resp["status"] == "set" and resp["name"] == "CoupleTest1"
+    with app.app_context():
+        assert db.session.get(TherapySession, sid).friendly_name == "CoupleTest1"

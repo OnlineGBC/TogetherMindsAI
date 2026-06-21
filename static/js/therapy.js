@@ -679,9 +679,10 @@ function initEndSessionGuard(sessionId, redirectUrl) {
         }
     }
 
-    // Confirm button. If the therapist typed a name and the session has NO shared
-    // friendly name yet, assign it FIRST and only end once it's accepted: a unique
-    // name ends the session; a taken name keeps the modal open with a suggestion.
+    // Confirm button. The field IS the session's shared friendly name (pre-filled
+    // with the current one). If the therapist CHANGED it, assign the new name FIRST
+    // and only end once it's accepted: a unique name ends the session; a taken name
+    // keeps the modal open with a suggestion. An unchanged/blank name just ends.
     var confirmBtn = document.getElementById("endSessionConfirmBtn");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
@@ -689,7 +690,7 @@ function initEndSessionGuard(sessionId, redirectUrl) {
             var note = document.getElementById("endSessionNameNote");
             if (note) note.classList.add("d-none");
 
-            if (typed && !_sharedFriendlyName() && socket && socket.connected) {
+            if (typed && typed !== _sharedFriendlyName() && socket && socket.connected) {
                 socket.emit("set_friendly_name",
                     { session_id: sessionId, user_id: _currentUserId, name: typed },
                     function (resp) {
