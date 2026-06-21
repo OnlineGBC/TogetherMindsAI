@@ -49,8 +49,8 @@
                 <button type="button"
                         class="btn btn-outline-danger btn-sm rounded-pill"
                         data-bs-toggle="modal" data-bs-target="#endSessionModal"
-                        title="Leave / End Session (ends the recording and session for everyone)">
-                    <i class="bi bi-door-open-fill"></i><span class="d-none d-md-inline ms-1">Leave/End Session</span>
+                        title="End Session">
+                    <i class="bi bi-door-open-fill"></i><span class="d-none d-md-inline ms-1">End Session</span>
                 </button>
                 {% else %}
                 <button type="button" id="leaveSessionBtn"
@@ -182,7 +182,7 @@
                                 </select>
                                 <input type="file" id="rtcBgUpload" accept="image/*" class="d-none">
                             </span>
-                            <button class="btn btn-sm btn-outline-danger rounded-pill" id="rtcLeaveBtn"><i class="bi bi-box-arrow-right"></i> {% if is_therapist %}Leave/End Session{% else %}Leave{% endif %}</button>
+                            <button class="btn btn-sm btn-outline-danger rounded-pill" id="rtcLeaveBtn"><i class="bi bi-box-arrow-right"></i> Leave</button>
                         </div>
                         <div id="rtcVideoGrid" class="mb-2 flex-grow-1"></div>
                         <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
@@ -618,16 +618,7 @@
         if (micStream) micStream.getAudioTracks().forEach(function (t) { t.enabled = !muted; });
         muteBtn.innerHTML = muted ? '<i class="bi bi-mic-mute-fill"></i> Unmute' : '<i class="bi bi-mic-fill"></i> Mute';
     });
-    document.getElementById("rtcLeaveBtn").addEventListener("click", function () {
-        // For the therapist this is "Leave/End Session": ending the session also
-        // stops the recording for everyone. Confirm via the same modal as the
-        // header button. Clients just leave the A/V call.
-        if (IS_THERAPIST) {
-            var m = document.getElementById("endSessionModal");
-            if (m && window.bootstrap) { bootstrap.Modal.getOrCreateInstance(m).show(); return; }
-        }
-        leaveAudio();
-    });
+    document.getElementById("rtcLeaveBtn").addEventListener("click", leaveAudio);
     window.addEventListener("beforeunload", leaveAudio);
 })();
 
