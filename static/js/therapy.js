@@ -624,6 +624,11 @@ function initEndSessionGuard(sessionId, redirectUrl) {
             if (nicknameInput && nicknameInput.value.trim()) {
                 localStorage.setItem(_storageKey, nicknameInput.value.trim());
             }
+            // Notify everyone else that the therapist has ended the session. The
+            // server enforces that only the session's clinician may end it.
+            if (socket && socket.connected) {
+                socket.emit("end_session", { session_id: sessionId, user_id: _currentUserId });
+            }
             _sessionEnded = true;
             window.location.href = redirectUrl;
         });
@@ -637,6 +642,103 @@ function initEndSessionGuard(sessionId, redirectUrl) {
             e.returnValue = "You have an active session. Save your Session ID (" + sessionId + ") before leaving.";
             return e.returnValue;
         }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Session controls — client Leave, therapist-set friendly name, end-session
+// notification. (End-session emit itself lives in initEndSessionGuard above.)
+// ---------------------------------------------------------------------------
+
+function _showSessionToast(msg) {
+    var t = document.createElement("div");
+    t.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:5000;" +
+        "background:#15403A;color:#eaf5f2;border:1px solid rgba(0,150,136,.55);border-radius:10px;" +
+        "padding:10px 16px;font-size:.95rem;box-shadow:0 8px 24px rgba(0,0,0,.5);max-width:90vw;text-align:center;";
+    var icon = document.createElement("i"); icon.className = "bi bi-tag-fill me-2";
+    t.appendChild(icon);
+    t.appendChild(document.createTextNode(msg));
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 5000);
+}
+
+function _showSessionEndedOverlay() {
+    if (document.getElementById("_sessEndOverlay")) return;
+    var o = document.createElement("div");
+    o.id = "_sessEndOverlay";
+    o.style.cssText = "position:fixed;inset:0;z-index:6000;display:flex;align-items:center;" +
+        "justify-content:center;background:rgba(0,0,0,.6);";
+    o.innerHTML = '<div style="background:#1E2A28;color:#E8EEEC;border-radius:14px;padding:24px 28px;' +
+        'max-width:360px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.5);">' +
+        '<i class="bi bi-door-closed-fill" style="font-size:2rem;color:#4CAF50"></i>' +
+        '<h5 class="mt-2 mb-1">Session ended</h5>' +
+        '<p class="small mb-3" style="color:#9DB0AA">The therapist has ended this session.</p>' +
+        '<button id="_sessEndOk" class="btn btn-primary-green rounded-pill">Leave</button></div>';
+    document.body.appendChild(o);
+    var go = function () { _sessionEnded = true; window.location.href = "/"; };
+    document.getElementById("_sessEndOk").addEventListener("click", go);
+    setTimeout(go, 5000);   // auto-leave after 5s
+}
+
+/**
+ * Wire client Leave, the therapist-set shared session friendly name, and the
+ * end-session notification. `socket` is already connected (joinRoom ran first).
+ */
+function initSessionControls(sessionId, userId, isTherapist) {
+    var fnLabel = document.getElementById("friendlyNameLabel");
+    function applyName(name) {
+        if (!fnLabel) return;
+        if (name) { fnLabel.textContent = name; fnLabel.classList.remove("d-none"); }
+        else { fnLabel.textContent = ""; fnLabel.classList.add("d-none"); }
+    }
+
+    // Client Leave — just disconnect and go home (no End, no notification).
+    var leaveBtn = document.getElementById("leaveSessionBtn");
+    if (leaveBtn) {
+        leaveBtn.addEventListener("click", function () {
+            _sessionEnded = true;          // suppress the unsaved-session warning
+            window.location.href = "/";
+        });
+    }
+
+    // Therapist: name the session (shared with everyone).
+    if (isTherapist) {
+        var setBtn  = document.getElementById("setFriendlyNameBtn");
+        var modalEl = document.getElementById("friendlyNameModal");
+        var input   = document.getElementById("friendlyNameInput");
+        var saveBtn = document.getElementById("friendlyNameSaveBtn");
+        if (setBtn && modalEl && typeof bootstrap !== "undefined") {
+            setBtn.addEventListener("click", function () {
+                if (input && fnLabel) input.value = fnLabel.textContent || "";
+                bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            });
+        }
+        if (saveBtn) {
+            saveBtn.addEventListener("click", function () {
+                var name = (input ? input.value : "").trim();
+                if (socket) socket.emit("set_friendly_name", { session_id: sessionId, user_id: userId, name: name });
+                applyName(name);   // optimistic
+                if (modalEl && typeof bootstrap !== "undefined") {
+                    bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+                }
+            });
+        }
+    }
+
+    if (!socket) return;
+
+    socket.on("friendly_name_set", function (data) {
+        data = data || {};
+        applyName(data.name || "");
+        // Clients get a popup when the therapist (re)names the session — but not on
+        // the silent sync sent to a newcomer when they join.
+        if (!isTherapist && !data.silent && data.name) {
+            _showSessionToast('This session is now called: ' + data.name);
+        }
+    });
+
+    socket.on("session_ended", function () {
+        _showSessionEndedOverlay();
     });
 }
 

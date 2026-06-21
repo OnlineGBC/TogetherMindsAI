@@ -45,12 +45,19 @@
                    class="btn btn-outline-green btn-sm rounded-pill" title="Progress">
                     <i class="bi bi-bar-chart-fill"></i><span class="d-none d-md-inline ms-1">Progress</span>
                 </a>
+                {% if is_therapist %}
                 <button type="button"
                         class="btn btn-outline-danger btn-sm rounded-pill"
                         data-bs-toggle="modal" data-bs-target="#endSessionModal"
                         title="End Session">
                     <i class="bi bi-door-open-fill"></i><span class="d-none d-md-inline ms-1">End Session</span>
                 </button>
+                {% else %}
+                <button type="button" id="leaveSessionBtn"
+                        class="btn btn-outline-danger btn-sm rounded-pill" title="Leave session">
+                    <i class="bi bi-box-arrow-right"></i><span class="d-none d-md-inline ms-1">Leave</span>
+                </button>
+                {% endif %}
             </div>
         </div>
 
@@ -58,9 +65,16 @@
              is folded into the Record button (no separate badge/status text). -->
         <div class="alert alert-share rounded-4 mb-2 mb-md-3 py-2 px-3 d-flex align-items-center gap-2 gap-md-3 flex-wrap">
             <small class="text-nowrap"><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
+            <!-- Shared session friendly name (therapist-set) — appears right after the ID -->
+            <span id="friendlyNameLabel" class="badge rounded-pill text-bg-success d-none"></span>
             <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
                 <i class="bi bi-clipboard"></i>
             </button>
+            {% if is_therapist %}
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="setFriendlyNameBtn" title="Name this session">
+                <i class="bi bi-tag"></i>
+            </button>
+            {% endif %}
             {% if recording_enabled %}
             <!-- Recording controls (Phase 4). Recording runs ONLY while every current
                  participant consents; the Record button itself shows the live status
@@ -211,6 +225,28 @@
     </div>
 </div>
 {% endif %}
+
+{% if is_therapist %}
+<!-- Friendly-name input (therapist only) — names the whole session; shared to clients. -->
+<div class="modal fade" id="friendlyNameModal" tabindex="-1" aria-labelledby="friendlyNameLabel2" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4">
+            <div class="modal-header">
+                <h5 class="modal-title" id="friendlyNameLabel2"><i class="bi bi-tag text-primary-green me-2"></i>Name this session</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <label for="friendlyNameInput" class="form-label small text-muted">A friendly name shared with everyone in this session.</label>
+                <input type="text" class="form-control rounded-3" id="friendlyNameInput" maxlength="60" placeholder="e.g. Smith family — week 3">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary rounded-pill" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary-green rounded-pill" id="friendlyNameSaveBtn">Save &amp; share</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -324,6 +360,7 @@
         startWellnessCheck();
         initDisplayNameRename(SESSION_ID, USER_ID, false /* realtime */);
         initEndSessionGuard(SESSION_ID, "/progress/" + USER_ID + "/{{ mode }}");
+        initSessionControls(SESSION_ID, USER_ID, IS_THERAPIST);
     });
 
     // Transcript download with progress feedback. The therapist's copy generates

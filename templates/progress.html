@@ -112,6 +112,7 @@
                 <i class="bi bi-arrow-left me-1"></i>Back to Group Therapy
             </a>
             {% endif %}
+            {% if not is_clinician %}
             <button
                 type="button"
                 class="btn btn-outline-danger rounded-pill px-4 ms-auto"
@@ -120,6 +121,7 @@
             >
                 <i class="bi bi-eye-slash me-1"></i>Hide my data
             </button>
+            {% endif %}
         </div>
 
         <!-- Delete confirmation modal -->

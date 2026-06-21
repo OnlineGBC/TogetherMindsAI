@@ -143,6 +143,7 @@ session_joined_users: dict  = {}  # session_id → ordered list of user_ids (joi
 session_therapist_id: dict    = {}  # session_id → therapist user_id (set only for therapist-led sessions)
 session_therapist_notes: dict = {}  # session_id → list[str] of the therapist's private notes (co-pilot context)
 session_recent_cards: dict    = {}  # session_id → list[str] of recently shown card texts (dedup memory)
+session_friendly_name: dict   = {}  # session_id → therapist-set shared session label (ephemeral)
 
 # Phase 4 recording consent state — ephemeral, reset on restart.
 session_recording_requested: dict = {}                  # session_id → bool (therapist wants to record)
@@ -1864,6 +1865,9 @@ def progress(user_id, therapy_mode):
         user_id=user_id,
         therapy_mode=therapy_mode,
         session_id=latest_session_id,
+        # The clinician owns the clinical record, so "Hide my data" is a client-only
+        # control — never shown to a logged-in clinician viewing their own progress.
+        is_clinician=bool(session.get("clinician_id")),
     )
 
 
@@ -2907,6 +2911,11 @@ def on_join(data):
             emit("recording_consent_prompt", {"requested_by": "Therapist"})
             _evaluate_recording(session_id)
         _emit_recording_state(session_id)
+
+        # Sync the shared session friendly name to this newcomer (silent — no popup).
+        _fn = session_friendly_name.get(session_id)
+        if _fn:
+            emit("friendly_name_set", {"name": _fn, "silent": True})
     except Exception as e:
         app.logger.error("on_join error: %s", type(e).__name__)
         emit("error", {"message": "Failed to join session. Please refresh."})
@@ -3205,6 +3214,32 @@ def on_recording_cancel(data):
     session_recording_requested[session_id] = False
     _evaluate_recording(session_id)
     _emit_recording_state(session_id)
+
+
+@socketio.on("end_session")
+def on_end_session(data):
+    """Only the session's clinician may end it. Notifies everyone else so their
+    client shows a 'session ended' popup and returns them out."""
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    if session_therapist_id.get(session_id) != user_id:
+        return   # only the clinician can end the session
+    log_event("session_ended", session_id=session_id, user_id=user_id, trigger="therapist")
+    emit("session_ended", {"by": "Therapist"}, to=session_id, include_self=False)
+
+
+@socketio.on("set_friendly_name")
+def on_set_friendly_name(data):
+    """Clinician sets a shared, session-wide friendly name. Broadcast to everyone
+    (clients get a popup); also stored so late joiners are synced on join."""
+    session_id = data.get("session_id", "")
+    user_id    = data.get("user_id", "")
+    if session_therapist_id.get(session_id) != user_id:
+        return   # only the clinician may name the session
+    name = (data.get("name") or "").strip()[:60]
+    session_friendly_name[session_id] = name
+    log_event("friendly_name_set", session_id=session_id, user_id=user_id)
+    emit("friendly_name_set", {"name": name, "by": "Therapist"}, to=session_id, include_self=False)
 
 
 if __name__ == "__main__":
