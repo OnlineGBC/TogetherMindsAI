@@ -298,6 +298,34 @@ def test_my_sessions_lists_only_own_participated_sessions(client):
     assert "SESS-OTHER" not in body
 
 
+def test_my_sessions_list_shows_shared_friendly_name(client):
+    account_id = "client-fn"
+    db.session.add(TherapySession(id="SESS-CFN", mode="couple", created_by="therapist-1",
+                                  created_at=datetime.now(timezone.utc),
+                                  therapist_id="therapist-1", friendly_name="GroupAlpha"))
+    db.session.add(ChatMessage(session_id="SESS-CFN", user_id=account_id,
+                               display_name="P1", text="hi"))
+    db.session.commit()
+    with client.session_transaction() as s:
+        s["client_account_id"] = account_id; s["user_id"] = account_id
+    rv = client.get("/me/sessions")
+    assert rv.status_code == 200
+    assert "GroupAlpha" in rv.data.decode()
+
+
+def test_therapist_sessions_list_shows_shared_friendly_name(client):
+    cid = "clin-fn"
+    db.session.add(TherapySession(id="SESS-FN", mode="couple", created_by=cid,
+                                  created_at=datetime.now(timezone.utc),
+                                  therapist_id=cid, friendly_name="CoupleTest"))
+    db.session.commit()
+    with client.session_transaction() as s:
+        s["clinician_id"] = cid; s["user_id"] = cid
+    rv = client.get("/therapist")
+    assert rv.status_code == 200
+    assert "CoupleTest" in rv.data.decode()
+
+
 def test_client_login_safe_next_rejects_open_redirect(client):
     # An absolute off-site "next" must not be stored / honoured.
     fake_client = MagicMock()
