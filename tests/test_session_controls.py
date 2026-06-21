@@ -292,6 +292,21 @@ def test_set_friendly_name_ack_taken_with_suggestion(enc_client):
         assert db.session.get(TherapySession, sid_b).friendly_name is None
 
 
+def test_end_session_wiring_uses_page_userid_and_shared_rename():
+    # Regression lock for the rename/end bug: the end-session guard must receive the
+    # page's USER_ID (not the possibly-unset global _currentUserId), and renaming must
+    # go through the SAME shared mechanism the tag button uses (_requestRename).
+    base = os.path.dirname(os.path.dirname(__file__))
+    with open(os.path.join(base, "static", "js", "therapy.js"), encoding="utf-8") as f:
+        js = f.read()
+    with open(os.path.join(base, "templates", "session_live.html"), encoding="utf-8") as f:
+        html = f.read()
+    assert "function initEndSessionGuard(sessionId, userId, redirectUrl)" in js
+    assert "initEndSessionGuard(SESSION_ID, USER_ID," in html
+    assert "_requestRename" in js
+    assert 'socket.emit("end_session",' in js and "user_id: userId" in js
+
+
 def test_set_friendly_name_can_rename_existing(enc_client):
     # A session that already has a name can change it to a new free name (the
     # rename-at-exit path: editing the pre-filled name updates the shared name).
