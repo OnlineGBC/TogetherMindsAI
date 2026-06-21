@@ -113,6 +113,28 @@ def _score(text_lower: str, entry: dict) -> int:
     return score
 
 
+def _phrase_keyword_hits(text_lower: str) -> list:
+    """Corpus entries whose MULTI-WORD keyword phrase literally appears in the text
+    (e.g. 'panic attack', 'social anxiety'). A specific clinical phrase is strong,
+    low-false-positive evidence, so it surfaces a reference card on its own — even
+    when the embedding similarity lands just under the cutoff. Single vague tokens
+    ('anxiety', 'stressed') are deliberately excluded; they still rely on the
+    semantic guard, which is what prevents false positives.
+    """
+    try:
+        hits = []
+        for e in _load_corpus().get("entries", []):
+            for kw in e.get("keywords", []):
+                k = kw.lower().strip()
+                if " " in k and k in text_lower:   # multi-word phrase present
+                    hits.append(e)
+                    break
+        return hits
+    except Exception as exc:
+        logger.warning("phrase keyword scan failed (%s).", exc)
+        return []
+
+
 def retrieve(text: str, k: int = 3, min_score: int = 1, min_sim: float = _MIN_SIM_BLOCK) -> list:
     """Return up to `k` corpus entries most relevant to `text`, best first.
 
@@ -273,9 +295,20 @@ def build_reference_cards(text: str, max_cards: int = MAX_REFERENCE_CARDS) -> li
     false positives. Requiring at least one corpus keyword to actually appear in
     the transcript means meaning AND wording must agree before a card is shown.
     """
-    entries = retrieve(text, k=max_cards, min_score=_MIN_CARD_SCORE, min_sim=_MIN_SIM_CARD)
     text_lower = (text or "").lower()
-    entries = [e for e in entries if _score(text_lower, e) >= 1]
+    # Candidates = semantic (meaning) matches UNION explicit clinical-phrase matches.
+    # The embedding model can score a clearly-stated term (e.g. "panic attack") just
+    # under the cutoff; an exact multi-word clinical phrase is strong enough to
+    # surface a card on its own, so a literal mention is never silently dropped.
+    candidates = list(retrieve(text, k=max_cards, min_score=_MIN_CARD_SCORE, min_sim=_MIN_SIM_CARD))
+    seen = {(e.get("id") or e.get("label")) for e in candidates}
+    for e in _phrase_keyword_hits(text_lower):
+        key = e.get("id") or e.get("label")
+        if key not in seen:
+            seen.add(key)
+            candidates.append(e)
+    # Keyword corroboration: meaning AND wording must agree (phrase hits already do).
+    entries = [e for e in candidates if _score(text_lower, e) >= 1][:max_cards]
     cards = []
     for e in entries:
         codes = f"ICD-10 {e.get('icd10', '?')}"

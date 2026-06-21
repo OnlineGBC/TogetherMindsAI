@@ -76,6 +76,26 @@ def test_build_reference_cards_silent_on_benign():
     assert cref.build_reference_cards("I had a pleasant walk in the park today") == []
 
 
+def test_explicit_phrase_surfaces_card_when_semantic_finds_nothing():
+    # Reproduces the production miss: the embedding step scores "panic attacks" just
+    # under the cutoff (simulated as no semantic hits), yet the explicit clinical
+    # phrase must still surface the Panic-disorder reference card.
+    with patch.object(cref, "retrieve", return_value=[]):
+        cards = cref.build_reference_cards(
+            "If I never find a job again I keep getting panic attacks."
+        )
+    assert any("panic" in c["text"].lower() for c in cards)
+    assert any("F41.0" in c["code"] for c in cards)
+
+
+def test_vague_single_word_stays_silent_without_semantic():
+    # A vague single word ("stressed") with no semantic hit must NOT surface a card —
+    # only specific multi-word phrases bypass the similarity threshold.
+    with patch.object(cref, "retrieve", return_value=[]):
+        cards = cref.build_reference_cards("I feel a bit stressed and tired today.")
+    assert cards == []
+
+
 def test_reference_card_code_links():
     """Reference cards carry clickable per-code links: ICD-10 → third-party lookup
     (flagged), ICD-11 → official WHO browser (not flagged), DSM left unlinked."""
