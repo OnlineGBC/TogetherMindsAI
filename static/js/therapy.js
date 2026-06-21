@@ -716,25 +716,43 @@ function initSessionControls(sessionId, userId, isTherapist) {
         if (saveBtn) {
             saveBtn.addEventListener("click", function () {
                 var name = (input ? input.value : "").trim();
+                var note = document.getElementById("friendlyNameNote");
+                if (note) note.classList.add("d-none");
+                // No optimistic update: wait for friendly_name_set (applied) or
+                // friendly_name_taken (suggest a unique alternative).
                 if (socket) socket.emit("set_friendly_name", { session_id: sessionId, user_id: userId, name: name });
-                applyName(name);   // optimistic
-                if (modalEl && typeof bootstrap !== "undefined") {
-                    bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-                }
             });
         }
     }
 
     if (!socket) return;
 
+    var fnModalEl = document.getElementById("friendlyNameModal");
+
     socket.on("friendly_name_set", function (data) {
         data = data || {};
         applyName(data.name || "");
+        if (isTherapist && fnModalEl && typeof bootstrap !== "undefined") {
+            bootstrap.Modal.getOrCreateInstance(fnModalEl).hide();   // applied → close
+        }
         // Clients get a popup when the therapist (re)names the session — but not on
         // the silent sync sent to a newcomer when they join.
         if (!isTherapist && !data.silent && data.name) {
             _showSessionToast('This session is now called: ' + data.name);
         }
+    });
+
+    // Name already taken — suggest a unique one; the therapist accepts or edits.
+    socket.on("friendly_name_taken", function (data) {
+        data = data || {};
+        var note = document.getElementById("friendlyNameNote");
+        var inp  = document.getElementById("friendlyNameInput");
+        if (note) {
+            note.textContent = '"' + (data.name || "") + '" is already taken. Try "'
+                + (data.suggestion || "") + '", or pick another — then Save.';
+            note.classList.remove("d-none");
+        }
+        if (inp && data.suggestion) { inp.value = data.suggestion; inp.focus(); inp.select(); }
     });
 
     socket.on("session_ended", function () {

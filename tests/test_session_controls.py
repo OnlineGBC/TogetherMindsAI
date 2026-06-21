@@ -197,3 +197,50 @@ def test_run_copilot_saves_even_when_stopped(enc_client):
     emitted = [c for c in emit_mock.call_args_list if c.args and c.args[0] == "suggestion_cards"]
     assert not emitted                                      # but NOT shown live
     tm.session_copilot_cadence.pop(sid, None)
+
+
+# ---- Friendly name: unique, persisted, joinable (Batch D) ----
+
+def test_friendly_name_persisted_unique_with_suggestion(enc_client):
+    with app.app_context():
+        sid1 = _seed("ther-1"); sid2 = _seed("ther-2")
+    t1 = _join(enc_client, sid1, "ther-1"); t1.get_received()
+    t1.emit("set_friendly_name", {"session_id": sid1, "user_id": "ther-1", "name": "CoupleTest"})
+    assert any(e["name"] == "friendly_name_set" and e["args"][0]["name"] == "CoupleTest"
+               for e in t1.get_received())
+    with app.app_context():
+        assert db.session.get(TherapySession, sid1).friendly_name == "CoupleTest"
+    # A different session can't reuse it — gets a 'taken' + suggestion, and is NOT applied.
+    t2 = _join(enc_client, sid2, "ther-2"); t2.get_received()
+    t2.emit("set_friendly_name", {"session_id": sid2, "user_id": "ther-2", "name": "CoupleTest"})
+    taken = [e for e in t2.get_received() if e["name"] == "friendly_name_taken"]
+    assert taken and taken[0]["args"][0]["suggestion"] == "CoupleTest1"
+    with app.app_context():
+        assert db.session.get(TherapySession, sid2).friendly_name is None
+
+
+def test_join_by_friendly_name_or_combined(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1", mode="couple")
+        ts = db.session.get(TherapySession, sid); ts.friendly_name = "MyName"; db.session.commit()
+    # by friendly name alone, by combined "ID-name", and a bad one
+    assert enc_client.post("/session/join", data={"session_id": "MyName"}).status_code in (302, 303)
+    assert enc_client.post("/session/join", data={"session_id": sid + "-MyName"}).status_code in (302, 303)
+    bad = enc_client.post("/session/join", data={"session_id": "NoSuchName"})
+    assert bad.status_code == 200 and b"not found" in bad.data.lower()
+
+
+def test_display_name_persisted_and_restored(enc_client):
+    from models import SessionParticipant
+    with app.app_context():
+        sid = _seed("ther-1")
+        tm._claim_display_name(sid, "u1", "David")
+        row = SessionParticipant.query.filter_by(session_id=sid, user_id="u1").first()
+        assert row and row.display_name == "David"
+        # Simulate a restart: drop the in-memory maps, then restore from the DB.
+        tm.session_display_names.pop(sid, None)
+        tm.session_taken_names.pop(sid, None)
+        tm._restore_display_names(sid)
+        assert tm.session_display_names.get(sid, {}).get("u1") == "David"
+        tm.session_display_names.pop(sid, None)
+        tm.session_taken_names.pop(sid, None)

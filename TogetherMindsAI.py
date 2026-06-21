@@ -373,9 +373,41 @@ def _session_is_full(session_id, mode, user_id, therapist_id) -> bool:
 
 
 def _claim_display_name(session_id: str, user_id: str, name: str) -> None:
-    """Store a display name in both active and taken dicts."""
+    """Store a display name in both active and taken dicts, and persist it so the
+    same user (same browser id / signed-in account) gets it back on rejoin."""
     session_display_names.setdefault(session_id, {})[user_id] = name
     session_taken_names.setdefault(session_id, set()).add(name.lower())
+    try:
+        row = SessionParticipant.query.filter_by(session_id=session_id, user_id=user_id).first()
+        if row is None:
+            row = SessionParticipant(session_id=session_id, user_id=user_id,
+                                     joined_at=datetime.now(timezone.utc))
+            db.session.add(row)
+        row.display_name = name
+        db.session.commit()
+    except Exception:
+        # Persistence is best-effort — must never disrupt the caller (and must not
+        # raise even when called outside an app/DB context, e.g. unit tests).
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+
+
+def _restore_display_names(session_id: str) -> None:
+    """Load persisted display names into the in-memory maps the first time a
+    session is touched (e.g. after a restart), so leavers keep their name on
+    rejoin. Idempotent — only loads when the session isn't already in memory."""
+    if session_id in session_display_names:
+        return
+    try:
+        rows = SessionParticipant.query.filter_by(session_id=session_id).all()
+        names = {r.user_id: r.display_name for r in rows if r.display_name}
+        if names:
+            session_display_names[session_id] = dict(names)
+            session_taken_names.setdefault(session_id, set()).update(n.lower() for n in names.values())
+    except Exception:
+        app.logger.error("restore display names failed (%s)", session_id)
 
 
 def _is_name_taken(session_id: str, user_id: str, name: str) -> bool:
@@ -484,6 +516,19 @@ if not config.IS_TESTING:
             db.session.commit()
         except Exception:
             db.session.rollback()  # column already exists
+
+        # Batch D: shared friendly name on the session + persisted display name on
+        # participants. Idempotent. (Uniqueness for friendly_name is enforced in the
+        # app; create_all adds the unique index on fresh DBs.)
+        for ddl in (
+            "ALTER TABLE therapy_sessions ADD COLUMN friendly_name VARCHAR(60)",
+            "ALTER TABLE session_participants ADD COLUMN display_name VARCHAR(60)",
+        ):
+            try:
+                db.session.execute(text(ddl))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # column already exists
 
     import threading   # used by the purge-job daemon thread below
 
@@ -1916,13 +1961,25 @@ def session_join_post():
     if not raw:
         return _join_template(error="Please enter a Session ID.")
 
-    # Case-insensitive lookup: normalize both sides to uppercase
+    # Accept the Session ID, the "SessionID-FriendlyName" combined form, or the
+    # (unique) friendly name on its own. Case-insensitive throughout.
     from sqlalchemy import func as sa_func
+    from session_id import SESSION_ID_LENGTH
     ts = TherapySession.query.filter(
         sa_func.upper(TherapySession.id) == raw.upper()
     ).first()
+    if not ts and len(raw) > SESSION_ID_LENGTH:
+        # Pasted "SessionID-FriendlyName" → try the fixed-length ID prefix.
+        ts = TherapySession.query.filter(
+            sa_func.upper(TherapySession.id) == raw[:SESSION_ID_LENGTH].upper()
+        ).first()
     if not ts:
-        return _join_template(error="Session not found. Check the ID and try again.")
+        # Try the unique friendly name on its own.
+        ts = TherapySession.query.filter(
+            sa_func.upper(TherapySession.friendly_name) == raw.upper()
+        ).first()
+    if not ts:
+        return _join_template(error="Session not found. Check the ID or name and try again.")
 
     session_id = ts.id  # always use the real ID from DB
 
@@ -3008,6 +3065,7 @@ def on_join(data):
             .order_by(ChatMessage.timestamp.asc())
             .all()
         )
+        _restore_display_names(session_id)   # rehydrate persisted names (post-restart)
         current_display_name = session_display_names.get(session_id, {}).get(user_id)
         emit("history", {
             "messages": [m.to_dict() for m in messages],
@@ -3028,7 +3086,7 @@ def on_join(data):
         _emit_recording_state(session_id)
 
         # Sync the shared session friendly name to this newcomer (silent — no popup).
-        _fn = session_friendly_name.get(session_id)
+        _fn = (ts.friendly_name if ts else None) or session_friendly_name.get(session_id)
         if _fn:
             emit("friendly_name_set", {"name": _fn, "silent": True})
     except Exception as e:
@@ -3360,18 +3418,56 @@ def on_end_session(data):
     emit("session_ended", {"by": "Therapist"}, to=session_id, include_self=False)
 
 
+def _friendly_name_owner(name: str):
+    """session_id that currently owns this friendly name (case-insensitive), or None."""
+    if not name:
+        return None
+    from sqlalchemy import func as _f
+    row = (TherapySession.query
+           .filter(_f.upper(TherapySession.friendly_name) == name.upper())
+           .first())
+    return row.id if row else None
+
+
+def _suggest_friendly_name(base: str) -> str:
+    """First available 'baseN' (base1, base2, …) so the suggestion is never taken."""
+    base = (base or "session")[:55]
+    for n in range(1, 1000):
+        cand = f"{base}{n}"
+        if _friendly_name_owner(cand) is None:
+            return cand
+    return f"{base}{secrets.token_hex(3)}"
+
+
 @socketio.on("set_friendly_name")
 def on_set_friendly_name(data):
-    """Clinician sets a shared, session-wide friendly name. Broadcast to everyone
-    (clients get a popup); also stored so late joiners are synced on join."""
+    """Clinician sets the shared session friendly name. It must be UNIQUE across
+    sessions; on a collision the app SUGGESTS a bumped name (it does not auto-apply
+    — the therapist accepts it or picks another). Persisted on the session row so a
+    participant can rejoin by it. Therapist-only."""
     session_id = data.get("session_id", "")
     user_id    = data.get("user_id", "")
     if session_therapist_id.get(session_id) != user_id:
-        return   # only the clinician may name the session
+        return
     name = (data.get("name") or "").strip()[:60]
+    ts = db.session.get(TherapySession, session_id)
+    if ts is None:
+        return
+    if name:
+        owner = _friendly_name_owner(name)
+        if owner is not None and owner != session_id:
+            emit("friendly_name_taken", {"name": name, "suggestion": _suggest_friendly_name(name)})
+            return
+    try:
+        ts.friendly_name = name or None
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        emit("friendly_name_taken", {"name": name, "suggestion": _suggest_friendly_name(name)})
+        return
     session_friendly_name[session_id] = name
     log_event("friendly_name_set", session_id=session_id, user_id=user_id)
-    emit("friendly_name_set", {"name": name, "by": "Therapist"}, to=session_id, include_self=False)
+    emit("friendly_name_set", {"name": name, "by": "Therapist"}, to=session_id)
 
 
 if __name__ == "__main__":

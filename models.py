@@ -181,6 +181,10 @@ class TherapySession(db.Model):
     # cards to the therapist only) instead of replying to clients. Null = the
     # original AI-led consumer flow, unchanged.
     therapist_id = db.Column(db.String(36), nullable=True)
+    # Shared, therapist-set friendly name for the session. Unique across sessions
+    # so a participant can rejoin by it (or by the Session ID). Persisted so it
+    # survives restarts.
+    friendly_name = db.Column(db.String(60), nullable=True, unique=True, index=True)
 
 
 class SessionParticipant(db.Model):
@@ -196,6 +200,9 @@ class SessionParticipant(db.Model):
     session_id = db.Column(db.String(36), index=True, nullable=False)
     user_id    = db.Column(db.String(36), index=True, nullable=False)
     joined_at  = db.Column(db.DateTime, nullable=False)
+    # The participant's self-chosen display name, persisted so it is restored when
+    # the same user (same browser id, or signed-in account) leaves and rejoins.
+    display_name = db.Column(db.String(60), nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("session_id", "user_id", name="uq_session_participant"),

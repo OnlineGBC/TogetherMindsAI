@@ -236,8 +236,9 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <label for="friendlyNameInput" class="form-label small text-muted">A friendly name shared with everyone in this session.</label>
+                <label for="friendlyNameInput" class="form-label small text-muted">A friendly name shared with everyone in this session. Must be unique — participants can rejoin with it.</label>
                 <input type="text" class="form-control rounded-3" id="friendlyNameInput" maxlength="60" placeholder="e.g. Smith family — week 3">
+                <div id="friendlyNameNote" class="small text-warning mt-2 d-none"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary rounded-pill" data-bs-dismiss="modal">Cancel</button>
