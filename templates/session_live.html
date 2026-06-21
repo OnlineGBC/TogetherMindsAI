@@ -12,7 +12,7 @@
                 <i class="bi bi-{{ mode_icon }} text-primary-green fs-3 flex-shrink-0"></i>
                 <div class="min-w-0">
                     <div class="d-flex align-items-center gap-2">
-                        <h4 class="mb-0 fw-bold text-truncate">{{ mode_label }}</h4>
+                        <h4 class="mb-0 fw-bold text-truncate" style="color: var(--green-dark)">{{ mode_label }}</h4>
                         {% if is_therapist_led %}<span class="session-private-chip flex-shrink-0"><i class="bi bi-lock-fill"></i>Private</span>{% endif %}
                     </div>
                     <small class="text-muted d-none d-md-block">
@@ -23,6 +23,17 @@
                 </div>
             </div>
             <div class="d-flex gap-1 gap-md-2 flex-shrink-0">
+                <!-- Download a copy (PDF / Word) — to the left of Transcript -->
+                <div class="dropdown">
+                    <button type="button" class="btn btn-outline-green btn-sm rounded-pill dropdown-toggle"
+                            data-bs-toggle="dropdown" aria-expanded="false" title="Download a copy">
+                        <i class="bi bi-download"></i><span class="d-none d-md-inline ms-1">Download</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                        <li><a class="dropdown-item" href="/transcript/{{ session_id }}/pdf" download><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li>
+                        <li><a class="dropdown-item" href="/transcript/{{ session_id }}/docx" download><i class="bi bi-file-earmark-word me-2"></i>Word (DOCX)</a></li>
+                    </ul>
+                </div>
                 {% if rtc_enabled %}
                 <button type="button" id="transcriptToggleBtn"
                         class="btn btn-outline-green btn-sm rounded-pill"
@@ -43,7 +54,7 @@
             </div>
         </div>
 
-        <!-- Session ID banner -->
+        <!-- Session ID banner (with inline recording controls) -->
         <div class="alert alert-share rounded-4 mb-2 mb-md-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
             <div class="d-flex align-items-center gap-2">
                 <i class="bi bi-hash text-primary-green flex-shrink-0"></i>
@@ -58,7 +69,35 @@
                     <i class="bi bi-info-circle"></i>
                 </button>
             </div>
-            <div class="d-flex align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                {% if recording_enabled %}
+                <!-- Recording controls (Phase 4) — inline in this green row. Recording
+                     runs ONLY while every current participant consents; it stops the
+                     instant anyone declines/withdraws or an un-consented participant
+                     joins. JS (initRecordingControls) toggles the button states. -->
+                <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
+                    <span class="badge bg-danger d-none align-items-center gap-1" id="recBadge">
+                        <span class="rec-blink" aria-hidden="true">●</span> REC
+                    </span>
+                    <small id="recStatusText" class="text-success d-none d-lg-inline">Recording is off.</small>
+                    {% if is_therapist %}
+                    <button class="btn btn-sm btn-success rounded-pill" id="recRequestBtn">
+                        <i class="bi bi-record-circle"></i><span class="ms-1">Record</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light rounded-pill d-none" id="recStopBtn">
+                        <i class="bi bi-stop-circle"></i><span class="ms-1">Stop recording</span>
+                    </button>
+                    {% else %}
+                    <button class="btn btn-sm btn-success rounded-pill d-none" id="recAllowBtn">
+                        <i class="bi bi-check-circle"></i><span class="ms-1">Allow recording</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light rounded-pill d-none" id="recWithdrawBtn">
+                        <i class="bi bi-shield-x"></i><span class="ms-1">Withdraw consent</span>
+                    </button>
+                    {% endif %}
+                </span>
+                <span class="vr d-none d-sm-inline mx-1"></span>
+                {% endif %}
                 <small class="text-muted">You:</small>
                 <span id="displayNameLabel" class="font-monospace text-primary-green fw-semibold small">…</span>
                 <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameDisplayNameBtn" title="Change display name">
@@ -67,46 +106,13 @@
             </div>
         </div>
 
-        {% if recording_enabled %}
-        <!-- Recording bar (Phase 4) — visible to everyone. Recording runs ONLY while
-             every current participant consents; it stops the instant anyone declines
-             or withdraws, or an un-consented participant joins. -->
-        <div class="alert alert-warning rounded-4 mb-2 mb-md-3 py-2 px-3 d-flex align-items-center justify-content-between gap-2 flex-wrap d-none"
-             id="recBar" role="region" aria-label="Recording controls">
-            <div class="d-flex align-items-center gap-2 min-w-0">
-                <span class="badge bg-danger d-none align-items-center gap-1" id="recBadge">
-                    <span class="rec-blink" aria-hidden="true">●</span> REC
-                </span>
-                <i class="bi bi-record-circle text-danger flex-shrink-0" id="recIcon"></i>
-                <small id="recStatusText" class="text-body">Recording is off.</small>
-            </div>
-            <div class="d-flex align-items-center gap-1 gap-md-2 flex-shrink-0">
-                {% if is_therapist %}
-                <button class="btn btn-sm btn-outline-danger rounded-pill" id="recRequestBtn">
-                    <i class="bi bi-record-circle"></i><span class="ms-1">Record</span>
-                </button>
-                <button class="btn btn-sm btn-danger rounded-pill d-none" id="recStopBtn">
-                    <i class="bi bi-stop-circle"></i><span class="ms-1">Stop recording</span>
-                </button>
-                {% else %}
-                <button class="btn btn-sm btn-success rounded-pill d-none" id="recAllowBtn">
-                    <i class="bi bi-check-circle"></i><span class="ms-1">Allow recording</span>
-                </button>
-                <button class="btn btn-sm btn-outline-secondary rounded-pill d-none" id="recWithdrawBtn">
-                    <i class="bi bi-shield-x"></i><span class="ms-1">Withdraw consent</span>
-                </button>
-                {% endif %}
-            </div>
-        </div>
-        {% endif %}
-
 
         <!-- Privacy / welcome banner — hidden by default on phones (toggle via info icon above);
              always visible on ≥sm. Dismissible via the close button on tablet+. -->
         <div class="alert alert-info alert-dismissible rounded-4 mb-2 mb-md-3 py-2 px-3 align-items-start gap-2 collapse privacy-banner" id="privacyBanner">
             <i class="bi bi-shield-lock-fill flex-shrink-0 mt-1"></i>
             <div class="flex-grow-1 small">
-                <strong>Clinician-led session</strong> — your conversation is kept as part of your clinician's confidential clinical record (encrypted, retained up to six years, accessible to them). Never sold or used to train AI. Session ID: <strong class="font-monospace"><span id="privacyBannerCode">{{ session_id }}</span></strong>. Click <a href="#" onclick="event.preventDefault();document.getElementById('renameDisplayNameBtn').click()" aria-label="Change display name"><i class="bi bi-pencil" style="color:#fd7e14"></i></a> to rename, or <span class="dropdown d-inline-block"><button type="button" class="btn btn-link btn-sm p-0 align-baseline fw-bold text-decoration-underline text-body" data-bs-toggle="dropdown" aria-expanded="false">download</button><ul class="dropdown-menu shadow-sm"><li><a class="dropdown-item" href="/transcript/{{ session_id }}/pdf" download><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li><li><a class="dropdown-item" href="/transcript/{{ session_id }}/docx" download><i class="bi bi-file-earmark-word me-2"></i>Word (DOCX)</a></li></ul></span> a copy.
+                <strong>Clinician-led session</strong> — your conversation is kept as part of your clinician's confidential clinical record (encrypted, retained up to six years, accessible to them). Never sold or used to train AI.
             </div>
             <button type="button" class="btn-close flex-shrink-0 ms-1" style="font-size:0.75rem"
                     data-bs-dismiss="alert" aria-label="Close"></button>
