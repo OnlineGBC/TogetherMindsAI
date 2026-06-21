@@ -286,6 +286,17 @@ def test_download_streams_for_therapist(enc_client):
     assert "attachment" in rv.headers.get("Content-Disposition", "")
 
 
+def test_download_redirects_to_login_when_not_signed_in(enc_client):
+    # Email link opened on a phone with no sign-in → bounce to sign-in, not 403.
+    with app.app_context():
+        sid = _seed(); _seed_recording(sid)
+    with patch.object(config, "RECORDING_ENABLED", True):
+        rv = enc_client.get("/recording/download/dltok")
+    assert rv.status_code == 302
+    loc = rv.headers["Location"]
+    assert "/login" in loc and "next=" in loc
+
+
 def test_download_forbidden_for_non_therapist(enc_client):
     with app.app_context():
         sid = _seed()

@@ -318,6 +318,33 @@ def test_client_login_safe_next_honours_relative_path(client):
     assert rv.headers["Location"].endswith("/therapy/couple/ABC123")
 
 
+def test_clinician_oauth_login_stashes_return_target(client):
+    # A download link opened on a phone sends them to /login?next=... — that target
+    # is stashed at the OAuth-login step (survives the provider round-trip).
+    with patch.object(tm, "_oauth_start", return_value="redirect-to-provider"):
+        client.get("/auth/google/login?next=/session/transcript/stok/pdf")
+    with client.session_transaction() as s:
+        assert s.get("post_login_next") == "/session/transcript/stok/pdf"
+
+
+def test_clinician_oauth_callback_returns_to_stashed_target(client):
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.return_value = {"userinfo": {"sub": "sub-next"}}
+    with client.session_transaction() as s:
+        s["post_login_next"] = "/session/transcript/stok/pdf"
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        rv = client.get("/auth/google/callback")
+    assert rv.status_code == 302
+    assert rv.headers["Location"].endswith("/session/transcript/stok/pdf")
+
+
+def test_clinician_oauth_login_ignores_offsite_next(client):
+    with patch.object(tm, "_oauth_start", return_value="redirect-to-provider"):
+        client.get("/auth/google/login?next=https://evil.example.com")
+    with client.session_transaction() as s:
+        assert s.get("post_login_next") is None   # open-redirect rejected
+
+
 # ---------------------------------------------------------------------------
 # Join-time participation tracking (silent attendees still get their session)
 # ---------------------------------------------------------------------------

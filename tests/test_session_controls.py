@@ -166,7 +166,8 @@ def test_session_transcript_token_route(enc_client):
     with app.app_context():
         sid = _seed("ther-1")
         ts = db.session.get(TherapySession, sid); ts.download_token = "stok"; db.session.commit()
-    assert enc_client.get("/session/transcript/stok/pdf").status_code == 403   # not signed in
+    rv = enc_client.get("/session/transcript/stok/pdf")          # not signed in
+    assert rv.status_code == 302 and "/login" in rv.headers["Location"]
     with enc_client.session_transaction() as s:
         s["user_id"] = "ther-1"
     assert enc_client.get("/session/transcript/stok/pdf").status_code == 200

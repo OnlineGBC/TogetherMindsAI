@@ -762,7 +762,9 @@ def login():
     """Clinician login page — Sign in with Google / Microsoft."""
     if _current_clinician_id():
         return redirect(url_for("therapist_start"))
-    return render_template("login.html")
+    # Carry a safe return target (e.g. a download link opened on a phone) through
+    # to the sign-in buttons so we can come back to it after login.
+    return render_template("login.html", next=_safe_next(request.args.get("next")))
 
 
 # ---------------------------------------------------------------------------
@@ -823,6 +825,13 @@ def _safe_next(target):
 
 @app.route("/auth/<provider>/login")
 def oauth_login(provider):
+    # Stash the post-login return target HERE — the same request where Authlib
+    # writes its OAuth state — so it survives the provider round-trip reliably
+    # (a session set earlier, e.g. on the download redirect, can be dropped by
+    # mobile in-app browsers).
+    nxt = _safe_next(request.args.get("next"))
+    if nxt:
+        session["post_login_next"] = nxt
     # Clinicians grant "email" so we can send them their own recording links +
     # retention notices (Phase 4 Step 3). The client flow stays at "openid".
     return _oauth_start(provider, "oauth_callback", scope="openid email")
@@ -863,7 +872,9 @@ def oauth_callback(provider):
     session["clinician_id"] = clinician.id
     session.permanent = True
     log_event("clinician_login", user_id=clinician.id, provider=provider)
-    return redirect(url_for("therapist_start"))
+    # Return to where they came from (e.g. a download link), else the dashboard.
+    nxt = _safe_next(session.pop("post_login_next", None))
+    return redirect(nxt or url_for("therapist_start"))
 
 
 @app.route("/logout")
@@ -2268,6 +2279,18 @@ def _is_session_therapist(session_id: str):
     return None
 
 
+def _therapist_gate_or_login(session_id: str):
+    """Gate a therapist-only download link. Returns None when the current user is
+    the session's clinician (allow). When NOBODY is signed in (e.g. an email link
+    opened on a phone), returns a redirect to sign in and come back to this exact
+    URL. When someone else is signed in, it's a genuine 403."""
+    if _is_session_therapist(session_id) is not None:
+        return None
+    if not session.get("user_id"):
+        return redirect(url_for("login", next=request.full_path))
+    abort(403)
+
+
 @app.route("/session/<session_id>/summary")
 def session_summary(session_id):
     """Therapist-only: generate and return the private session summary as JSON."""
@@ -2500,8 +2523,10 @@ def recording_download(token):
     if row is None:
         abort(404)
     # Still therapist-gated: the logged-in user must be the session's clinician.
-    if _is_session_therapist(row.session_id) is None:
-        abort(403)
+    # If nobody is signed in (email link on a phone), bounce to sign-in and back.
+    _gate = _therapist_gate_or_login(row.session_id)
+    if _gate is not None:
+        return _gate
     if row.status == "deleted" or not row.gcs_object:
         abort(410)   # Gone — past its 30-day retention
     gen, size, ctype = recording.download_stream(row.gcs_object)
@@ -2879,8 +2904,9 @@ def recording_download_doc(token, fmt):
     row = SessionRecording.query.filter_by(download_token=token).first() if token else None
     if row is None:
         abort(404)
-    if _is_session_therapist(row.session_id) is None:
-        abort(403)
+    _gate = _therapist_gate_or_login(row.session_id)
+    if _gate is not None:
+        return _gate
     log_event("transcript_downloaded", session_id=row.session_id,
               user_id=session.get("user_id"), format=fmt, via="recording_token")
     if fmt == "pdf":
@@ -2902,8 +2928,9 @@ def session_transcript_doc(token, fmt):
     ts = TherapySession.query.filter_by(download_token=token).first() if token else None
     if ts is None:
         abort(404)
-    if _is_session_therapist(ts.id) is None:
-        abort(403)
+    _gate = _therapist_gate_or_login(ts.id)
+    if _gate is not None:
+        return _gate
     log_event("transcript_downloaded", session_id=ts.id,
               user_id=session.get("user_id"), format=fmt, via="session_token")
     if fmt == "pdf":
