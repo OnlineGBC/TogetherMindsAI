@@ -580,11 +580,24 @@ function initEndSessionGuard(sessionId, redirectUrl) {
         display.textContent = sessionId;
     }
 
-    // Restore any previously saved nickname
+    // Pre-fill the name field. Prefer the shared friendly name already assigned to
+    // this session (e.g. "Coupletest"); fall back to any personal nickname saved on
+    // this device. Re-seeded each time the modal opens so it reflects the latest.
     var nicknameInput = document.getElementById("endSessionNickname");
+    function _sharedFriendlyName() {
+        var el = document.getElementById("friendlyNameLabel");
+        if (el && !el.classList.contains("d-none")) {
+            return (el.textContent || "").trim();
+        }
+        return "";
+    }
+    function _seedEndName() {
+        if (!nicknameInput) return;
+        var saved = localStorage.getItem(_storageKey) || "";
+        nicknameInput.value = _sharedFriendlyName() || saved;
+    }
     if (nicknameInput) {
-        var saved = localStorage.getItem(_storageKey);
-        if (saved) { nicknameInput.value = saved; }
+        _seedEndName();
         nicknameInput.addEventListener("input", function () {
             var val = nicknameInput.value.trim();
             if (val) {
@@ -592,6 +605,14 @@ function initEndSessionGuard(sessionId, redirectUrl) {
             } else {
                 localStorage.removeItem(_storageKey);
             }
+        });
+    }
+    var endModalEl = document.getElementById("endSessionModal");
+    if (endModalEl) {
+        endModalEl.addEventListener("show.bs.modal", function () {
+            var note = document.getElementById("endSessionNameNote");
+            if (note) note.classList.add("d-none");
+            _seedEndName();
         });
     }
 
@@ -617,20 +638,70 @@ function initEndSessionGuard(sessionId, redirectUrl) {
         });
     }
 
-    // Confirm button — save nickname to localStorage then redirect
+    // Show "name taken" inside the end-session modal and keep it open so the
+    // therapist can accept the suggested suffix or type another name.
+    function _showEndNameTaken(name, suggestion) {
+        var note = document.getElementById("endSessionNameNote");
+        if (!note) return;
+        note.innerHTML = '"' + name + '" is already taken. Try ' +
+            '<a href="#" id="_endNameSuggest">"' + (suggestion || "") + '"</a>, or pick another.';
+        note.classList.remove("d-none");
+        var s = document.getElementById("_endNameSuggest");
+        if (s) {
+            s.addEventListener("click", function (e) {
+                e.preventDefault();
+                if (nicknameInput) { nicknameInput.value = suggestion || ""; nicknameInput.focus(); }
+                note.classList.add("d-none");
+            });
+        }
+    }
+
+    // Actually end the session. Emit with an ack and navigate only once the
+    // server has processed it (broadcast session_ended + stop recording → email),
+    // with a short fallback so the therapist is never stuck if no ack arrives.
+    function _endSessionNow() {
+        if (nicknameInput && nicknameInput.value.trim()) {
+            localStorage.setItem(_storageKey, nicknameInput.value.trim());
+        }
+        _sessionEnded = true;
+        var navigated = false;
+        var go = function () {
+            if (navigated) return;
+            navigated = true;
+            window.location.href = redirectUrl;
+        };
+        if (socket && socket.connected) {
+            socket.emit("end_session",
+                { session_id: sessionId, user_id: _currentUserId }, go);
+            setTimeout(go, 1500);   // fallback if the ack never arrives
+        } else {
+            go();
+        }
+    }
+
+    // Confirm button. If the therapist typed a name and the session has NO shared
+    // friendly name yet, assign it FIRST and only end once it's accepted: a unique
+    // name ends the session; a taken name keeps the modal open with a suggestion.
     var confirmBtn = document.getElementById("endSessionConfirmBtn");
     if (confirmBtn) {
         confirmBtn.addEventListener("click", function () {
-            if (nicknameInput && nicknameInput.value.trim()) {
-                localStorage.setItem(_storageKey, nicknameInput.value.trim());
+            var typed = nicknameInput ? nicknameInput.value.trim() : "";
+            var note = document.getElementById("endSessionNameNote");
+            if (note) note.classList.add("d-none");
+
+            if (typed && !_sharedFriendlyName() && socket && socket.connected) {
+                socket.emit("set_friendly_name",
+                    { session_id: sessionId, user_id: _currentUserId, name: typed },
+                    function (resp) {
+                        if (resp && resp.status === "taken") {
+                            _showEndNameTaken(typed, resp.suggestion);   // stay open
+                        } else {
+                            _endSessionNow();
+                        }
+                    });
+                return;
             }
-            // Notify everyone else that the therapist has ended the session. The
-            // server enforces that only the session's clinician may end it.
-            if (socket && socket.connected) {
-                socket.emit("end_session", { session_id: sessionId, user_id: _currentUserId });
-            }
-            _sessionEnded = true;
-            window.location.href = redirectUrl;
+            _endSessionNow();
         });
     }
 

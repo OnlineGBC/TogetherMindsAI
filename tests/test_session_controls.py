@@ -244,3 +244,49 @@ def test_display_name_persisted_and_restored(enc_client):
         assert tm.session_display_names.get(sid, {}).get("u1") == "David"
         tm.session_display_names.pop(sid, None)
         tm.session_taken_names.pop(sid, None)
+
+
+# ---- End-session / friendly-name socket ACKs (end-session bug fixes) ----
+# The therapist's client gates navigation on these acks so the server actually
+# receives end_session (clients get notified, recording stops → email), and can
+# sequence naming before ending.
+
+def test_end_session_returns_ack_for_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    t = _join(enc_client, sid, "ther-1"); t.get_received()
+    resp = t.emit("end_session", {"session_id": sid, "user_id": "ther-1"}, callback=True)
+    assert resp == {"ended": True}
+
+
+def test_end_session_ack_false_for_non_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    _join(enc_client, sid, "ther-1")
+    c = _join(enc_client, sid, "client-1"); c.get_received()
+    resp = c.emit("end_session", {"session_id": sid, "user_id": "client-1"}, callback=True)
+    assert resp == {"ended": False}
+
+
+def test_set_friendly_name_ack_set(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    t = _join(enc_client, sid, "ther-1"); t.get_received()
+    resp = t.emit("set_friendly_name",
+                  {"session_id": sid, "user_id": "ther-1", "name": "FreshName"}, callback=True)
+    assert resp["status"] == "set" and resp["name"] == "FreshName"
+    with app.app_context():
+        assert db.session.get(TherapySession, sid).friendly_name == "FreshName"
+
+
+def test_set_friendly_name_ack_taken_with_suggestion(enc_client):
+    with app.app_context():
+        sid_a = _seed("ther-A"); sid_b = _seed("ther-1")
+        ta = db.session.get(TherapySession, sid_a)
+        ta.friendly_name = "CoupleTest"; db.session.commit()
+    t = _join(enc_client, sid_b, "ther-1"); t.get_received()
+    resp = t.emit("set_friendly_name",
+                  {"session_id": sid_b, "user_id": "ther-1", "name": "CoupleTest"}, callback=True)
+    assert resp["status"] == "taken" and resp["suggestion"] == "CoupleTest1"
+    with app.app_context():   # NOT applied to the colliding session
+        assert db.session.get(TherapySession, sid_b).friendly_name is None
