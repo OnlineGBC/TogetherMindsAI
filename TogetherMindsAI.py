@@ -3574,6 +3574,9 @@ def on_end_session(data):
     user_id    = data.get("user_id", "")
     # Therapist check against the durable DB owner (robust across restarts).
     ts = db.session.get(TherapySession, session_id)
+    _owner = ts.therapist_id if ts else None
+    app.logger.info("end_session attempt: sid=%s sent_user=%r owner=%r match=%s",
+                    session_id, user_id, _owner, bool(_owner and _owner == user_id))
     if ts is None or not ts.therapist_id or ts.therapist_id != user_id:
         return {"ended": False}
     # Notify clients FIRST so the "session ended" popup always shows, even if the

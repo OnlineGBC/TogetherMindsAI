@@ -23,14 +23,13 @@ self.addEventListener("activate", (e) => {
   self.clients.claim();
 });
 
-// Network-first for all requests (therapy sessions must be live)
-// Falls back to cache only for static assets
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
 
-  // Static assets: cache-first
-  if (url.pathname.startsWith("/static/")) {
+  // Images / icons rarely change → cache-first (fast, offline-friendly).
+  if (url.pathname.startsWith("/static/icons/") ||
+      /\.(png|jpe?g|svg|ico|webp|gif)$/.test(url.pathname)) {
     e.respondWith(
       caches.match(e.request).then((cached) =>
         cached || fetch(e.request).then((res) => {
@@ -43,8 +42,17 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // Everything else (pages, API): network-first
+  // Everything else — code (JS/CSS), pages, API → NETWORK-FIRST. A new deploy is
+  // never blocked by a stale cached copy; the cache is used only when offline.
   e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
+    fetch(e.request)
+      .then((res) => {
+        if (url.pathname.startsWith("/static/")) {
+          const clone = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, clone));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
