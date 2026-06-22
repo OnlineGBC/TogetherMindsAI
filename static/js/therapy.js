@@ -244,21 +244,33 @@ function joinRoom(sessionId, userId, mode, soloMode) {
             }
         });
 
+        // Re-label this user's video tile too. Remote tiles are keyed by user_id;
+        // our own tile is keyed "local".
+        var tileId = (data.user_id === _currentUserId) ? "local" : data.user_id;
+        var tile = document.querySelector('[data-tile="' + tileId + '"]');
+        if (tile) {
+            var tlabel = tile.querySelector(".rtc-tile-label");
+            if (tlabel) { tlabel.textContent = data.new_name; }
+        }
+
         // Update our own banner if this is us
         if (data.user_id === _currentUserId) {
             _currentDisplayName = data.new_name;
             _updateDisplayNameBanner(sessionId, data.new_name);
         }
 
-        // System notice
-        var chatBox = document.getElementById("chatBox");
-        if (chatBox) {
-            var notice = document.createElement("div");
-            notice.className = "text-center text-muted small py-1 fst-italic";
-            notice.textContent = sessionId + "-" + data.old_name +
-                                 " is now known as " + sessionId + "-" + data.new_name;
-            chatBox.appendChild(notice);
-            scrollToBottom(chatBox);
+        // System notice — only for a real rename (skip the first-time name set,
+        // which has no previous name).
+        if (data.old_name) {
+            var chatBox = document.getElementById("chatBox");
+            if (chatBox) {
+                var notice = document.createElement("div");
+                notice.className = "text-center text-muted small py-1 fst-italic";
+                notice.textContent = sessionId + "-" + data.old_name +
+                                     " is now known as " + sessionId + "-" + data.new_name;
+                chatBox.appendChild(notice);
+                scrollToBottom(chatBox);
+            }
         }
     });
 

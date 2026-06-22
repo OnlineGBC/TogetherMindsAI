@@ -3416,10 +3416,13 @@ def on_set_display_name(data):
         emit("name_error", {"message": f"'{name}' is already taken in this session. Please choose another."})
         return
 
+    old_name = session_display_names.get(session_id, {}).get(user_id, "")
     _claim_display_name(session_id, user_id, name)
-    emit("name_set", {"user_id": user_id, "display_name": name})
-    # Inform other participants
-    emit("participant_named", {"user_id": user_id, "display_name": name}, to=session_id)
+    emit("name_set", {"user_id": user_id, "display_name": name})   # caller: close modal + own banner
+    # Tell everyone else, using the SAME event the rename flow uses (every client
+    # already handles it) so this user's chat bubbles + video tile relabel for them.
+    emit("name_changed", {"user_id": user_id, "old_name": old_name, "new_name": name},
+         to=session_id, include_self=False)
 
 
 @socketio.on("rename")

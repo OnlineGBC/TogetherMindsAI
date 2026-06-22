@@ -83,6 +83,22 @@ def test_hide_my_data_shown_for_client(enc_client):
     assert b"Hide my data" in rv.data
 
 
+# ---- Display name: a first-time name is broadcast to others (not just the caller) ----
+
+def test_first_time_name_broadcasts_to_others(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    t = _join(enc_client, sid, "ther-1")
+    c = _join(enc_client, sid, "client-1")   # therapist present → real join
+    t.get_received(); c.get_received()
+    c.emit("set_display_name", {"session_id": sid, "user_id": "client-1", "display_name": "David"})
+    # The OTHER participant (therapist) must receive name_changed so their UI relabels.
+    assert any(e["name"] == "name_changed" and e["args"][0]["new_name"] == "David"
+               for e in t.get_received())
+    # The caller still gets name_set (closes their modal / updates their own banner).
+    assert any(e["name"] == "name_set" for e in c.get_received())
+
+
 # ---- End session — over HTTP (reliable, cookie-authenticated; the only end path) ----
 
 def test_end_session_http_notifies_clients_and_emails(enc_client):
