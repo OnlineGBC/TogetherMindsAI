@@ -116,6 +116,20 @@ def test_end_session_http_notifies_clients_and_emails(enc_client):
     assert "session_ended" in _names(c)               # client notified over its socket
 
 
+def test_session_ended_page_shows_for_clinician(enc_client):
+    with enc_client.session_transaction() as s:
+        s["clinician_id"] = "doc"; s["user_id"] = "doc"
+    rv = enc_client.get("/session-ended")
+    assert rv.status_code == 200
+    assert b"Session ended" in rv.data
+    assert b"http-equiv=\"refresh\"" in rv.data   # auto-returns, no JS
+
+
+def test_session_ended_page_requires_clinician(enc_client):
+    rv = enc_client.get("/session-ended")
+    assert rv.status_code == 302 and "/login" in rv.headers["Location"]
+
+
 def test_end_session_http_forbidden_for_non_owner(enc_client):
     with app.app_context():
         sid = _seed("ther-1")

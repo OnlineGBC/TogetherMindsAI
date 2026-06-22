@@ -3607,8 +3607,18 @@ def end_session_http(session_id):
     # Notify clients over their live sockets (receiving works fine).
     socketio.emit("session_ended", {"by": "Therapist"}, to=session_id)
     _finish_session(session_id, session.get("user_id"), "therapist_http")
-    # The form submit navigates the therapist to their dashboard.
-    return redirect(url_for("therapist_start"))
+    # Land the therapist on a lasting "Session ended" confirmation (mirrors the
+    # clients' popup) instead of bouncing straight to the dashboard.
+    return redirect(url_for("session_ended_page"))
+
+
+@app.route("/session-ended")
+def session_ended_page():
+    """Lasting confirmation shown to the therapist after they end a session. Static
+    (no session data); it auto-returns to the dashboard after 5 minutes."""
+    if not _current_clinician_id():
+        return redirect(url_for("login"))
+    return render_template("session_ended.html")
 
 
 def _friendly_name_owner(name: str):
