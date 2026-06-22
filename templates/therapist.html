@@ -141,6 +141,7 @@
                         <div class="d-flex align-items-center gap-2 mb-1">
                             <i class="bi bi-{{ icons.get(s.mode, 'person-fill') }} text-primary-green flex-shrink-0"></i>
                             <span class="fw-semibold flex-grow-1 min-w-0 text-truncate">{{ labels.get(s.mode, s.mode) }}</span>
+                            {% if s.friendly_name %}<span class="badge rounded-pill text-bg-success flex-shrink-0">{{ s.friendly_name }}</span>{% endif %}
                         </div>
                         <div class="font-monospace small text-muted text-truncate mb-2">{{ s.id }}</div>
                         <div class="d-flex align-items-center gap-2">
