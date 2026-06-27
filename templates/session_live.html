@@ -38,9 +38,12 @@
                 </div>
                 {% endif %}
                 {% if rtc_enabled %}
+                <!-- For clients the chat pane starts collapsed (video full-width); this
+                     toggle opens it. The clinician keeps the side-by-side view. -->
                 <button type="button" id="transcriptToggleBtn"
-                        class="btn btn-outline-green btn-sm rounded-pill"
-                        title="Hide transcript" aria-pressed="false">
+                        class="btn btn-outline-green btn-sm rounded-pill{% if not is_therapist %} active{% endif %}"
+                        title="{% if is_therapist %}Hide transcript{% else %}Show transcript{% endif %}"
+                        aria-pressed="{% if is_therapist %}false{% else %}true{% endif %}">
                     <i class="bi bi-card-text"></i><span class="d-none d-md-inline ms-1">Transcript</span>
                 </button>
                 {% endif %}
@@ -125,7 +128,7 @@
 
         <!-- Work area: chat (left, scrollable) | divider | video (center).
              Panes sit side-by-side on desktop and stack on phone/tablet. -->
-        <div class="session-work{% if rtc_enabled %} has-video{% endif %}">
+        <div class="session-work{% if rtc_enabled %} has-video{% endif %}{% if rtc_enabled and not is_therapist %} chat-hidden{% endif %}">
 
             <!-- Chat pane: scrollable history + composer pinned to its bottom -->
             <div class="chat-pane">

@@ -471,6 +471,23 @@ def test_control_strip_shows_mic_camera_transcription(client):
     assert b"rtcSttBtn" in body
 
 
+def test_chat_pane_hidden_by_default_for_clients_in_video_sessions(client):
+    """In a video (RTC) session the client's chat pane starts collapsed so the
+    video is full-width; the clinician keeps the side-by-side view. The Transcript
+    toggle stays available so the client can open the chat."""
+    from unittest.mock import patch
+    import config
+    with patch.object(config, "RTC_ENABLED", True):
+        client_rv = _session_render(client, as_therapist=False, consented=True)
+        ther_rv = _session_render(client, as_therapist=True)
+    assert client_rv.status_code == 200 and ther_rv.status_code == 200
+    # Client: chat pane collapsed by default, but the toggle is present to open it.
+    assert b"session-work has-video chat-hidden" in client_rv.data
+    assert b"transcriptToggleBtn" in client_rv.data
+    # Clinician: normal side-by-side, chat shown (the work div is not collapsed).
+    assert b"session-work has-video chat-hidden" not in ther_rv.data
+
+
 def test_client_sees_recording_status_in_strip(client):
     from unittest.mock import patch
     import config
