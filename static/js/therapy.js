@@ -762,6 +762,14 @@ function initSessionControls(sessionId, userId, isTherapist) {
     // Waiting room: held out until the clinician is present; admitted on arrival.
     socket.on("waiting_room", function (data) {
         data = data || {};
+        // The waiting room takes over the screen — don't leave the join-consent
+        // modal stacked underneath it. It reappears on the reload when the
+        // clinician admits this client (session_open), which is the right moment
+        // to consent (no waiting room then).
+        var jc = document.getElementById("joinConsentModal");
+        if (jc && typeof bootstrap !== "undefined") {
+            bootstrap.Modal.getOrCreateInstance(jc).hide();
+        }
         _showWaitingRoomOverlay(data.message);
     });
     socket.on("session_open", function () {
