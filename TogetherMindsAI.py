@@ -134,6 +134,10 @@ room_mode: dict = {}
 room_participants: dict = defaultdict(set)   # session_id → set of user_ids
 sid_to_user: dict = {}                        # SocketIO SID → user_id
 sid_to_session: dict = {}                     # SocketIO SID → session_id
+# TEMP presence diagnostics: every live socket id a user holds in a session, so a
+# disconnect log can show whether the user still had other live connections (i.e.
+# whether a stale socket evicted a still-connected user). Remove after diagnosis.
+session_user_sids: dict = defaultdict(lambda: defaultdict(set))   # session_id → {user_id: {sid, …}}
 
 # Display name tracking — all ephemeral, reset on server restart
 session_display_names: dict = {}  # session_id → {user_id: display_name}
@@ -3161,8 +3165,14 @@ def on_join(data):
             join_room(session_id)                       # so they receive 'session_open'
             sid_to_user[request.sid]    = user_id
             sid_to_session[request.sid] = session_id
+            session_user_sids[session_id][user_id].add(request.sid)
             session_waiting[session_id].add(user_id)
             _record_participation(session_id, user_id)  # still counts for "my sessions"
+            app.logger.info(
+                "PRESENCE waiting-room client=%s session=%s therapist=%s therapist_in_room=%s room=%s",
+                user_id, session_id, therapist_id,
+                therapist_id in room_participants.get(session_id, set()),
+                sorted(room_participants.get(session_id, set())))
             emit("waiting_room",
                  {"message": "Please wait — your clinician will start the session."})
             return
@@ -3184,6 +3194,12 @@ def on_join(data):
         room_participants[session_id].add(user_id)
         sid_to_user[request.sid]    = user_id
         sid_to_session[request.sid] = session_id
+        session_user_sids[session_id][user_id].add(request.sid)
+        app.logger.info(
+            "PRESENCE join user=%s is_therapist=%s session=%s sid=%s sids_for_user=%s room=%s",
+            user_id, (user_id == therapist_id), session_id, request.sid,
+            sorted(session_user_sids[session_id][user_id]),
+            sorted(room_participants.get(session_id, set())))
 
         # Durable participation link (so "my sessions" finds it even if the
         # participant never sends a message).
@@ -3260,8 +3276,19 @@ def on_disconnect():
     user_id    = sid_to_user.pop(request.sid, None)
     session_id = sid_to_session.pop(request.sid, None)
     if user_id and session_id:
+        # TEMP diagnostics: drop just this socket id, then see if the user still
+        # has other live connections. If they do but we still evict them below,
+        # that proves a stale socket evicts a still-connected user.
+        _sids = session_user_sids.get(session_id, {}).get(user_id)
+        if _sids is not None:
+            _sids.discard(request.sid)
+        _remaining = sorted(_sids) if _sids else []
         room_participants[session_id].discard(user_id)
         session_waiting.get(session_id, set()).discard(user_id)
+        app.logger.info(
+            "PRESENCE disconnect user=%s session=%s sid=%s remaining_sids_for_user=%s room_after=%s",
+            user_id, session_id, request.sid, _remaining,
+            sorted(room_participants.get(session_id, set())))
         # session_display_names is intentionally NOT cleared on disconnect.
         # Socket.IO long-polling causes frequent disconnect/reconnect cycles;
         # clearing the name here causes the display name modal to re-appear
