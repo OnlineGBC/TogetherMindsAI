@@ -656,6 +656,18 @@ function _showSessionEndedOverlay() {
     setTimeout(go, 300000);   // stays visible ~5 minutes; "Leave" exits sooner
 }
 
+// Blur the session content behind the waiting room so nothing on screen (chat
+// messages, video, co-pilot) is readable to someone not admitted, and block
+// selecting/copying it. The overlay is appended to <body>, outside these, so it
+// stays sharp. Cleared on admission (the page reloads).
+function _blurBehind(on) {
+    document.querySelectorAll(".session-work, #therapistConsole").forEach(function (el) {
+        el.style.filter        = on ? "blur(10px)" : "";
+        el.style.pointerEvents = on ? "none" : "";
+        el.style.userSelect    = on ? "none" : "";
+    });
+}
+
 // Waiting room — a client joined (or tried to talk) while no clinician is present.
 // Cover the session and disable the composer until the therapist arrives. No
 // client-only conversation is allowed without a qualified clinician.
@@ -664,6 +676,7 @@ function _showWaitingRoomOverlay(msg) {
     var send  = document.getElementById("sendBtn");
     if (input) { input.disabled = true; }
     if (send)  { send.disabled = true; }
+    _blurBehind(true);
     if (document.getElementById("_waitingOverlay")) return;
     var o = document.createElement("div");
     o.id = "_waitingOverlay";
