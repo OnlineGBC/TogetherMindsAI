@@ -188,6 +188,10 @@ class TherapySession(db.Model):
     # Opaque token for tokenized transcript download links in the end-session email,
     # so the session id never appears in the URL (like SessionRecording.download_token).
     download_token = db.Column(db.String(64), nullable=True, index=True)
+    # Heartbeat presence: the therapist's page POSTs /heartbeat every ~15s, updating
+    # this. A client is admitted from the waiting room only if the therapist was seen
+    # recently. DB-backed so presence survives restarts and doesn't flap with sockets.
+    therapist_last_seen = db.Column(db.DateTime, nullable=True)
 
 
 class SessionParticipant(db.Model):

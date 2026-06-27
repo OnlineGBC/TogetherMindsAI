@@ -134,10 +134,6 @@ room_mode: dict = {}
 room_participants: dict = defaultdict(set)   # session_id → set of user_ids
 sid_to_user: dict = {}                        # SocketIO SID → user_id
 sid_to_session: dict = {}                     # SocketIO SID → session_id
-# TEMP presence diagnostics: every live socket id a user holds in a session, so a
-# disconnect log can show whether the user still had other live connections (i.e.
-# whether a stale socket evicted a still-connected user). Remove after diagnosis.
-session_user_sids: dict = defaultdict(lambda: defaultdict(set))   # session_id → {user_id: {sid, …}}
 
 # Display name tracking — all ephemeral, reset on server restart
 session_display_names: dict = {}  # session_id → {user_id: display_name}
@@ -160,6 +156,44 @@ session_recording_active: dict     = {}                  # session_id → Sessio
 # Waiting room — clients who joined while no clinician was present. They are held
 # out of the live session (no history, can't send) until the therapist arrives.
 session_waiting: dict = defaultdict(set)                 # session_id → {user_id, …}
+
+# Therapist presence is a DB-backed heartbeat (TherapySession.therapist_last_seen),
+# NOT live socket state. A therapist is "present" if their page checked in within
+# this window. The page heartbeats every ~15s, so two missed beats = absent.
+THERAPIST_PRESENCE_WINDOW_SECONDS = 35
+
+
+def _mark_therapist_seen(session_id: str) -> None:
+    """Stamp the therapist's heartbeat for this session. Never raises."""
+    if not session_id:
+        return
+    try:
+        ts = db.session.get(TherapySession, session_id)
+        if ts and ts.therapist_id:
+            ts.therapist_last_seen = datetime.now(timezone.utc)
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _therapist_present(session_id: str) -> bool:
+    """True if the session's therapist checked in within the presence window.
+
+    Reads the DB heartbeat, so it survives restarts and doesn't flap with socket
+    reconnects. A session with no therapist_id is not therapist-led (no gate)."""
+    try:
+        ts = db.session.get(TherapySession, session_id)
+        if not ts or not ts.therapist_id:
+            return False
+        last = ts.therapist_last_seen
+        if last is None:
+            return False
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)   # DB may return naive UTC
+        age = (datetime.now(timezone.utc) - last).total_seconds()
+        return age <= THERAPIST_PRESENCE_WINDOW_SECONDS
+    except Exception:
+        return False
 
 
 def _record_participation(session_id: str, user_id: str) -> None:
@@ -533,6 +567,9 @@ if not config.IS_TESTING:
             "ALTER TABLE therapy_sessions ADD COLUMN friendly_name VARCHAR(60)",
             "ALTER TABLE session_participants ADD COLUMN display_name VARCHAR(60)",
             "ALTER TABLE therapy_sessions ADD COLUMN download_token VARCHAR(64)",
+            # TIMESTAMP (not DATETIME) — DATETIME is invalid on Postgres and would
+            # silently leave the column missing, causing 500s.
+            "ALTER TABLE therapy_sessions ADD COLUMN therapist_last_seen TIMESTAMP",
         ):
             try:
                 db.session.execute(text(ddl))
@@ -2295,6 +2332,17 @@ def _therapist_gate_or_login(session_id: str):
     abort(403)
 
 
+@app.route("/session/<session_id>/heartbeat", methods=["POST"])
+def session_heartbeat(session_id):
+    """Therapist presence heartbeat. The therapist's page POSTs this every ~15s;
+    it stamps therapist_last_seen so clients are admitted from the waiting room
+    only while the clinician is actually present. Therapist-only."""
+    if _is_session_therapist(session_id) is None:
+        abort(403)
+    _mark_therapist_seen(session_id)
+    return ("", 204)
+
+
 @app.route("/session/<session_id>/summary")
 def session_summary(session_id):
     """Therapist-only: generate and return the private session summary as JSON."""
@@ -3158,21 +3206,16 @@ def on_join(data):
             return
 
         # Waiting room: a client may not be in a live therapist-led session unless
-        # the clinician is present. Hold them out (no history, can't send) until the
-        # therapist arrives, which broadcasts 'session_open' to admit them.
+        # the clinician is present. Presence is the DB heartbeat (not socket state),
+        # so it survives restarts and doesn't flap on reconnects. Held clients are
+        # admitted via 'session_open' once the therapist is seen again.
         if therapist_id and user_id != therapist_id \
-                and therapist_id not in room_participants.get(session_id, set()):
+                and not _therapist_present(session_id):
             join_room(session_id)                       # so they receive 'session_open'
             sid_to_user[request.sid]    = user_id
             sid_to_session[request.sid] = session_id
-            session_user_sids[session_id][user_id].add(request.sid)
             session_waiting[session_id].add(user_id)
             _record_participation(session_id, user_id)  # still counts for "my sessions"
-            app.logger.info(
-                "PRESENCE waiting-room client=%s session=%s therapist=%s therapist_in_room=%s room=%s",
-                user_id, session_id, therapist_id,
-                therapist_id in room_participants.get(session_id, set()),
-                sorted(room_participants.get(session_id, set())))
             emit("waiting_room",
                  {"message": "Please wait — your clinician will start the session."})
             return
@@ -3194,12 +3237,6 @@ def on_join(data):
         room_participants[session_id].add(user_id)
         sid_to_user[request.sid]    = user_id
         sid_to_session[request.sid] = session_id
-        session_user_sids[session_id][user_id].add(request.sid)
-        app.logger.info(
-            "PRESENCE join user=%s is_therapist=%s session=%s sid=%s sids_for_user=%s room=%s",
-            user_id, (user_id == therapist_id), session_id, request.sid,
-            sorted(session_user_sids[session_id][user_id]),
-            sorted(room_participants.get(session_id, set())))
 
         # Durable participation link (so "my sessions" finds it even if the
         # participant never sends a message).
@@ -3213,6 +3250,7 @@ def on_join(data):
         if is_therapist_led:
             session_therapist_id[session_id] = ts.therapist_id
             if user_id == ts.therapist_id:
+                _mark_therapist_seen(session_id)   # presence is immediate on arrival
                 join_room(_therapist_room(session_id))
                 emit("console_init", {"mode": mode})
                 # Replay any stored cards so the console shows full history, not
@@ -3276,19 +3314,8 @@ def on_disconnect():
     user_id    = sid_to_user.pop(request.sid, None)
     session_id = sid_to_session.pop(request.sid, None)
     if user_id and session_id:
-        # TEMP diagnostics: drop just this socket id, then see if the user still
-        # has other live connections. If they do but we still evict them below,
-        # that proves a stale socket evicts a still-connected user.
-        _sids = session_user_sids.get(session_id, {}).get(user_id)
-        if _sids is not None:
-            _sids.discard(request.sid)
-        _remaining = sorted(_sids) if _sids else []
         room_participants[session_id].discard(user_id)
         session_waiting.get(session_id, set()).discard(user_id)
-        app.logger.info(
-            "PRESENCE disconnect user=%s session=%s sid=%s remaining_sids_for_user=%s room_after=%s",
-            user_id, session_id, request.sid, _remaining,
-            sorted(room_participants.get(session_id, set())))
         # session_display_names is intentionally NOT cleared on disconnect.
         # Socket.IO long-polling causes frequent disconnect/reconnect cycles;
         # clearing the name here causes the display name modal to re-appear
@@ -3334,9 +3361,8 @@ def on_send_message(data):
         therapist_id = session_therapist_id.get(session_id)
         if therapist_id is not None:
             # No client-only conversation: drop a client's message if the clinician
-            # is not currently present (they'd be in the waiting room).
-            if user_id != therapist_id \
-                    and therapist_id not in room_participants.get(session_id, set()):
+            # is not currently present (heartbeat-based, same rule as the gate).
+            if user_id != therapist_id and not _therapist_present(session_id):
                 emit("waiting_room",
                      {"message": "Please wait — your clinician isn't in the session yet."})
                 return

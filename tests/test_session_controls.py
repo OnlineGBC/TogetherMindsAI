@@ -194,6 +194,41 @@ def test_normal_join_with_therapist_present_does_not_reload(enc_client):
     assert "session_open" not in names
 
 
+def test_heartbeat_admits_client_without_therapist_socket(enc_client):
+    """Presence is the DB heartbeat: an HTTP heartbeat alone (no therapist socket)
+    is enough to admit a client — proving presence is decoupled from sockets."""
+    with app.app_context():
+        sid = _seed("ther-1", mode="group")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
+    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 204
+    c = _raw_join(enc_client, sid, "client-1", mode="group")
+    assert "waiting_room" not in _names(c)
+
+
+def test_stale_heartbeat_holds_client(enc_client):
+    """An old heartbeat (therapist gone) sends the client back to the waiting room."""
+    with app.app_context():
+        sid = _seed("ther-1", mode="group")
+        ts = db.session.get(TherapySession, sid)
+        ts.therapist_last_seen = datetime.now(timezone.utc) - timedelta(seconds=120)
+        db.session.commit()
+    c = _raw_join(enc_client, sid, "client-1", mode="group")
+    assert "waiting_room" in _names(c)
+
+
+def test_heartbeat_requires_therapist(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1", mode="group")
+    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 403   # not signed in
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "intruder"
+    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 403   # wrong user
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ther-1"
+    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 204   # the therapist
+
+
 def test_client_message_blocked_without_therapist(enc_client):
     from models import ChatMessage
     with app.app_context():

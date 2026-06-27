@@ -420,7 +420,20 @@
     // Join SocketIO room after page loads and start wellness check
     window.addEventListener("load", function () {
         joinRoom(SESSION_ID, USER_ID, MODE, false /* realtime */);
-        {% if is_therapist %}initTherapistConsole(SESSION_ID, USER_ID);{% endif %}
+        {% if is_therapist %}
+        initTherapistConsole(SESSION_ID, USER_ID);
+        // Presence heartbeat — tells the server the clinician is here so clients are
+        // admitted from the waiting room. DB-backed, so it survives restarts and
+        // doesn't depend on the socket staying connected.
+        (function () {
+            function beat() {
+                fetch("/session/" + encodeURIComponent(SESSION_ID) + "/heartbeat",
+                      { method: "POST", credentials: "same-origin" }).catch(function () {});
+            }
+            beat();
+            setInterval(beat, 15000);
+        })();
+        {% endif %}
         if (RECORDING_ENABLED) { initRecordingControls(SESSION_ID, USER_ID, IS_THERAPIST); }
         startWellnessCheck();
         initDisplayNameRename(SESSION_ID, USER_ID, false /* realtime */);
