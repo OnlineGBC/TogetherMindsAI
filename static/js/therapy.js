@@ -386,6 +386,7 @@ function initRecordingControls(sessionId, userId, isTherapist) {
     socket.on("recording_consent_prompt", function () {
         // Prompt this client to consent — once — unless they've already answered.
         if (isTherapist || _answered) return;
+        if (window._tmInWaitingRoom) return;   // not while held in the waiting room
         if (modalEl && typeof bootstrap !== "undefined") {
             bootstrap.Modal.getOrCreateInstance(modalEl).show();
         }
@@ -762,13 +763,15 @@ function initSessionControls(sessionId, userId, isTherapist) {
     // Waiting room: held out until the clinician is present; admitted on arrival.
     socket.on("waiting_room", function (data) {
         data = data || {};
-        // The waiting room takes over the screen — don't leave the join-consent
-        // modal stacked underneath it. It reappears on the reload when the
-        // clinician admits this client (session_open), which is the right moment
-        // to consent (no waiting room then).
-        var jc = document.getElementById("joinConsentModal");
-        if (jc && typeof bootstrap !== "undefined") {
-            bootstrap.Modal.getOrCreateInstance(jc).hide();
+        // The waiting room takes over the screen — close ANY open modal so none is
+        // left stacked underneath it (join-consent, recording-consent, etc.). The
+        // flag also stops new prompts popping while the client waits. Everything
+        // resets on the reload when the clinician admits the client (session_open).
+        window._tmInWaitingRoom = true;
+        if (typeof bootstrap !== "undefined") {
+            document.querySelectorAll(".modal.show").forEach(function (m) {
+                bootstrap.Modal.getOrCreateInstance(m).hide();
+            });
         }
         _showWaitingRoomOverlay(data.message);
     });

@@ -427,6 +427,7 @@
         (function () {
             var m = document.getElementById("joinConsentModal");
             if (!m || typeof bootstrap === "undefined") { return; }
+            if (window._tmInWaitingRoom) { return; }   // waiting room takes priority
             var inst = bootstrap.Modal.getOrCreateInstance(m);
             inst.show();
             var btn = document.getElementById("joinConsentBtn");
