@@ -401,14 +401,19 @@ function initRecordingControls(sessionId, userId, isTherapist) {
 
         if (isTherapist) {
             if (!requested) {
+                // Reset the idle button to the clear OFF status (e.g. after a cancel).
+                if (requestBtn) {
+                    requestBtn.innerHTML = '<i class="bi bi-record-circle"></i><span class="ms-1">Recording is OFF</span>';
+                    requestBtn.title = "Recording is off — click to start (needs everyone's consent)";
+                }
                 show(requestBtn); hide(stopBtn);
             } else {
                 hide(requestBtn); show(stopBtn);
                 if (active) {
                     // Recording in progress — click to stop.
-                    stopBtn.innerHTML = '<span class="rec-blink" aria-hidden="true">●</span> Recording';
+                    stopBtn.innerHTML = '<span class="rec-blink" aria-hidden="true">●</span> Recording is ON';
                     stopBtn.className = "btn btn-sm btn-danger rounded-pill";
-                    stopBtn.title = "Recording — click to stop";
+                    stopBtn.title = "Recording is on — click to stop";
                 } else {
                     // Requested but waiting for everyone to consent — click to cancel.
                     stopBtn.innerHTML = "Awaiting consent (" + awaiting.length + ")";

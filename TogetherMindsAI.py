@@ -3353,6 +3353,49 @@ def on_send_message(data):
         emit("error", {"message": "Failed to send message. Please try again."})
 
 
+@socketio.on("consent_acknowledged")
+def on_consent_acknowledged(data):
+    """A client acknowledges the transcription/recording consent on join or rejoin.
+
+    The therapist is never shown the consent modal, so an acknowledgement from
+    them is ignored. The acknowledgement is recorded into the session transcript
+    (stored, not echoed into the live chat) and surfaced as an informational line
+    in the therapist's Co-Pilot (live + persisted to the card history), plus an
+    audit-log entry. Never raises into the caller.
+    """
+    try:
+        session_id = (data or {}).get("session_id")
+        user_id    = (data or {}).get("user_id")
+        if not session_id or not user_id:
+            return
+        if user_id == session_therapist_id.get(session_id):
+            return
+
+        now = datetime.now(timezone.utc)
+        display_name = session_display_names.get(session_id, {}).get(user_id)
+
+        # 1) Record it in the transcript (attributed to the client; stored only).
+        db.session.add(ChatMessage(
+            session_id=session_id, user_id=user_id, timestamp=now,
+            display_name=display_name,
+            text="[Consent] Agreed to live AI transcription & recording disclosure.",
+        ))
+        db.session.commit()
+
+        # 2) Informational line in the therapist's Co-Pilot (live + history).
+        who  = display_name or "A participant"
+        card = {"type": "observation",
+                "text": f"{who} agreed to the recording & transcription consent."}
+        socketio.emit("suggestion_cards", {"cards": [card]}, to=_therapist_room(session_id))
+        _persist_cards(session_id, [card], trigger_user_id=user_id)
+
+        # 3) Audit trail (HIPAA — consent is part of the record).
+        log_event("consent_acknowledged", session_id=session_id, user_id=user_id)
+    except Exception as e:
+        app.logger.error("consent_acknowledged error: %s", type(e).__name__)
+        db.session.rollback()
+
+
 @socketio.on("therapist_note")
 def on_therapist_note(data):
     """Private note from the therapist that steers the co-pilot.

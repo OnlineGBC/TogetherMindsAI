@@ -346,6 +346,65 @@ def test_group_page_has_end_session_button(client):
 
 
 # ---------------------------------------------------------------------------
+# Join/rejoin heading + per-client consent modal + transcription/recording status
+# ---------------------------------------------------------------------------
+
+def test_join_page_says_join_or_rejoin(client):
+    rv = client.get("/session/join")
+    assert rv.status_code == 200
+    assert b"Join or Rejoin a Session" in rv.data
+
+
+def _session_render(client, mode="group", as_therapist=False):
+    """Render the session room. as_therapist=True makes therapist_id == user_id."""
+    user_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    with app.app_context():
+        db.session.add(User(id=user_id, therapy_mode=mode))
+        db.session.add(TherapySession(
+            id=session_id, mode=mode, created_by=user_id,
+            created_at=datetime.now(timezone.utc),
+            therapist_id=(user_id if as_therapist else None),
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    return client.get(f"/therapy/{mode}/{session_id}")
+
+
+def test_client_sees_consent_modal_on_session_page(client):
+    rv = _session_render(client, as_therapist=False)
+    assert rv.status_code == 200
+    assert b"joinConsentModal" in rv.data           # client-only consent popup
+    assert b"I understand and agree" in rv.data
+
+
+def test_therapist_does_not_see_consent_modal(client):
+    rv = _session_render(client, as_therapist=True)
+    assert rv.status_code == 200
+    assert b"joinConsentModal" not in rv.data        # therapist is never prompted
+
+
+def test_transcription_indicator_and_toggle_render(client):
+    from unittest.mock import patch
+    import config
+    with patch.object(config, "RTC_ENABLED", True):
+        rv = _session_render(client, as_therapist=False)
+    assert rv.status_code == 200
+    assert b"Live transcription on" in rv.data        # live indicator
+    assert b"rtcSttBtn" in rv.data                    # transcription on/off toggle
+
+
+def test_recording_status_button_shows_off(client):
+    from unittest.mock import patch
+    import config
+    with patch.object(config, "RECORDING_ENABLED", True):
+        rv = _session_render(client, as_therapist=True)   # Record control is therapist-only
+    assert rv.status_code == 200
+    assert b"Recording is OFF" in rv.data
+
+
+# ---------------------------------------------------------------------------
 # Privacy banner — close button must be wired up so clicking X actually dismisses
 # ---------------------------------------------------------------------------
 

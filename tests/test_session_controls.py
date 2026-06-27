@@ -334,3 +334,41 @@ def test_display_name_persisted_and_restored(enc_client):
         assert tm.session_display_names.get(sid, {}).get("u1") == "David"
         tm.session_display_names.pop(sid, None)
         tm.session_taken_names.pop(sid, None)
+
+
+# ---- Join consent acknowledgement (client only) → transcript + Co-Pilot ----
+
+def test_consent_ack_records_transcript_and_copilot_card(enc_client):
+    from models import ChatMessage, CopilotCard
+    with app.app_context():
+        sid = _seed("ther-1")
+    t = _join(enc_client, sid, "ther-1")
+    c = _join(enc_client, sid, "client-1")
+    t.get_received(); c.get_received()
+    c.emit("set_display_name", {"session_id": sid, "user_id": "client-1", "display_name": "David"})
+    t.get_received(); c.get_received()
+
+    c.emit("consent_acknowledged", {"session_id": sid, "user_id": "client-1"})
+
+    # 1) The therapist sees an informational Co-Pilot line; the client never does.
+    t_cards = [e for e in t.get_received() if e["name"] == "suggestion_cards"]
+    assert t_cards and "agreed to the recording & transcription consent" in \
+        t_cards[0]["args"][0]["cards"][0]["text"]
+    assert "suggestion_cards" not in _names(c)
+
+    with app.app_context():
+        # 2) Recorded in the transcript, attributed to the client.
+        msg = ChatMessage.query.filter_by(session_id=sid, user_id="client-1").first()
+        assert msg and msg.text.startswith("[Consent]")
+        # 3) Persisted to the card history so it survives a therapist reconnect.
+        assert CopilotCard.query.filter_by(session_id=sid).count() == 1
+
+
+def test_consent_ack_from_therapist_is_ignored(enc_client):
+    from models import ChatMessage
+    with app.app_context():
+        sid = _seed("ther-1")
+    t = _join(enc_client, sid, "ther-1"); t.get_received()
+    t.emit("consent_acknowledged", {"session_id": sid, "user_id": "ther-1"})
+    with app.app_context():
+        assert ChatMessage.query.filter_by(session_id=sid).count() == 0

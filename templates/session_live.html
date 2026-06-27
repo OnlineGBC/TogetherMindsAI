@@ -82,8 +82,8 @@
             <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
                 <small id="recStatusText" class="text-warning"></small>
                 {% if is_therapist %}
-                <button class="btn btn-sm btn-success rounded-pill" id="recRequestBtn">
-                    <i class="bi bi-record-circle"></i><span class="ms-1">Record</span>
+                <button class="btn btn-sm btn-success rounded-pill" id="recRequestBtn" title="Recording is off — click to start (needs everyone's consent)">
+                    <i class="bi bi-record-circle"></i><span class="ms-1">Recording is OFF</span>
                 </button>
                 <button class="btn btn-sm btn-danger rounded-pill d-none" id="recStopBtn">Stop</button>
                 {% else %}
@@ -172,6 +172,7 @@
                         <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
                             <span class="badge bg-secondary" id="rtcStatus">connecting…</span>
                             <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcMuteBtn"><i class="bi bi-mic-fill"></i> Mute</button>
+                            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcSttBtn" title="Your speech is being transcribed — click to turn transcription off"><i class="bi bi-badge-cc-fill"></i> Transcription: On</button>
                             <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn"><i class="bi bi-camera-video-off-fill"></i> Camera is Off</button>
                             <span class="d-inline-flex align-items-center gap-1">
                                 <span class="small text-muted">Background:</span>
@@ -188,7 +189,11 @@
                             {% if not is_therapist %}<button class="btn btn-sm btn-outline-danger rounded-pill" id="rtcLeaveBtn"><i class="bi bi-box-arrow-right"></i> Leave</button>{% endif %}
                         </div>
                         <div id="rtcVideoGrid" class="mb-2 flex-grow-1"></div>
-                        <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
+                        <div class="small mb-1 d-flex align-items-center gap-1">
+                            <span id="rtcSttDot" class="text-success" aria-hidden="true">●</span>
+                            <span id="rtcSttLabel" class="text-success fw-semibold">Live transcription on</span>
+                            <span class="text-muted ms-1"><i class="bi bi-badge-cc me-1"></i>Live captions</span>
+                        </div>
                         <div id="rtcCaptions" class="border rounded-3 p-2 small bg-light" style="min-height:2.5rem">…</div>
                     </div>
                 </div>
@@ -223,6 +228,43 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary rounded-pill" id="recDeclineBtn" data-bs-dismiss="modal">Decline</button>
                 <button type="button" class="btn btn-success rounded-pill" id="recConsentBtn"><i class="bi bi-check-circle me-1"></i>I consent</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if not is_therapist %}
+<!-- Join consent modal — shown to each client on EVERY join/rejoin. Reuses the
+     recording-and-transcription disclosure. The client must acknowledge before
+     proceeding; the acknowledgement is recorded server-side (into the session
+     transcript and as an informational line in the therapist's Co-Pilot). -->
+<div class="modal fade" id="joinConsentModal" tabindex="-1" aria-labelledby="joinConsentLabel"
+     aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rounded-4">
+            <div class="modal-header">
+                <h5 class="modal-title" id="joinConsentLabel"><i class="bi bi-mic-fill text-primary-green me-2"></i>Before you join this session</h5>
+            </div>
+            <div class="modal-body small">
+                <p class="mb-2">Your speech in this session is <strong>transcribed to text by an automated (AI)
+                    service</strong>, and that text becomes part of the session transcript — your clinician's
+                    confidential record. Your session is <strong>not recorded by default</strong> — only the text
+                    is kept.</p>
+                <p class="mb-2">Recording the audio/video is a <strong>separate, optional</strong> feature that
+                    stays off unless <strong>every participant consents</strong>, and anyone can decline or stop it
+                    at any time. If a session is recorded, the audio/video is kept for <strong>30 days</strong> and
+                    then permanently deleted; the written transcript is kept as the clinical record for
+                    <strong>up to 6 years</strong>.</p>
+                <p class="mb-2">This session is also supported by a private <strong>AI co-pilot</strong> that
+                    assists your clinician; it does not replace their professional judgment. Speech and text are
+                    handled by our service providers under signed HIPAA agreements — see our
+                    <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.</p>
+                <p class="mb-0">By continuing, you <strong>consent to live AI transcription</strong> as described.
+                    You can turn your own transcription off at any time from the audio controls.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary-green rounded-pill" id="joinConsentBtn"><i class="bi bi-check-circle me-1"></i>I understand and agree</button>
             </div>
         </div>
     </div>
@@ -365,6 +407,26 @@
         initDisplayNameRename(SESSION_ID, USER_ID, false /* realtime */);
         initEndSessionGuard(SESSION_ID, USER_ID, "/progress/" + USER_ID + "/{{ mode }}");
         initSessionControls(SESSION_ID, USER_ID, IS_THERAPIST);
+        {% if not is_therapist %}
+        // Consent modal — shown to the client on EVERY join/rejoin. On agree, the
+        // acknowledgement is recorded server-side (transcript + therapist Co-Pilot).
+        (function () {
+            var m = document.getElementById("joinConsentModal");
+            if (!m || typeof bootstrap === "undefined") { return; }
+            var inst = bootstrap.Modal.getOrCreateInstance(m);
+            inst.show();
+            var btn = document.getElementById("joinConsentBtn");
+            if (btn) {
+                btn.addEventListener("click", function () {
+                    if (window.socket) {
+                        window.socket.emit("consent_acknowledged",
+                            { session_id: SESSION_ID, user_id: USER_ID });
+                    }
+                    inst.hide();
+                });
+            }
+        })();
+        {% endif %}
     });
 
     // Transcript download with progress feedback. The therapist's copy generates
@@ -434,9 +496,38 @@
     if (!joinBtn) return;
     var statusEl   = document.getElementById("rtcStatus");
     var captionsEl = document.getElementById("rtcCaptions");
-    var lkRoom = null, sttWS = null, audioCtx = null, micStream = null, processor = null, srcNode = null, muted = false;
+    var sttBtn     = document.getElementById("rtcSttBtn");
+    var sttDot     = document.getElementById("rtcSttDot");
+    var sttLabel   = document.getElementById("rtcSttLabel");
+    var lkRoom = null, sttWS = null, audioCtx = null, micStream = null, processor = null, srcNode = null, muted = false, sttEnabled = true;
 
     function setStatus(t, cls) { statusEl.textContent = t; statusEl.className = "badge " + (cls || "bg-secondary"); }
+
+    // Live transcription indicator + per-participant on/off. Turning it off stops
+    // ONLY your own speech-to-text — you stay in the audio/video call. Each
+    // participant transcribes their own speech in-browser, so this is personal.
+    function setSttIndicator(on) {
+        if (sttDot)   { sttDot.className = on ? "text-success" : "text-muted"; }
+        if (sttLabel) {
+            sttLabel.textContent = on ? "Live transcription on" : "Transcription off";
+            sttLabel.className   = on ? "text-success fw-semibold" : "text-muted fw-semibold";
+        }
+        if (sttBtn) {
+            sttBtn.innerHTML = on
+                ? '<i class="bi bi-badge-cc-fill"></i> Transcription: On'
+                : '<i class="bi bi-badge-cc"></i> Transcription: Off';
+            sttBtn.title = on
+                ? "Your speech is being transcribed — click to turn transcription off"
+                : "Transcription is off — click to turn it back on";
+        }
+        if (captionsEl && !on) { captionsEl.textContent = "(transcription off)"; }
+    }
+    function setStt(on) {
+        sttEnabled = on;
+        if (on) { startSTT(); } else { stopSTT(); }
+        setSttIndicator(on);
+    }
+    if (sttBtn) { sttBtn.addEventListener("click", function () { setStt(!sttEnabled); }); }
 
     async function joinAudio() {
         document.getElementById("rtcConsent").classList.add("d-none");
@@ -476,7 +567,9 @@
         setStatus("live", "bg-success");
 
         // 2) AssemblyAI streaming STT (in-browser)
+        sttEnabled = true;
         startSTT();
+        setSttIndicator(true);
     }
 
     async function startSTT() {
@@ -517,15 +610,23 @@
         };
     }
 
-    function leaveAudio() {
+    // Tear down ONLY the speech-to-text path (used by both the transcription
+    // toggle and a full leave). The mic/call stay up unless leaveAudio() runs.
+    function stopSTT() {
         try { if (sttWS) { if (sttWS.readyState === 1) sttWS.send(JSON.stringify({ type: "Terminate" })); sttWS.close(); } } catch (e) {}
         try { if (processor) processor.disconnect(); } catch (e) {}
+        try { if (srcNode) srcNode.disconnect(); } catch (e) {}
         try { if (audioCtx) audioCtx.close(); } catch (e) {}
+        sttWS = processor = srcNode = audioCtx = null;
+    }
+
+    function leaveAudio() {
+        stopSTT();
         try { if (micStream) micStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
         try { if (camTrack) camTrack.stop(); } catch (e) {}
         try { if (lkRoom) lkRoom.disconnect(); } catch (e) {}
         if (videoGrid) videoGrid.innerHTML = "";
-        sttWS = processor = audioCtx = micStream = camTrack = lkRoom = null;
+        micStream = camTrack = lkRoom = null;
         document.getElementById("rtcLive").classList.add("d-none");
         document.getElementById("rtcConsent").classList.remove("d-none");
     }
