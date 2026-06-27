@@ -195,18 +195,17 @@ def test_therapist_docx_contains_summary(enc_client):
     assert "CLIENT_DRAFT_MARKER." in text        # client draft is in the THERAPIST's copy
 
 
-def test_client_docx_has_no_summary(enc_client):
+def test_client_cannot_download_clinician_led_session(enc_client):
+    """A client may not download a clinician-led session's record at all: the
+    transcript routes return 403, and the clinician summary is never generated."""
     with app.app_context():
         sid = _seed_therapist_session("ther-1", "client-1")
     with enc_client.session_transaction() as s:
-        s["user_id"] = "client-1"                # client posted a message → may download transcript
+        s["user_id"] = "client-1"                # a client — never downloads a clinician-led record
     fake = {"clinical": "CLINICAL_RECAP_MARKER.", "codes_rationale": "x", "client_recap": "y"}
     with patch("clinical_summary.generate", return_value=fake) as gen:
         rv = enc_client.get(f"/transcript/{sid}/docx")
-    assert rv.status_code == 200
-    text = _docx_text(rv)
-    assert "Clinician Summary" not in text
-    assert "CLINICAL_RECAP_MARKER." not in text
+    assert rv.status_code == 403
     gen.assert_not_called()                      # never even generated for a client
 
 

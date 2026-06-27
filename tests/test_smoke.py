@@ -599,6 +599,55 @@ def test_transcript_pdf_empty_session(client):
     assert rv.data[:4] == b"%PDF"
 
 
+def test_client_cannot_download_clinician_led_transcript(client):
+    """Clients must not download a clinician-led session's record — only the
+    clinician. A client hitting the transcript routes directly gets 403."""
+    therapist_id = "therapist-dl"
+    user_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    with app.app_context():
+        db.session.add(User(id=user_id, therapy_mode="group"))
+        db.session.add(TherapySession(
+            id=session_id, mode="group", created_by=therapist_id,
+            created_at=datetime.now(timezone.utc), therapist_id=therapist_id,
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    assert client.get(f"/transcript/{session_id}/pdf").status_code == 403
+    assert client.get(f"/transcript/{session_id}/docx").status_code == 403
+
+
+def test_clinician_can_still_download_their_session_transcript(client):
+    """The clinician who led the session can still download its transcript."""
+    therapist_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    with app.app_context():
+        db.session.add(User(id=therapist_id, therapy_mode="group"))
+        db.session.add(TherapySession(
+            id=session_id, mode="group", created_by=therapist_id,
+            created_at=datetime.now(timezone.utc), therapist_id=therapist_id,
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = therapist_id
+    rv = client.get(f"/transcript/{session_id}/pdf")
+    assert rv.status_code == 200
+    assert rv.data[:4] == b"%PDF"
+
+
+def test_download_button_hidden_for_clients_shown_for_clinician(client):
+    """The Download control is clinician-only: the client session page must not
+    render the transcript download link; the clinician page must."""
+    client_rv = _session_render(client, as_therapist=False, consented=True)
+    assert client_rv.status_code == 200
+    assert b'/pdf" download' not in client_rv.data        # no download link for clients
+
+    ther_rv = _session_render(client, as_therapist=True)
+    assert ther_rv.status_code == 200
+    assert b'/pdf" download' in ther_rv.data               # clinician keeps it
+
+
 def test_end_session_modal_present_in_base(client):
     """The modal container must be in the base layout (rendered on every therapy page)."""
     from datetime import datetime, timezone

@@ -2250,18 +2250,21 @@ _FONT_BOLD    = os.path.join(_FONT_DIR, "DejaVuSans-Bold.ttf")
 
 
 def _user_can_access_session(session_id: str, user_id: str) -> bool:
-    """A user can download a session's transcript if they created it OR
-    posted any message in it. Covers solo (creator-only) and couple/group
-    (creator + every participant)."""
+    """Whether a user may download a session's transcript.
+
+    Clinician-led session: ONLY the clinician may download it — clients never
+    download a clinician-led session's record (the record stays the clinician's).
+    Non-clinician (legacy / self-directed) session: the creator or any
+    participant who posted a message may download it."""
     if not user_id:
         return False
     ts = db.session.get(TherapySession, session_id)
     if not ts:
         return False
+    # Clinician-led session — clients are never allowed; only the clinician.
+    if ts.therapist_id:
+        return ts.therapist_id == user_id
     if ts.created_by == user_id:
-        return True
-    # The clinician who led the session can always retrieve its full record.
-    if ts.therapist_id and ts.therapist_id == user_id:
         return True
     # A participant who hid this session can no longer retrieve it (their own view
     # only — the clinician's record is untouched).
