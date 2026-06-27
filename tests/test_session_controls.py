@@ -401,7 +401,10 @@ def test_display_name_persisted_and_restored(enc_client):
 
 # ---- Join consent acknowledgement (client only) → transcript + Co-Pilot ----
 
-def test_consent_ack_records_transcript_and_copilot_card(enc_client):
+def test_consent_records_transcript_and_copilot_card(enc_client):
+    """A client agrees on the dedicated consent gate (HTTP POST, before the room
+    loads). The agreement is recorded in the transcript, surfaced live in the
+    therapist's Co-Pilot (never the client's), and persisted to the card history."""
     from models import ChatMessage, CopilotCard
     with app.app_context():
         sid = _seed("ther-1")
@@ -411,7 +414,11 @@ def test_consent_ack_records_transcript_and_copilot_card(enc_client):
     c.emit("set_display_name", {"session_id": sid, "user_id": "client-1", "display_name": "David"})
     t.get_received(); c.get_received()
 
-    c.emit("consent_acknowledged", {"session_id": sid, "user_id": "client-1"})
+    # The client passes the consent gate before entering the room.
+    with enc_client.session_transaction() as sess:
+        sess["user_id"] = "client-1"
+    resp = enc_client.post(f"/session/{sid}/consent")
+    assert resp.status_code in (301, 302)
 
     # 1) The therapist sees an informational Co-Pilot line; the client never does.
     t_cards = [e for e in t.get_received() if e["name"] == "suggestion_cards"]
@@ -427,11 +434,14 @@ def test_consent_ack_records_transcript_and_copilot_card(enc_client):
         assert CopilotCard.query.filter_by(session_id=sid).count() == 1
 
 
-def test_consent_ack_from_therapist_is_ignored(enc_client):
+def test_consent_from_therapist_is_ignored(enc_client):
+    """The therapist leads the session and is never consent-gated; a consent POST
+    attributed to them records nothing."""
     from models import ChatMessage
     with app.app_context():
         sid = _seed("ther-1")
-    t = _join(enc_client, sid, "ther-1"); t.get_received()
-    t.emit("consent_acknowledged", {"session_id": sid, "user_id": "ther-1"})
+    with enc_client.session_transaction() as sess:
+        sess["user_id"] = "ther-1"
+    enc_client.post(f"/session/{sid}/consent")
     with app.app_context():
         assert ChatMessage.query.filter_by(session_id=sid).count() == 0

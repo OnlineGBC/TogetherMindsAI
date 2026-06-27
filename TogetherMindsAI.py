@@ -1310,12 +1310,20 @@ def _render_session_room(session_id, mode):
         flash("That session is already full.", "warning")
         return redirect(url_for("welcome"))
 
+    # Consent gate — a CLIENT must agree to the transcription/recording disclosure
+    # on a dedicated screen BEFORE the room renders, so no session content is ever
+    # on screen before they consent. The therapist leads the session and is never
+    # gated. Consent is remembered for this browser session per session id.
+    is_therapist = bool(ts and ts.therapist_id and ts.therapist_id == user_id)
+    if not is_therapist and session_id not in session.get("consented_sessions", []):
+        return redirect(url_for("session_consent_get", session_id=session_id))
+
     cfg = MODE_CONFIG.get(mode, MODE_CONFIG["solo"])
     return render_template(
         "session_live.html",
         user_id=user_id, session_id=session_id, mode=mode,
         mode_label=cfg["label"], mode_icon=cfg["icon"], mode_placeholder=cfg["placeholder"],
-        is_therapist=bool(ts and ts.therapist_id and ts.therapist_id == user_id),
+        is_therapist=is_therapist,
         is_therapist_led=bool(ts and ts.therapist_id),
         rtc_enabled=config.RTC_ENABLED,
         recording_enabled=config.RECORDING_ENABLED,
@@ -1335,6 +1343,84 @@ def therapy_couple(session_id):
 @app.route("/therapy/group/<session_id>")
 def therapy_group(session_id):
     return _render_session_room(session_id, "group")
+
+
+def _record_consent(session_id, user_id):
+    """Record a CLIENT's agreement to the transcription/recording disclosure.
+
+    The therapist leads the session and is never gated, so an acknowledgement
+    attributed to them is ignored. The consent is recorded into the session
+    transcript (stored, not echoed into live chat), surfaced as an informational
+    line in the therapist's Co-Pilot (live + persisted to the card history), and
+    written to the audit log. Never raises into the caller.
+    """
+    try:
+        if not session_id or not user_id:
+            return
+        ts = db.session.get(TherapySession, session_id)
+        if ts and ts.therapist_id and ts.therapist_id == user_id:
+            return  # the therapist leads the session; never consent-gated
+
+        now = datetime.now(timezone.utc)
+        display_name = session_display_names.get(session_id, {}).get(user_id)
+
+        # 1) Record it in the transcript (attributed to the client; stored only).
+        db.session.add(ChatMessage(
+            session_id=session_id, user_id=user_id, timestamp=now,
+            display_name=display_name,
+            text="[Consent] Agreed to live AI transcription & recording disclosure.",
+        ))
+        db.session.commit()
+
+        # 2) Informational line in the therapist's Co-Pilot (live + history).
+        who  = display_name or "A participant"
+        card = {"type": "observation",
+                "text": f"{who} agreed to the recording & transcription consent."}
+        socketio.emit("suggestion_cards", {"cards": [card]}, to=_therapist_room(session_id))
+        _persist_cards(session_id, [card], trigger_user_id=user_id)
+
+        # 3) Audit trail (HIPAA — consent is part of the record).
+        log_event("consent_acknowledged", session_id=session_id, user_id=user_id)
+    except Exception as e:
+        app.logger.error("record_consent error: %s", type(e).__name__)
+        db.session.rollback()
+
+
+@app.route("/session/<session_id>/consent", methods=["GET"])
+def session_consent_get(session_id):
+    """Consent gate — shown to a CLIENT before the session room loads, so no
+    session content is ever on screen before they agree. The therapist and an
+    already-consented client (this browser session) are sent straight in."""
+    ts = db.session.get(TherapySession, session_id)
+    if not ts:
+        return _redirect_invalid_session()
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode=ts.mode))
+    is_therapist = bool(ts.therapist_id and ts.therapist_id == user_id)
+    if is_therapist or session_id in session.get("consented_sessions", []):
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+    return render_template("consent_gate.html", session_id=session_id, mode=ts.mode)
+
+
+@app.route("/session/<session_id>/consent", methods=["POST"])
+def session_consent_post(session_id):
+    """Client agrees to the disclosure. Record it (transcript + Co-Pilot + audit),
+    remember it for this browser session, then admit them into the room."""
+    ts = db.session.get(TherapySession, session_id)
+    if not ts:
+        return _redirect_invalid_session()
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode=ts.mode))
+    is_therapist = bool(ts.therapist_id and ts.therapist_id == user_id)
+    if not is_therapist:
+        _record_consent(session_id, user_id)
+        consented = session.get("consented_sessions", [])
+        if session_id not in consented:
+            consented.append(session_id)
+            session["consented_sessions"] = consented
+    return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
 
 
 # ---------------------------------------------------------------------------
@@ -3414,49 +3500,6 @@ def on_send_message(data):
         app.logger.error("on_send_message error: %s", type(e).__name__)
         db.session.rollback()
         emit("error", {"message": "Failed to send message. Please try again."})
-
-
-@socketio.on("consent_acknowledged")
-def on_consent_acknowledged(data):
-    """A client acknowledges the transcription/recording consent on join or rejoin.
-
-    The therapist is never shown the consent modal, so an acknowledgement from
-    them is ignored. The acknowledgement is recorded into the session transcript
-    (stored, not echoed into the live chat) and surfaced as an informational line
-    in the therapist's Co-Pilot (live + persisted to the card history), plus an
-    audit-log entry. Never raises into the caller.
-    """
-    try:
-        session_id = (data or {}).get("session_id")
-        user_id    = (data or {}).get("user_id")
-        if not session_id or not user_id:
-            return
-        if user_id == session_therapist_id.get(session_id):
-            return
-
-        now = datetime.now(timezone.utc)
-        display_name = session_display_names.get(session_id, {}).get(user_id)
-
-        # 1) Record it in the transcript (attributed to the client; stored only).
-        db.session.add(ChatMessage(
-            session_id=session_id, user_id=user_id, timestamp=now,
-            display_name=display_name,
-            text="[Consent] Agreed to live AI transcription & recording disclosure.",
-        ))
-        db.session.commit()
-
-        # 2) Informational line in the therapist's Co-Pilot (live + history).
-        who  = display_name or "A participant"
-        card = {"type": "observation",
-                "text": f"{who} agreed to the recording & transcription consent."}
-        socketio.emit("suggestion_cards", {"cards": [card]}, to=_therapist_room(session_id))
-        _persist_cards(session_id, [card], trigger_user_id=user_id)
-
-        # 3) Audit trail (HIPAA — consent is part of the record).
-        log_event("consent_acknowledged", session_id=session_id, user_id=user_id)
-    except Exception as e:
-        app.logger.error("consent_acknowledged error: %s", type(e).__name__)
-        db.session.rollback()
 
 
 @socketio.on("therapist_note")

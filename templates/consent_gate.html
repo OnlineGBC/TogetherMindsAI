@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Before you join — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<style>
+  .consent-hero-icon {
+    width: 3.4rem; height: 3.4rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--teal-primary) 0%, var(--green-dark) 100%);
+    color: #fff; font-size: 1.5rem;
+    box-shadow: 0 6px 16px rgba(0, 121, 107, 0.28);
+  }
+</style>
+<div class="row justify-content-center">
+    <div class="col-md-9 col-lg-7 col-xl-6">
+
+        <div class="text-center mb-3">
+            <span class="consent-hero-icon mb-2"><i class="bi bi-mic-fill"></i></span>
+            <h3 class="fw-bold mb-1">Before you join this session</h3>
+            <p class="text-muted mb-0 small">Please read this and agree to continue.</p>
+        </div>
+
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body p-4 small">
+                <p class="mb-2">Your speech in this session is <strong>transcribed to text by an automated (AI)
+                    service</strong>, and that text becomes part of the session transcript — your clinician's
+                    confidential record. Your session is <strong>not recorded by default</strong> — only the text
+                    is kept.</p>
+                <p class="mb-2">Recording the audio/video is a <strong>separate, optional</strong> feature that
+                    stays off unless <strong>every participant consents</strong>, and anyone can decline or stop it
+                    at any time. If a session is recorded, the audio/video is kept for <strong>30 days</strong> and
+                    then permanently deleted; the written transcript is kept as the clinical record for
+                    <strong>up to 6 years</strong>.</p>
+                <p class="mb-2">This session is also supported by a private <strong>AI co-pilot</strong> that
+                    assists your clinician; it does not replace their professional judgment. Speech and text are
+                    handled by our service providers under signed HIPAA agreements — see our
+                    <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.</p>
+                <p class="mb-3">By continuing, you <strong>consent to live AI transcription</strong> as described.
+                    You can turn your own transcription off at any time from the audio controls.</p>
+
+                <form method="post" action="{{ url_for('session_consent_post', session_id=session_id) }}">
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary-green btn-lg rounded-pill">
+                            <i class="bi bi-check-circle me-1"></i>I understand and agree
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="text-center mt-3">
+            <a href="/" class="text-muted small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Leave</a>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

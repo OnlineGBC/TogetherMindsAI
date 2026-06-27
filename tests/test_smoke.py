@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from datetime import datetime, timezone
 from TogetherMindsAI import app
-from models import db, User, TherapySession
+from models import db, User, TherapySession, ChatMessage
 from session_id import generate_session_id, is_valid_session_id
 
 
@@ -339,6 +339,7 @@ def test_couple_page_has_end_session_button(client):
         db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
+        sess["consented_sessions"] = [session_id]   # past the consent gate
     rv = client.get(f"/therapy/couple/{session_id}")
     assert rv.status_code == 200
     assert b"endSessionModal" in rv.data
@@ -359,6 +360,7 @@ def test_group_page_has_end_session_button(client):
         db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
+        sess["consented_sessions"] = [session_id]   # past the consent gate
     rv = client.get(f"/therapy/group/{session_id}")
     assert rv.status_code == 200
     assert b"endSessionModal" in rv.data
@@ -375,8 +377,12 @@ def test_join_page_says_join_or_rejoin(client):
     assert b"Join or Rejoin a Session" in rv.data
 
 
-def _session_render(client, mode="group", as_therapist=False):
-    """Render the session room. as_therapist=True makes therapist_id == user_id."""
+def _session_render(client, mode="group", as_therapist=False, consented=True):
+    """Render the session room. as_therapist=True makes therapist_id == user_id.
+
+    A CLIENT must pass the consent gate before the room loads; consented=True
+    pre-marks consent so room-content tests render the room directly. Pass
+    consented=False to exercise the gate itself."""
     user_id = str(uuid.uuid4())
     session_id = generate_session_id()
     with app.app_context():
@@ -389,17 +395,63 @@ def _session_render(client, mode="group", as_therapist=False):
         db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
+        if consented and not as_therapist:
+            sess["consented_sessions"] = [session_id]
     return client.get(f"/therapy/{mode}/{session_id}")
 
 
-def test_client_sees_consent_modal_on_session_page(client):
-    rv = _session_render(client, as_therapist=False)
-    assert rv.status_code == 200
-    assert b"joinConsentModal" in rv.data           # client-only consent popup
-    assert b"I understand and agree" in rv.data
+def _make_client_session(client, mode="group"):
+    """Create a session and sign in a CLIENT (no consent yet). Returns the ids."""
+    user_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    with app.app_context():
+        db.session.add(User(id=user_id, therapy_mode=mode))
+        db.session.add(TherapySession(
+            id=session_id, mode=mode, created_by=user_id,
+            created_at=datetime.now(timezone.utc), therapist_id=None,
+        ))
+        db.session.commit()
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+    return session_id, user_id
 
 
-def test_therapist_does_not_see_consent_modal(client):
+def test_client_without_consent_is_redirected_to_consent_gate(client):
+    """A client must pass the consent gate BEFORE the room loads, so no session
+    content is ever on screen before they agree. Hitting the room without consent
+    redirects to the dedicated /session/<id>/consent screen."""
+    session_id, _ = _make_client_session(client)
+    rv = client.get(f"/therapy/group/{session_id}")
+    assert rv.status_code in (301, 302)
+    assert f"/session/{session_id}/consent" in rv.headers.get("Location", "")
+
+
+def test_consent_gate_records_consent_and_admits_client(client):
+    """The consent gate renders the disclosure + agree button; POSTing it records
+    the client's agreement (a stored transcript line) and admits them — the
+    follow-up room render returns 200."""
+    session_id, _ = _make_client_session(client)
+    gate = client.get(f"/session/{session_id}/consent")
+    assert gate.status_code == 200
+    assert b"I understand and agree" in gate.data
+    # No session content (chat composer) on the consent screen.
+    assert b"Share with the group" not in gate.data
+
+    post = client.post(f"/session/{session_id}/consent")
+    assert post.status_code in (301, 302)
+    assert f"/therapy/group/{session_id}" in post.headers.get("Location", "")
+
+    room = client.get(f"/therapy/group/{session_id}")
+    assert room.status_code == 200
+
+    with app.app_context():
+        msgs = ChatMessage.query.filter_by(session_id=session_id).all()
+        assert any("[Consent] Agreed" in m.text for m in msgs)
+
+
+def test_therapist_is_not_consent_gated(client):
+    """The therapist leads the session and is never consent-gated: the room
+    renders directly and no client consent modal is present."""
     rv = _session_render(client, as_therapist=True)
     assert rv.status_code == 200
     assert b"joinConsentModal" not in rv.data        # therapist is never prompted
@@ -477,6 +529,7 @@ def test_couple_privacy_section_merged(client):
         db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
+        sess["consented_sessions"] = [session_id]   # past the consent gate
     rv = client.get(f"/therapy/couple/{session_id}")
     assert rv.status_code == 200
     _assert_privacy_section_merged(rv.data)
@@ -559,6 +612,7 @@ def test_end_session_modal_present_in_base(client):
     db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
+        sess["consented_sessions"] = [session_id]   # past the consent gate
     rv = client.get(f"/therapy/couple/{session_id}")
     assert b'id="endSessionModal"' in rv.data
     assert b"End this session for everyone?" in rv.data
@@ -623,6 +677,9 @@ def test_join_page_does_not_say_1234(client):
 def test_couple_page_shows_session_id_in_banner(client):
     """The couple therapy page session banner must show the randomized-private-key session ID."""
     priv, user_id, session_id = _register(client, "couple")
+
+    with client.session_transaction() as sess:
+        sess["consented_sessions"] = [session_id]   # past the consent gate
 
     rv = client.get(f"/therapy/couple/{session_id}")
     assert rv.status_code == 200
@@ -916,6 +973,7 @@ def test_history_includes_current_display_name_when_already_set(client):
     db.session.commit()
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
+        sess["consented_sessions"] = [session_id]   # past the consent gate
 
     # Simulate name already claimed (e.g. from first page load)
     _claim_display_name(session_id, user_id, "Riku")

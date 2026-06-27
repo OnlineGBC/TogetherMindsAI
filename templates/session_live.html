@@ -253,42 +253,9 @@
 </div>
 {% endif %}
 
-{% if not is_therapist %}
-<!-- Join consent modal — shown to each client on EVERY join/rejoin. Reuses the
-     recording-and-transcription disclosure. The client must acknowledge before
-     proceeding; the acknowledgement is recorded server-side (into the session
-     transcript and as an informational line in the therapist's Co-Pilot). -->
-<div class="modal fade" id="joinConsentModal" tabindex="-1" aria-labelledby="joinConsentLabel"
-     aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content rounded-4">
-            <div class="modal-header">
-                <h5 class="modal-title" id="joinConsentLabel"><i class="bi bi-mic-fill text-primary-green me-2"></i>Before you join this session</h5>
-            </div>
-            <div class="modal-body small">
-                <p class="mb-2">Your speech in this session is <strong>transcribed to text by an automated (AI)
-                    service</strong>, and that text becomes part of the session transcript — your clinician's
-                    confidential record. Your session is <strong>not recorded by default</strong> — only the text
-                    is kept.</p>
-                <p class="mb-2">Recording the audio/video is a <strong>separate, optional</strong> feature that
-                    stays off unless <strong>every participant consents</strong>, and anyone can decline or stop it
-                    at any time. If a session is recorded, the audio/video is kept for <strong>30 days</strong> and
-                    then permanently deleted; the written transcript is kept as the clinical record for
-                    <strong>up to 6 years</strong>.</p>
-                <p class="mb-2">This session is also supported by a private <strong>AI co-pilot</strong> that
-                    assists your clinician; it does not replace their professional judgment. Speech and text are
-                    handled by our service providers under signed HIPAA agreements — see our
-                    <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.</p>
-                <p class="mb-0">By continuing, you <strong>consent to live AI transcription</strong> as described.
-                    You can turn your own transcription off at any time from the audio controls.</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-primary-green rounded-pill" id="joinConsentBtn"><i class="bi bi-check-circle me-1"></i>I understand and agree</button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
+{# Client transcription/recording consent is now collected on a dedicated screen
+   (consent_gate.html) BEFORE this room ever loads — see the /session/<id>/consent
+   route — so no session content is on screen before the client agrees. #}
 
 {% if is_therapist %}
 <!-- Friendly-name input (therapist only) — names the whole session; shared to clients. -->
@@ -439,27 +406,8 @@
         initDisplayNameRename(SESSION_ID, USER_ID, false /* realtime */);
         initEndSessionGuard(SESSION_ID, USER_ID, "/progress/" + USER_ID + "/{{ mode }}");
         initSessionControls(SESSION_ID, USER_ID, IS_THERAPIST);
-        {% if not is_therapist %}
-        // Consent modal — shown to the client on EVERY join/rejoin. On agree, the
-        // acknowledgement is recorded server-side (transcript + therapist Co-Pilot).
-        (function () {
-            var m = document.getElementById("joinConsentModal");
-            if (!m || typeof bootstrap === "undefined") { return; }
-            if (window._tmInWaitingRoom) { return; }   // waiting room takes priority
-            var inst = bootstrap.Modal.getOrCreateInstance(m);
-            inst.show();
-            var btn = document.getElementById("joinConsentBtn");
-            if (btn) {
-                btn.addEventListener("click", function () {
-                    if (window.socket) {
-                        window.socket.emit("consent_acknowledged",
-                            { session_id: SESSION_ID, user_id: USER_ID });
-                    }
-                    inst.hide();
-                });
-            }
-        })();
-        {% endif %}
+        // Client transcription/recording consent is collected on a dedicated screen
+        // (consent_gate.html) BEFORE this room loads, so it is not handled here.
     });
 
     // Transcript download with progress feedback. The therapist's copy generates

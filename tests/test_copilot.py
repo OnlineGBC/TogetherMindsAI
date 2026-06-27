@@ -440,6 +440,7 @@ def test_consumer_couple_page_unstyled(enc_client):
     sid = _insert_couple_session(therapist_id=None, created_by="owner-1")
     with enc_client.session_transaction() as s:
         s["user_id"] = "owner-1"
+        s["consented_sessions"] = [sid]   # past the consent gate
     rv = enc_client.get("/therapy/couple/" + sid)
     assert rv.status_code == 200
     assert b"tcp-session" not in rv.data
@@ -469,6 +470,7 @@ def test_consumer_couple_composer_stays_gated(enc_client):
     sid = _insert_couple_session(therapist_id=None, created_by="o1")
     with enc_client.session_transaction() as s:
         s["user_id"] = "o1"
+        s["consented_sessions"] = [sid]   # past the consent gate
     body = enc_client.get("/therapy/couple/" + sid).get_data(as_text=True)
     assert 'id="sendBtn" disabled' in body
 
