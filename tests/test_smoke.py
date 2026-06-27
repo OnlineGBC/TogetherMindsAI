@@ -409,6 +409,18 @@ def test_client_sees_recording_status_in_strip(client):
     assert b"Recording off" in rv.data
 
 
+def test_recording_consent_states_legal_basis(client):
+    from unittest.mock import patch
+    import config
+    with patch.object(config, "RECORDING_ENABLED", True):
+        rv = _session_render(client, as_therapist=False)   # recConsentModal is client-only
+    assert rv.status_code == 200
+    body = rv.data
+    assert b"Legal basis:" in body
+    assert b"all-party consent" in body
+    assert b"all 50 states and the District of Columbia" in body
+
+
 def test_recording_status_button_says_audio_video(client):
     from unittest.mock import patch
     import config
