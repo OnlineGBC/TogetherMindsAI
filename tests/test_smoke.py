@@ -129,6 +129,26 @@ def test_welcome_page_is_clinician_first(client):
     assert 'href="/auth/solo"' not in body
 
 
+def test_welcome_page_copy_is_audience_neutral_not_clinician_addressed(client):
+    """The /welcome page is public — both clients and clinicians land on it.
+    Clinician-private framing ('only you see', 'Clients never see it', the AI
+    watching the client for 'Live risk alerts') was confusing and unsettling to
+    clients reading it. That detail now lives behind the clinician sign-in page;
+    the public page speaks in neutral third person. This locks in the split."""
+    rv = client.get("/welcome")
+    assert rv.status_code == 200
+    body = rv.data.decode()
+    # Clinician-private phrasing must NOT appear on the public landing page.
+    assert "only you see" not in body
+    assert "Clients never see it" not in body
+    assert "Live risk alerts" not in body
+    # The clinician-private detail must live on the sign-in page instead.
+    login = client.get("/login")
+    assert login.status_code == 200
+    login_body = login.data.decode()
+    assert "Clients never see it" in login_body
+
+
 def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
     """Regression: the welcome page's hero icon must not use the bare class
     `hero-icon`. The global rule `.hero-icon` in static/css/style.css paints
