@@ -166,6 +166,34 @@ def test_therapist_arrival_admits_waiting_clients(enc_client):
     assert "session_open" in _names(c)       # waiting client told to enter
 
 
+def test_waiting_client_self_recovers_on_rejoin_when_therapist_present(enc_client):
+    """A client held in the waiting room polls join with from_waiting; once the
+    clinician is present, that poll is answered with session_open (page reloads
+    into the live session) — no manual refresh. Covers a deploy/restart that wiped
+    in-memory presence."""
+    with app.app_context():
+        sid = _seed("ther-1", mode="couple")
+    c = _raw_join(enc_client, sid, "client-1")
+    assert "waiting_room" in _names(c)
+    t = _raw_join(enc_client, sid, "ther-1")        # clinician now present
+    t.get_received(); c.get_received()              # drain the arrival session_open
+    c.emit("join", {"session_id": sid, "user_id": "client-1",
+                    "mode": "couple", "from_waiting": True})
+    assert "session_open" in _names(c)
+
+
+def test_normal_join_with_therapist_present_does_not_reload(enc_client):
+    """A first-time join (no from_waiting) when the clinician is present is admitted
+    normally — no session_open, so the page is not reloaded in a loop."""
+    with app.app_context():
+        sid = _seed("ther-1", mode="couple")
+    t = _raw_join(enc_client, sid, "ther-1"); t.get_received()
+    c = _raw_join(enc_client, sid, "client-1")
+    names = _names(c)
+    assert "waiting_room" not in names
+    assert "session_open" not in names
+
+
 def test_client_message_blocked_without_therapist(enc_client):
     from models import ChatMessage
     with app.app_context():

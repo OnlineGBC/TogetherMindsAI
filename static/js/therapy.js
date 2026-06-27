@@ -774,8 +774,23 @@ function initSessionControls(sessionId, userId, isTherapist) {
             });
         }
         _showWaitingRoomOverlay(data.message);
+        // Self-recovery: quietly re-check for the clinician every few seconds, so
+        // the client slots in on its own once the clinician is present (e.g. after
+        // a deploy wiped in-memory presence) — no manual refresh. The server
+        // replies with session_open, which reloads and clears this timer.
+        if (!window._tmWaitPoll) {
+            window._tmWaitPoll = setInterval(function () {
+                if (socket && socket.connected) {
+                    socket.emit("join", {
+                        session_id: sessionId, user_id: userId,
+                        mode: window.SESSION_MODE || "solo", from_waiting: true
+                    });
+                }
+            }, 5000);
+        }
     });
     socket.on("session_open", function () {
+        if (window._tmWaitPoll) { clearInterval(window._tmWaitPoll); window._tmWaitPoll = null; }
         window.location.reload();   // re-join now that the clinician is present
     });
 }

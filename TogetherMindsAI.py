@@ -3167,6 +3167,16 @@ def on_join(data):
                  {"message": "Please wait — your clinician will start the session."})
             return
 
+        # Self-recovery: a client whose page is showing the waiting room re-tries
+        # join with `from_waiting` every few seconds. If we reach here the gate
+        # passed (the clinician is now present), so tell that page to reload into
+        # the live session — no manual refresh. (Covers a deploy/restart that wiped
+        # in-memory presence, or a missed session_open.)
+        if user_id != therapist_id and data.get("from_waiting"):
+            session_waiting.get(session_id, set()).discard(user_id)
+            emit("session_open", {})
+            return
+
         join_room(session_id)
         room_mode[session_id] = mode
 
