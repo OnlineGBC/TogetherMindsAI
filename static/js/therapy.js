@@ -340,6 +340,7 @@ function initRecordingControls(sessionId, userId, isTherapist) {
     var stopBtn     = document.getElementById("recStopBtn");       // therapist
     var allowBtn    = document.getElementById("recAllowBtn");      // client
     var withdrawBtn = document.getElementById("recWithdrawBtn");   // client
+    var clientStatus = document.getElementById("recClientStatus"); // client: always-on status pill
     var consentBtn  = document.getElementById("recConsentBtn");    // modal
     var declineBtn  = document.getElementById("recDeclineBtn");    // modal
     var modalEl     = document.getElementById("recConsentModal");
@@ -399,19 +400,27 @@ function initRecordingControls(sessionId, userId, isTherapist) {
         if (!requested) _answered = isTherapist;   // reset for the next request round
         if (statusText) statusText.textContent = "";   // live status now lives on the button
 
+        // Client's always-visible status pill (plain words; says audio + video).
+        function setClientRec(html, cls) {
+            if (clientStatus) {
+                clientStatus.innerHTML = html;
+                clientStatus.className = "badge rounded-pill " + cls;
+            }
+        }
+
         if (isTherapist) {
             if (!requested) {
                 // Reset the idle button to the clear OFF status (e.g. after a cancel).
                 if (requestBtn) {
-                    requestBtn.innerHTML = '<i class="bi bi-record-circle"></i><span class="ms-1">Recording is OFF</span>';
-                    requestBtn.title = "Recording is off — click to start (needs everyone's consent)";
+                    requestBtn.innerHTML = '<i class="bi bi-record-circle"></i><span class="ms-1">Recording (audio + video) is OFF</span>';
+                    requestBtn.title = "Recording is off — tap to start (needs everyone's consent)";
                 }
                 show(requestBtn); hide(stopBtn);
             } else {
                 hide(requestBtn); show(stopBtn);
                 if (active) {
                     // Recording in progress — click to stop.
-                    stopBtn.innerHTML = '<span class="rec-blink" aria-hidden="true">●</span> Recording is ON';
+                    stopBtn.innerHTML = '<span class="rec-blink" aria-hidden="true">●</span> Recording (audio + video) is ON';
                     stopBtn.className = "btn btn-sm btn-danger rounded-pill";
                     stopBtn.title = "Recording is on — click to stop";
                 } else {
@@ -424,15 +433,18 @@ function initRecordingControls(sessionId, userId, isTherapist) {
         } else if (requested) {
             if (iAmAwaited) {
                 show(allowBtn); hide(withdrawBtn);
+                setClientRec('<i class="bi bi-record-circle"></i> Recording: your consent needed', "text-bg-warning");
             } else {
                 hide(allowBtn); show(withdrawBtn);
-                // Once consenting, the Withdraw button doubles as the live indicator.
-                withdrawBtn.innerHTML = active
-                    ? '<span class="rec-blink" aria-hidden="true">●</span> Recording — withdraw'
-                    : '<i class="bi bi-shield-x"></i> Withdraw';
+                setClientRec(active
+                    ? '<span class="rec-blink" aria-hidden="true">●</span> Recording on — audio + video'
+                    : '<i class="bi bi-record-circle"></i> Recording starting…',
+                    active ? "text-bg-danger" : "text-bg-warning");
+                withdrawBtn.innerHTML = '<i class="bi bi-shield-x"></i> Withdraw';
             }
         } else {
             hide(allowBtn); hide(withdrawBtn);
+            setClientRec('<i class="bi bi-record-circle"></i> Recording off', "text-bg-light border");
             hideModal();
         }
     });

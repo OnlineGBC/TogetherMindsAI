@@ -385,23 +385,37 @@ def test_therapist_does_not_see_consent_modal(client):
     assert b"joinConsentModal" not in rv.data        # therapist is never prompted
 
 
-def test_transcription_indicator_and_toggle_render(client):
+def test_control_strip_shows_mic_camera_transcription(client):
     from unittest.mock import patch
     import config
     with patch.object(config, "RTC_ENABLED", True):
         rv = _session_render(client, as_therapist=False)
     assert rv.status_code == 200
-    assert b"Live transcription on" in rv.data        # live indicator
-    assert b"rtcSttBtn" in rv.data                    # transcription on/off toggle
+    body = rv.data
+    assert b"tmControlStrip" in body                  # the always-visible strip
+    assert b"Mic off" in body                         # mic pill
+    assert b"Camera off" in body                      # camera pill
+    assert b"Transcription off" in body               # transcription pill
+    assert b"rtcSttBtn" in body
 
 
-def test_recording_status_button_shows_off(client):
+def test_client_sees_recording_status_in_strip(client):
+    from unittest.mock import patch
+    import config
+    with patch.object(config, "RECORDING_ENABLED", True):
+        rv = _session_render(client, as_therapist=False)
+    assert rv.status_code == 200
+    assert b"recClientStatus" in rv.data              # client read-only recording status
+    assert b"Recording off" in rv.data
+
+
+def test_recording_status_button_says_audio_video(client):
     from unittest.mock import patch
     import config
     with patch.object(config, "RECORDING_ENABLED", True):
         rv = _session_render(client, as_therapist=True)   # Record control is therapist-only
     assert rv.status_code == 200
-    assert b"Recording is OFF" in rv.data
+    assert b"Recording (audio + video) is OFF" in rv.data
 
 
 # ---------------------------------------------------------------------------

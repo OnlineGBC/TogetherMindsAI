@@ -75,31 +75,50 @@
                 <i class="bi bi-tag"></i>
             </button>
             {% endif %}
-            {% if recording_enabled %}
-            <!-- Recording controls (Phase 4). Recording runs ONLY while every current
-                 participant consents; the Record button itself shows the live status
-                 (Record → Awaiting consent (N) → ● Recording). JS toggles labels. -->
-            <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
-                <small id="recStatusText" class="text-warning"></small>
-                {% if is_therapist %}
-                <button class="btn btn-sm btn-success rounded-pill" id="recRequestBtn" title="Recording is off — click to start (needs everyone's consent)">
-                    <i class="bi bi-record-circle"></i><span class="ms-1">Recording is OFF</span>
-                </button>
-                <button class="btn btn-sm btn-danger rounded-pill d-none" id="recStopBtn">Stop</button>
-                {% else %}
-                <button class="btn btn-sm btn-success rounded-pill d-none" id="recAllowBtn">
-                    <i class="bi bi-check-circle"></i><span class="ms-1">Allow recording</span>
-                </button>
-                <button class="btn btn-sm btn-danger rounded-pill d-none" id="recWithdrawBtn"><i class="bi bi-shield-x"></i> Withdraw</button>
-                {% endif %}
-            </span>
-            {% endif %}
             <small class="text-muted text-nowrap">You: <span id="displayNameLabel" class="font-monospace text-primary-green fw-semibold">…</span></small>
             <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameDisplayNameBtn" title="Change display name">
                 <i class="bi bi-pencil" style="color:#fd7e14"></i>
             </button>
             <small class="text-muted ms-md-auto">Confidential clinical record — encrypted, never sold or used to train AI.</small>
         </div>
+
+        {% if rtc_enabled or recording_enabled %}
+        <!-- Always-visible control strip: shows what is on/off in plain words AND
+             lets you change it. Wraps on small screens so the chat stays visible.
+             Mic / Camera / Transcription are your own; Recording is session-wide
+             (therapist starts it; clients allow/withdraw their consent). -->
+        <div class="alert alert-share rounded-4 mb-2 mb-md-3 py-2 px-3 d-flex align-items-center gap-2 flex-wrap" id="tmControlStrip" role="region" aria-label="Session controls">
+            <small class="text-muted text-nowrap me-1">In this session:</small>
+            {% if rtc_enabled %}
+            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcMuteBtn" title="Tap to join audio so others can hear you">
+                <i class="bi bi-mic-mute-fill"></i> Mic off
+            </button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn" title="Tap to turn your camera on">
+                <i class="bi bi-camera-video-off-fill"></i> Camera off
+            </button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcSttBtn" title="Transcription is off — tap to turn it on">
+                <i class="bi bi-badge-cc"></i> Transcription off
+            </button>
+            {% endif %}
+            {% if recording_enabled %}
+            <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
+                {% if is_therapist %}
+                <button class="btn btn-sm btn-outline-secondary rounded-pill" id="recRequestBtn" title="Recording is off — tap to start (needs everyone's consent)">
+                    <i class="bi bi-record-circle"></i><span class="ms-1">Recording (audio + video) is OFF</span>
+                </button>
+                <button class="btn btn-sm btn-danger rounded-pill d-none" id="recStopBtn">Stop</button>
+                {% else %}
+                <span class="badge rounded-pill text-bg-light border" id="recClientStatus"><i class="bi bi-record-circle"></i> Recording off</span>
+                <button class="btn btn-sm btn-success rounded-pill d-none" id="recAllowBtn">
+                    <i class="bi bi-check-circle"></i><span class="ms-1">Allow</span>
+                </button>
+                <button class="btn btn-sm btn-danger rounded-pill d-none" id="recWithdrawBtn"><i class="bi bi-shield-x"></i> Withdraw</button>
+                {% endif %}
+                <small id="recStatusText" class="text-warning"></small>
+            </span>
+            {% endif %}
+        </div>
+        {% endif %}
 
         <!-- Work area: chat (left, scrollable) | divider | video (center).
              Panes sit side-by-side on desktop and stack on phone/tablet. -->
@@ -171,9 +190,8 @@
                     <div id="rtcLive" class="d-none flex-column flex-grow-1">
                         <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
                             <span class="badge bg-secondary" id="rtcStatus">connecting…</span>
-                            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcMuteBtn"><i class="bi bi-mic-fill"></i> Mute</button>
-                            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcSttBtn" title="Your speech is being transcribed — click to turn transcription off"><i class="bi bi-badge-cc-fill"></i> Transcription: On</button>
-                            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn"><i class="bi bi-camera-video-off-fill"></i> Camera is Off</button>
+                            <!-- Mic / Camera / Transcription controls live in the always-visible
+                                 control strip above; here we keep video-only settings. -->
                             <span class="d-inline-flex align-items-center gap-1">
                                 <span class="small text-muted">Background:</span>
                                 <select class="form-select form-select-sm rounded-pill" id="rtcBgSelect" style="width:auto">
@@ -189,11 +207,7 @@
                             {% if not is_therapist %}<button class="btn btn-sm btn-outline-danger rounded-pill" id="rtcLeaveBtn"><i class="bi bi-box-arrow-right"></i> Leave</button>{% endif %}
                         </div>
                         <div id="rtcVideoGrid" class="mb-2 flex-grow-1"></div>
-                        <div class="small mb-1 d-flex align-items-center gap-1">
-                            <span id="rtcSttDot" class="text-success" aria-hidden="true">●</span>
-                            <span id="rtcSttLabel" class="text-success fw-semibold">Live transcription on</span>
-                            <span class="text-muted ms-1"><i class="bi bi-badge-cc me-1"></i>Live captions</span>
-                        </div>
+                        <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
                         <div id="rtcCaptions" class="border rounded-3 p-2 small bg-light" style="min-height:2.5rem">…</div>
                     </div>
                 </div>
@@ -496,38 +510,68 @@
     if (!joinBtn) return;
     var statusEl   = document.getElementById("rtcStatus");
     var captionsEl = document.getElementById("rtcCaptions");
-    var sttBtn     = document.getElementById("rtcSttBtn");
-    var sttDot     = document.getElementById("rtcSttDot");
-    var sttLabel   = document.getElementById("rtcSttLabel");
+    // Control-strip pills (always visible). Mic / Camera / Transcription are the
+    // user's own controls; each shows its state in plain words and toggles on tap.
+    var sttBtn  = document.getElementById("rtcSttBtn");
+    var muteBtn = document.getElementById("rtcMuteBtn");
+    var camBtn  = document.getElementById("rtcCamBtn");
     var lkRoom = null, sttWS = null, audioCtx = null, micStream = null, processor = null, srcNode = null, muted = false, sttEnabled = true;
 
     function setStatus(t, cls) { statusEl.textContent = t; statusEl.className = "badge " + (cls || "bg-secondary"); }
+    function isJoined() { return !!lkRoom; }
 
-    // Live transcription indicator + per-participant on/off. Turning it off stops
-    // ONLY your own speech-to-text — you stay in the audio/video call. Each
-    // participant transcribes their own speech in-browser, so this is personal.
+    // Paint one strip pill: green when active, grey when off, with plain wording.
+    function setPill(btn, on, onHtml, offHtml, onClass, onTitle, offTitle) {
+        if (!btn) { return; }
+        btn.innerHTML  = on ? onHtml : offHtml;
+        btn.className  = "btn btn-sm rounded-pill " + (on ? onClass : "btn-outline-secondary");
+        btn.title      = on ? onTitle : offTitle;
+    }
+    function updateMicPill() {
+        var on = isJoined() && !muted;
+        setPill(muteBtn, on,
+            '<i class="bi bi-mic-fill"></i> Mic on',
+            '<i class="bi bi-mic-mute-fill"></i> Mic off',
+            "btn-success",
+            "Others can hear you — tap to mute",
+            isJoined() ? "You are muted — tap to unmute"
+                       : "Tap to join audio so others can hear you");
+    }
+    function updateCamPill() {
+        var on = !!camTrack;
+        setPill(camBtn, on,
+            '<i class="bi bi-camera-video-fill"></i> Camera on',
+            '<i class="bi bi-camera-video-off-fill"></i> Camera off',
+            "btn-success",
+            "Others can see you — tap to turn your camera off",
+            "Tap to turn your camera on");
+    }
+    // Transcription pill — amber when on, because your spoken words are being
+    // written into the record. Tapping toggles your own speech-to-text.
     function setSttIndicator(on) {
-        if (sttDot)   { sttDot.className = on ? "text-success" : "text-muted"; }
-        if (sttLabel) {
-            sttLabel.textContent = on ? "Live transcription on" : "Transcription off";
-            sttLabel.className   = on ? "text-success fw-semibold" : "text-muted fw-semibold";
-        }
-        if (sttBtn) {
-            sttBtn.innerHTML = on
-                ? '<i class="bi bi-badge-cc-fill"></i> Transcription: On'
-                : '<i class="bi bi-badge-cc"></i> Transcription: Off';
-            sttBtn.title = on
-                ? "Your speech is being transcribed — click to turn transcription off"
-                : "Transcription is off — click to turn it back on";
-        }
-        if (captionsEl && !on) { captionsEl.textContent = "(transcription off)"; }
+        setPill(sttBtn, on,
+            '<i class="bi bi-badge-cc-fill"></i> Transcription on',
+            '<i class="bi bi-badge-cc"></i> Transcription off',
+            "btn-warning text-dark",
+            "Your words are being written down — tap to stop transcription",
+            isJoined() ? "Transcription is off — tap to turn it on"
+                       : "Tap to join audio and start transcription");
+        if (captionsEl && !on && isJoined()) { captionsEl.textContent = "(transcription off)"; }
     }
     function setStt(on) {
         sttEnabled = on;
         if (on) { startSTT(); } else { stopSTT(); }
         setSttIndicator(on);
     }
-    if (sttBtn) { sttBtn.addEventListener("click", function () { setStt(!sttEnabled); }); }
+    // Mic / Transcription pills: before you have joined audio, tapping joins you
+    // (that is where you consent to transcription); afterwards they toggle live.
+    function joinThen(after) {
+        joinAudio().then(function () { if (after) { after(); } })
+                   .catch(function (err) { console.error("RTC error:", err); setStatus("error", "bg-danger"); });
+    }
+    if (sttBtn) { sttBtn.addEventListener("click", function () {
+        if (!isJoined()) { joinThen(); } else { setStt(!sttEnabled); }
+    }); }
 
     async function joinAudio() {
         document.getElementById("rtcConsent").classList.add("d-none");
@@ -568,8 +612,11 @@
 
         // 2) AssemblyAI streaming STT (in-browser)
         sttEnabled = true;
+        muted = false;
         startSTT();
         setSttIndicator(true);
+        updateMicPill();
+        updateCamPill();
     }
 
     async function startSTT() {
@@ -627,12 +674,14 @@
         try { if (lkRoom) lkRoom.disconnect(); } catch (e) {}
         if (videoGrid) videoGrid.innerHTML = "";
         micStream = camTrack = lkRoom = null;
+        sttEnabled = false; muted = false;
+        setSttIndicator(false); updateMicPill(); updateCamPill();
         document.getElementById("rtcLive").classList.add("d-none");
         document.getElementById("rtcConsent").classList.remove("d-none");
     }
 
     // ---- Phase 2: video + background (blur / preset / upload) ----
-    var camBtn    = document.getElementById("rtcCamBtn");
+    // (camBtn is declared with the other strip pills above.)
     var bgSelect  = document.getElementById("rtcBgSelect");
     var bgUpload  = document.getElementById("rtcBgUpload");
     var videoGrid = document.getElementById("rtcVideoGrid");
@@ -677,12 +726,12 @@
         await applyBackground();
         await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
         addTile("local", "You", camTrack.attach());
-        camBtn.innerHTML = '<i class="bi bi-camera-video-fill"></i> Camera is On';
+        updateCamPill();
     }
     async function cameraOff() {
         try { if (camTrack) { await lkRoom.localParticipant.unpublishTrack(camTrack); camTrack.stop(); } } catch (e) {}
         camTrack = null; removeTile("local");
-        camBtn.innerHTML = '<i class="bi bi-camera-video-off-fill"></i> Camera is Off';
+        updateCamPill();
     }
 
     // preset backgrounds: gradients generated client-side (no image files to ship)
@@ -698,6 +747,8 @@
     })();
 
     if (camBtn) camBtn.addEventListener("click", function () {
+        // Camera needs the call. Not joined yet → join first, then turn it on.
+        if (!isJoined()) { joinThen(function () { cameraOn().catch(function (e) { console.error("camera error", e); }); }); return; }
         (camTrack ? cameraOff() : cameraOn()).catch(function (e) { console.error("camera error", e); });
     });
     if (bgSelect) bgSelect.addEventListener("change", function () {
@@ -717,15 +768,19 @@
     joinBtn.addEventListener("click", function () {
         joinAudio().catch(function (err) { console.error("RTC error:", err); setStatus("error", "bg-danger"); });
     });
-    var muteBtn = document.getElementById("rtcMuteBtn");
-    muteBtn.addEventListener("click", function () {
+    if (muteBtn) muteBtn.addEventListener("click", function () {
+        // Not joined yet → tapping Mic joins audio (turns your mic on).
+        if (!isJoined()) { joinThen(); return; }
         muted = !muted;
         if (micStream) micStream.getAudioTracks().forEach(function (t) { t.enabled = !muted; });
-        muteBtn.innerHTML = muted ? '<i class="bi bi-mic-mute-fill"></i> Unmute' : '<i class="bi bi-mic-fill"></i> Mute';
+        updateMicPill();
     });
     var rtcLeaveBtn = document.getElementById("rtcLeaveBtn");   // absent for the therapist
     if (rtcLeaveBtn) { rtcLeaveBtn.addEventListener("click", leaveAudio); }
     window.addEventListener("beforeunload", leaveAudio);
+
+    // Initial strip state — nothing joined yet, so everything reads "off".
+    updateMicPill(); updateCamPill(); setSttIndicator(false);
 })();
 
 // Chat | video resize divider — drag to grow one pane while the other shrinks
