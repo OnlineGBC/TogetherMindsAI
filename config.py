@@ -41,6 +41,10 @@ IS_PRODUCTION: bool = not IS_SQLITE and not IS_TESTING
 SECRET_KEY: str = os.environ.get("SECRET_KEY", "")
 FLASK_DEBUG: bool = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
+# Password that unlocks the standalone /nda page. Empty => the page stays locked
+# for everyone (fail closed). Keep in .env (local) / Secret Manager (Cloud Run).
+NDA_SECRET: str = os.environ.get("NDA_SECRET", "")
+
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------

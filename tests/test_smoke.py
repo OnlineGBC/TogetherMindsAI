@@ -197,6 +197,40 @@ def test_billing_page_is_public(client):
     assert b'href="/login?next=' in body
 
 
+def test_nda_page_is_locked_by_default(client):
+    """The /nda page is password-gated: an unauthenticated visitor sees the
+    password prompt, NOT the agreement text."""
+    rv = client.get("/nda")
+    assert rv.status_code == 200
+    assert b"View document" in rv.data                  # unlock form present
+    assert b"NON-DISCLOSURE AGREEMENT" not in rv.data    # content hidden
+
+
+def test_nda_unlocks_only_with_correct_password(client):
+    from unittest.mock import patch
+    import config
+    with patch.object(config, "NDA_SECRET", "open-sesame"):
+        # wrong password -> still locked
+        client.post("/nda", data={"password": "wrong"})
+        assert b"NON-DISCLOSURE AGREEMENT" not in client.get("/nda").data
+        # correct password -> unlocked, shows the agreement
+        client.post("/nda", data={"password": "open-sesame"})
+        rv = client.get("/nda")
+        assert rv.status_code == 200
+        assert b"NON-DISCLOSURE AGREEMENT" in rv.data
+        assert b"Global Business Consulting" in rv.data
+
+
+def test_nda_fails_closed_when_secret_unset(client):
+    """With no NDA_SECRET configured the page never unlocks (even with a blank
+    password), so it can't be left accidentally open."""
+    from unittest.mock import patch
+    import config
+    with patch.object(config, "NDA_SECRET", ""):
+        client.post("/nda", data={"password": ""})
+        assert b"NON-DISCLOSURE AGREEMENT" not in client.get("/nda").data
+
+
 def test_home_route_removed_returns_404(client):
     """Regression: /home was deleted after the welcome page absorbed the
     mode-picker UI (the three modes are now clickable directly on /welcome).

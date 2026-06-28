@@ -36,6 +36,7 @@ import recording
 import billing
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
+import nda_content
 from log_filter import install_log_filter
 
 install_log_filter()   # redact PHI-bearing fields from all log output (finding 4.3)
@@ -1231,6 +1232,30 @@ def privacy():
 @app.route("/tos")
 def tos():
     return render_template("tos.html")
+
+
+@app.route("/nda", methods=["GET"])
+def nda_page():
+    """Standalone NDA page, gated by a single shared password (NDA_SECRET).
+    Locked until the right password is entered; the unlock is remembered for the
+    browser session. Not advertised anywhere — shared privately by URL."""
+    return render_template("nda.html", unlocked=bool(session.get("nda_ok")),
+                           title=nda_content.TITLE, subtitle=nda_content.SUBTITLE,
+                           intro=nda_content.INTRO, sections=nda_content.SECTIONS,
+                           sign_intro=nda_content.SIGN_INTRO)
+
+
+@app.route("/nda", methods=["POST"])
+@limiter.limit("10 per hour")
+def nda_unlock():
+    pw = request.form.get("password", "")
+    secret = config.NDA_SECRET
+    # Fail closed: with no NDA_SECRET configured, the page never unlocks.
+    if secret and secrets.compare_digest(pw, secret):
+        session["nda_ok"] = True
+    else:
+        flash("Incorrect password.", "warning")
+    return redirect(url_for("nda_page"))
 
 
 @app.route("/auth/<therapy_mode>", methods=["GET"])
