@@ -70,8 +70,12 @@ def caption(img, tag, head, body, action=None):
 
 
 def slide_screen(path, tag, head, body, action=None):
+    return slide_image(Image.open(path).convert("RGB"), tag, head, body, action)
+
+
+def slide_image(shot, tag, head, body, action=None):
     img = Image.new("RGB", (W, H), BG)
-    shot = Image.open(path).convert("RGB")
+    shot = shot.convert("RGB")
     area_w, area_h = W - 60, 504
     sc = min(area_w / shot.width, area_h / shot.height)
     nw, nh = int(shot.width * sc), int(shot.height * sc)

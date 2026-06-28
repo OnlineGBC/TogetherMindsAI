@@ -1,0 +1,192 @@
+1
+00:00:00,112 --> 00:00:03,512
+Welcome to TogetherMindsAI an AI co-pilot that
+
+2
+00:00:03,525 --> 00:00:05,888
+supports licensed clinicians through every
+
+3
+00:00:05,900 --> 00:00:08,837
+session with secure audio and video live
+
+4
+00:00:08,850 --> 00:00:11,162
+notes and a plan for every practice
+
+5
+00:00:11,425 --> 00:00:13,688
+with suggested analyses and I C D
+
+6
+00:00:13,700 --> 00:00:15,062
+codes to speed up billing
+
+7
+00:00:16,094 --> 00:00:18,444
+First the full Privacy Policy and Terms
+
+8
+00:00:18,457 --> 00:00:20,632
+of Service are linked on every page
+
+9
+00:00:21,032 --> 00:00:22,745
+at t m dot online g b
+
+10
+00:00:22,757 --> 00:00:25,757
+c dot com slash privacy and slash
+
+11
+00:00:25,770 --> 00:00:28,007
+t o s and anyone can read
+
+12
+00:00:28,020 --> 00:00:29,120
+them at any time
+
+13
+00:00:30,092 --> 00:00:32,205
+Every session is led by a licensed
+
+14
+00:00:32,217 --> 00:00:34,805
+clinician The AI works quietly in the
+
+15
+00:00:34,817 --> 00:00:37,504
+background to assist them It reflects and
+
+16
+00:00:37,517 --> 00:00:40,342
+suggests it never controls care and it
+
+17
+00:00:40,354 --> 00:00:41,817
+never replaces the clinician
+
+18
+00:00:42,796 --> 00:00:45,896
+Sessions run over secure encrypted audio and
+
+19
+00:00:45,909 --> 00:00:48,671
+video right in the browser The clinician
+
+20
+00:00:48,684 --> 00:00:52,384
+controls the room microphone camera and transcription
+
+21
+00:00:52,734 --> 00:00:55,521
+for one-on-one couples or group sessions
+
+22
+00:00:56,484 --> 00:00:59,046
+As people speak their words become text
+
+23
+00:00:59,059 --> 00:01:01,672
+in real time so the clinician always
+
+24
+00:01:01,684 --> 00:01:04,159
+has an accurate written record without taking
+
+25
+00:01:04,171 --> 00:01:05,696
+their eyes off the conversation
+
+26
+00:01:06,680 --> 00:01:09,592
+Alongside the conversation a private co-pilot
+
+27
+00:01:09,992 --> 00:01:13,018
+visible only to the clinician surfaces gentle
+
+28
+00:01:13,030 --> 00:01:16,142
+suggestions technique reminders and high-priority
+
+29
+00:01:16,155 --> 00:01:18,418
+risk alerts It reads tone to help
+
+30
+00:01:18,430 --> 00:01:20,680
+set the right pace Clients never see
+
+31
+00:01:20,692 --> 00:01:21,092
+it
+
+32
+00:01:21,820 --> 00:01:24,108
+After the session the co-pilot drafts a
+
+33
+00:01:24,120 --> 00:01:26,658
+clinical summary and suggests billing codes
+
+34
+00:01:26,920 --> 00:01:29,045
+grounded in the World Health Organization's
+
+35
+00:01:29,170 --> 00:01:32,070
+I C D eleven so documentation and
+
+36
+00:01:32,082 --> 00:01:34,332
+coding take minutes not hours
+
+37
+00:01:35,316 --> 00:01:37,654
+There's a plan for every practice Free
+
+38
+00:01:37,666 --> 00:01:40,354
+includes guided sessions and full transcripts
+
+39
+00:01:40,779 --> 00:01:42,991
+Pro at ten dollars a month adds
+
+40
+00:01:43,004 --> 00:01:46,279
+the AI co-pilot summaries and billing codes
+
+41
+00:01:46,704 --> 00:01:49,842
+Premium at twenty-five adds secure audio and
+
+42
+00:01:49,854 --> 00:01:52,166
+video recording with thirty-day storage
+
+43
+00:01:53,132 --> 00:01:55,544
+And it's private by design Everything is
+
+44
+00:01:55,557 --> 00:01:58,344
+encrypted handled by Hippa-covered providers
+
+45
+00:01:58,357 --> 00:02:00,957
+under signed agreements and never sold or
+
+46
+00:02:00,970 --> 00:02:03,770
+used to train AI Clients consent before
+
+47
+00:02:03,782 --> 00:02:07,369
+anything begins TogetherMindsAI clinician-led
+
+48
+00:02:07,657 --> 00:02:09,632
+AI-assisted built on trust
+
