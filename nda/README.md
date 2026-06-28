@@ -13,10 +13,10 @@ enter the password to open the file.
 This is standard boilerplate, **not legal advice** — have counsel review before real use.
 
 ## Setup
-This uses the repo's single virtualenv, `TogetherMindsAI.venv`. Its dependencies
-(`requirements.txt`: fpdf2, python-docx, msoffcrypto-tool) are installed there:
+This uses the repo's single virtualenv, `TogetherMindsAI.venv`. All packages are in
+the repo's main `requirements.txt` (this tool uses fpdf2, python-docx, msoffcrypto-tool):
 ```
-../TogetherMindsAI.venv/Scripts/python -m pip install -r requirements.txt
+../TogetherMindsAI.venv/Scripts/python -m pip install -r ../requirements.txt
 ```
 
 ## Generate

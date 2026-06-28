@@ -24,11 +24,11 @@ next to the MP4.
 
 ## Setup
 
-This tooling shares the repo's single virtualenv, `TogetherMindsAI.venv`. Its
-dependencies (`requirements.txt`: edge-tts + pillow) are installed there:
+This shares the repo's single virtualenv, `TogetherMindsAI.venv`. All packages are
+listed in the repo's main `requirements.txt` (this video uses `edge-tts` + `pillow`):
 
 ```
-../TogetherMindsAI.venv/Scripts/python -m pip install -r requirements.txt
+../TogetherMindsAI.venv/Scripts/python -m pip install -r ../requirements.txt
 ```
 
 `ffmpeg` and `ffprobe` must be on PATH (system install — not a pip package).

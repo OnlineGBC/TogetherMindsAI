@@ -47,3 +47,8 @@ google-cloud-storage>=2.16.0
 # Subscription billing (Phase 4 Step 4) — Stripe Checkout + billing portal +
 # signed webhooks. No card data touches the app.
 stripe>=9.0.0
+# Patient-consent demo video (video_demo/) — spoken narration + slide images
+edge-tts==7.2.8
+pillow==12.2.0
+# NDA generator (nda/) — password-encrypts the Word (.docx) file
+msoffcrypto-tool==6.0.0
