@@ -18,29 +18,40 @@ import edge_tts
 
 from build_consent_gif import (
     HERE, OUTDIR, ASSETS, ACCENT_2,
-    slide_text, slide_screen,
+    slide_text, slide_screen, slide_links,
 )
 
-# Calm, professional US-English female voice. Swap to any Edge TTS voice, e.g.
-#   en-US-AriaNeural, en-IN-NeerjaNeural, en-GB-SoniaNeural, en-US-GuyNeural (male).
-VOICE = "en-US-JennyNeural"
+# Warm, confident US-English male voice. Swap to any Edge TTS voice, e.g.
+#   en-US-BrianNeural (warm male), en-US-AriaNeural / en-US-JennyNeural (female).
+VOICE = "en-US-AndrewNeural"
 OUT = os.path.join(OUTDIR, "patient_consent_demo.mp4")
 PAD = 0.5            # trailing pause (seconds) added after each narration
 
 # (slide image, narration) — narration is the spoken version of the on-screen caption.
+# Note: captions keep the correct spelling "HIPAA"; the narration spells it "Hippa"
+# so the text-to-speech voice says it as a word (HIP-uh), not letter by letter.
 SLIDES = [
     (slide_text("How patients give consent",
                 "TogetherMindsAI - recording, AI documentation & HIPAA, in plain language"),
-     "Here's how patients give consent on TogetherMindsAI: to session recording, to AI "
-     "documentation, and to H I P A A compliant handling of their information, all in plain language."),
+     "Here's how patients give consent on TogetherMindsAI, in plain language: to session recording, "
+     "to AI helping with documentation, and to how their health information is handled under Hippa."),
+
+    (slide_links("Read the full terms anytime",
+                 [("Privacy Policy", "tm.onlinegbc.com/privacy"),
+                  ("Terms of Service", "tm.onlinegbc.com/tos")],
+                 sub="Everything below is governed by these - linked on every page."),
+     "First, the full Privacy Policy and Terms of Service are linked on every page, at t m dot online "
+     "g b c dot com, slash privacy, and slash t o s. Everything here is governed by them, and a patient "
+     "can read them at any time."),
 
     (slide_screen(f"{ASSETS}/welcome.png", "1 - Context",
                   "Every session is clinician-led",
                   "The therapist leads the session; the AI only assists them privately. "
                   "This framing is set before anyone joins.",
                   "Encrypted - never sold or used to train AI"),
-     "Every session is clinician led. The therapist runs the session, and the AI only assists them "
-     "privately. Nothing is ever sold or used to train AI, and everything is encrypted."),
+     "Every session is clinician led. A licensed therapist runs it from start to finish, and the AI "
+     "only assists the clinician in the background. Everything is encrypted, and a patient's information "
+     "is never sold or used to train AI."),
 
     (slide_screen(f"{ASSETS}/auth_disclaimer.png", "2 - First gate",
                   "Confirm who's responsible - and what's kept",
@@ -48,9 +59,9 @@ SLIDES = [
                   "licensed professional, whose confidential clinical record this becomes - encrypted, "
                   "retained up to 6 years.",
                   "-> Patient agrees to the Terms of Service and these points"),
-     "Before joining, the patient confirms they are eighteen or older, that a licensed professional "
-     "leads and is responsible for the session, and that their conversation becomes the clinician's "
-     "confidential clinical record, encrypted and retained for up to six years."),
+     "When a patient joins, they confirm they are eighteen or older, that a licensed professional leads "
+     "and is responsible for the session, and that their conversation becomes the clinician's confidential "
+     "clinical record, encrypted and kept for up to six years."),
 
     (slide_screen(f"{ASSETS}/consent_gate.png", "3 - AI documentation",
                   "Explicit consent to live AI transcription",
@@ -58,10 +69,10 @@ SLIDES = [
                   "the session is NOT recorded by default; data is handled by HIPAA-covered providers under "
                   "signed agreements; transcription can be turned off anytime.",
                   "-> Patient taps 'I understand and agree'"),
-     "Next, the patient gives explicit consent to live AI transcription. In plain language: their "
-     "speech is turned into text by an automated AI service. The session is not recorded by default. "
-     "Data is handled by H I P A A covered providers under signed agreements, and transcription can be "
-     "switched off at any time."),
+     "Next, explicit consent to live AI transcription. Their speech is turned into text by an automated "
+     "AI service, so the clinician has accurate notes. The session isn't recorded by default. Data is "
+     "handled by Hippa covered providers under signed agreements, and the patient can turn transcription "
+     "off anytime. Only on, I understand and agree, does the session begin."),
 
     (slide_screen(f"{ASSETS}/record_consent.png", "4 - Recording",
                   "Recording only with all-party consent",
@@ -69,15 +80,22 @@ SLIDES = [
                   "anyone declines or withdraws. The recording joins the confidential record, is never sold or "
                   "used to train AI, and consent can be withdrawn at any time.",
                   "-> Patient chooses 'I consent' or 'Decline'"),
-     "If the clinician asks to record, recording begins only when everyone present consents, and it stops "
-     "the moment anyone declines or withdraws. The recording becomes part of the confidential record, is "
-     "never sold or used to train AI, and consent can be withdrawn at any time."),
+     "Recording audio or video is separate and optional. It begins only when everyone present consents, "
+     "and stops the instant anyone declines or withdraws. A recording joins the confidential record, is "
+     "never sold or used to train AI, and consent can be withdrawn at any moment."),
+
+    (slide_text("Your data, your control",
+                "Encrypted in transit and at rest - audio kept 30 days, transcript up to 6 years - "
+                "never sold or used to train AI - turn transcription off or withdraw recording consent anytime."),
+     "In short: encrypted in transit and at rest. Audio is kept thirty days, then deleted; the transcript "
+     "stays up to six years. Nothing is sold or used to train AI, and the patient can stop transcription "
+     "or withdraw recording consent anytime."),
 
     (slide_text("Consent is explicit, plain-language & revocable",
-                "Full Privacy Policy & Terms: tm.onlinegbc.com/privacy  -  tm.onlinegbc.com/tos",
+                "Reviewed and agreed before every session - withdraw anytime.",
                 accent=ACCENT_2),
-     "In short: consent is explicit, written in plain language, and always revocable. The full privacy "
-     "policy and terms are available at t m dot online g b c dot com."),
+     "That's the heart of it: consent that is explicit, plain-language, reviewed before every session, "
+     "and always revocable."),
 ]
 
 

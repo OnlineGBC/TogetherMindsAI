@@ -18,6 +18,7 @@ BG       = (13, 17, 23)        # app dark
 PANEL    = (22, 32, 30)
 ACCENT   = (0, 200, 160)
 ACCENT_2 = (124, 92, 237)
+LINK     = (96, 165, 250)      # hyperlink blue
 TEXT     = (232, 238, 236)
 MUTED    = (157, 176, 170)
 
@@ -26,6 +27,8 @@ F_SUB   = ImageFont.truetype(r"C:/Windows/Fonts/arial.ttf",   26)
 F_CAPB  = ImageFont.truetype(r"C:/Windows/Fonts/arialbd.ttf", 27)
 F_CAP   = ImageFont.truetype(r"C:/Windows/Fonts/arial.ttf",   24)
 F_TAG   = ImageFont.truetype(r"C:/Windows/Fonts/arialbd.ttf", 22)
+F_LINK  = ImageFont.truetype(r"C:/Windows/Fonts/arialbd.ttf", 44)
+F_LBL   = ImageFont.truetype(r"C:/Windows/Fonts/arial.ttf",   25)
 
 
 def wrap(draw, text, font, max_w):
@@ -81,6 +84,35 @@ def slide_screen(path, tag, head, body, action=None):
     return img
 
 
+def slide_links(head, links, sub=None):
+    """A prominent slide whose URLs look like clickable hyperlinks (blue + underline).
+    `links` is a list of (label, url)."""
+    img = Image.new("RGB", (W, H), BG)
+    d = ImageDraw.Draw(img)
+    rounded(d, (70, 150, W - 70, H - 150), 24, fill=PANEL, outline=(LINK[0], LINK[1], LINK[2]), width=3)
+    ty = 210
+    for ln in wrap(d, head, F_TITLE, W - 240):
+        tw = d.textlength(ln, font=F_TITLE)
+        d.text(((W - tw) // 2, ty), ln, font=F_TITLE, fill=TEXT)
+        ty += 58
+    if sub:
+        for ln in wrap(d, sub, F_SUB, W - 320):
+            tw = d.textlength(ln, font=F_SUB)
+            d.text(((W - tw) // 2, ty + 6), ln, font=F_SUB, fill=MUTED)
+            ty += 36
+    ty += 26
+    for label, url in links:
+        lw = d.textlength(label, font=F_LBL)
+        d.text(((W - lw) // 2, ty), label, font=F_LBL, fill=MUTED)
+        ty += 38
+        uw = d.textlength(url, font=F_LINK)
+        ux = (W - uw) // 2
+        d.text((ux, ty), url, font=F_LINK, fill=LINK)
+        d.line((ux, ty + 52, ux + uw, ty + 52), fill=LINK, width=3)   # underline
+        ty += 86
+    return img
+
+
 def slide_text(head, sub, accent=ACCENT):
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
@@ -101,32 +133,39 @@ def slide_text(head, sub, accent=ACCENT):
 def build():
   frames = [
     (slide_text("How patients give consent",
-                "TogetherMindsAI - recording, AI documentation & HIPAA, in plain language"), 3200),
+                "TogetherMindsAI - recording, AI documentation & HIPAA, in plain language"), 3600),
+    (slide_links("Read the full terms anytime",
+                 [("Privacy Policy", "tm.onlinegbc.com/privacy"),
+                  ("Terms of Service", "tm.onlinegbc.com/tos")],
+                 sub="Everything below is governed by these - linked on every page."), 6000),
     (slide_screen(f"{ASSETS}/welcome.png", "1 - Context",
                   "Every session is clinician-led",
                   "The therapist leads the session; the AI only assists them privately. "
                   "This framing is set before anyone joins.",
-                  "Encrypted - never sold or used to train AI"), 4800),
+                  "Encrypted - never sold or used to train AI"), 5200),
     (slide_screen(f"{ASSETS}/auth_disclaimer.png", "2 - First gate",
                   "Confirm who's responsible - and what's kept",
                   "Before joining, the client confirms they are 18+ and that the session is led by a "
                   "licensed professional, whose confidential clinical record this becomes - encrypted, "
                   "retained up to 6 years.",
-                  "-> Patient agrees to the Terms of Service and these points"), 5800),
+                  "-> Patient agrees to the Terms of Service and these points"), 6000),
     (slide_screen(f"{ASSETS}/consent_gate.png", "3 - AI documentation",
                   "Explicit consent to live AI transcription",
                   "Plain-language disclosure: speech is transcribed to text by an automated AI service; "
                   "the session is NOT recorded by default; data is handled by HIPAA-covered providers under "
                   "signed agreements; transcription can be turned off anytime.",
-                  "-> Patient taps 'I understand and agree'"), 6400),
+                  "-> Patient taps 'I understand and agree'"), 6800),
     (slide_screen(f"{ASSETS}/record_consent.png", "4 - Recording",
                   "Recording only with all-party consent",
                   "If the clinician asks to record, it starts only if everyone consents and stops the moment "
                   "anyone declines or withdraws. The recording joins the confidential record, is never sold or "
                   "used to train AI, and consent can be withdrawn at any time.",
-                  "-> Patient chooses 'I consent' or 'Decline'"), 6400),
+                  "-> Patient chooses 'I consent' or 'Decline'"), 6800),
+    (slide_text("Your data, your control",
+                "Encrypted in transit and at rest - audio kept 30 days, transcript up to 6 years - "
+                "never sold or used to train AI - turn transcription off or withdraw recording consent anytime."), 6200),
     (slide_text("Consent is explicit, plain-language & revocable",
-                "Full Privacy Policy & Terms: tm.onlinegbc.com/privacy  -  tm.onlinegbc.com/tos",
+                "Reviewed and agreed before every session - withdraw anytime.",
                 accent=ACCENT_2), 4600),
   ]
 
