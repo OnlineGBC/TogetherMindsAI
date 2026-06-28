@@ -237,9 +237,3 @@ nohup.out
 client_secret_*.json
 *client_secret*.json
 
-
-# Video-demo tooling — generated output + moved-in media (PNG sources stay tracked)
-video_demo/output/
-video_demo/assets/*.mp4
-video_demo/assets/*.gif
-video_demo/assets/*.docx
