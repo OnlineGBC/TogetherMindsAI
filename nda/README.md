@@ -27,4 +27,5 @@ python -m venv .venv
 ```
 Outputs `NDA.pdf` and `NDA.docx` in this folder, both opening only with `NDA_SECRET`.
 
-The generated `NDA.pdf` / `NDA.docx` and `.venv/` are gitignored.
+The generated `NDA.pdf` / `NDA.docx` are committed (they are encrypted and open
+only with `NDA_SECRET`). Only `.venv/` and `__pycache__/` are gitignored.
