@@ -99,8 +99,91 @@ SLIDES = [
 ]
 
 
-def tts(text, out_path):
-    asyncio.run(edge_tts.Communicate(text, VOICE).save(out_path))
+# Captions are burned into a band added below the slide, so they never overlap the
+# slide's own caption panel. The band colour matches the app-dark background.
+CAP_BAND = 120                       # extra pixels added at the bottom for captions
+VID_W, VID_H = 1280, 860 + CAP_BAND  # final video size (slide + caption band)
+SRT = os.path.join(OUTDIR, "patient_consent_demo.srt")
+
+# ASS pins the play resolution to the real video size, so Fontsize is in actual
+# pixels (an SRT would be scaled up from libass's tiny default resolution).
+ASS_HEADER = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {VID_W}
+PlayResY: {VID_H}
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cap,Arial,30,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,60,60,30,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+
+async def _synth(text, mp3):
+    """Synthesize narration AND collect per-word timing (Edge TTS WordBoundary)."""
+    words = []
+    with open(mp3, "wb") as f:
+        async for ch in edge_tts.Communicate(text, VOICE, boundary="WordBoundary").stream():
+            if ch["type"] == "audio":
+                f.write(ch["data"])
+            elif ch["type"] == "WordBoundary":
+                start = ch["offset"] / 1e7          # 100-ns ticks -> seconds
+                words.append((ch["text"], start, start + ch["duration"] / 1e7))
+    return words
+
+
+def tts(text, mp3):
+    return asyncio.run(_synth(text, mp3))
+
+
+def build_cues(words, offset, max_words=7, max_chars=42):
+    """Group word timings into short, readable caption cues, shifted by `offset`
+    (the slide's start time on the final timeline)."""
+    cues, cur = [], []
+    for w in words:
+        cur.append(w)
+        text = " ".join(x[0] for x in cur)
+        if len(cur) >= max_words or len(text) >= max_chars:
+            cues.append((cur[0][1] + offset, cur[-1][2] + offset, text))
+            cur = []
+    if cur:
+        text = " ".join(x[0] for x in cur)
+        cues.append((cur[0][1] + offset, cur[-1][2] + offset, text))
+    return cues
+
+
+def srt_ts(s):
+    ms = int(round(s * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    sec, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+
+def write_srt(cues, path):
+    with open(path, "w", encoding="utf-8") as f:
+        for idx, (st, en, text) in enumerate(cues, 1):
+            en = max(en, st + 0.4)
+            f.write(f"{idx}\n{srt_ts(st)} --> {srt_ts(en)}\n{text}\n\n")
+
+
+def ass_ts(s):
+    cs = int(round(s * 100))
+    h, cs = divmod(cs, 360000)
+    m, cs = divmod(cs, 6000)
+    sec, cs = divmod(cs, 100)
+    return f"{h:d}:{m:02d}:{sec:02d}.{cs:02d}"
+
+
+def write_ass(cues, path):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(ASS_HEADER)
+        for st, en, text in cues:
+            en = max(en, st + 0.4)
+            f.write(f"Dialogue: 0,{ass_ts(st)},{ass_ts(en)},Cap,,0,0,0,,{text}\n")
 
 
 def duration(path):
@@ -114,15 +197,17 @@ def duration(path):
 def main():
     tmp = tempfile.mkdtemp(prefix="consent_vid_")
     print(f"Voice: {VOICE}\nTemp:  {tmp}\n")
-    segments = []
+    segments, cues, global_t = [], [], 0.0
     for i, (img, narration) in enumerate(SLIDES):
         png = os.path.join(tmp, f"slide_{i:02d}.png")
         mp3 = os.path.join(tmp, f"slide_{i:02d}.mp3")
         seg = os.path.join(tmp, f"seg_{i:02d}.mp4")
         img.save(png)
         print(f"  [{i+1}/{len(SLIDES)}] narrating: {narration[:58]}...")
-        tts(narration, mp3)
+        words = tts(narration, mp3)
         dur = duration(mp3) + PAD
+        cues += build_cues(words, global_t)
+        global_t += dur
         # One slide held for the length of its narration (+ a short pause).
         subprocess.run(
             ["ffmpeg", "-y", "-loop", "1", "-i", png, "-i", mp3,
@@ -137,16 +222,27 @@ def main():
     with open(listfile, "w") as f:
         for s in segments:
             f.write(f"file '{s}'\n")
-    print("\nStitching final video...")
+    raw = os.path.join(tmp, "raw.mp4")
+    print("\nStitching slides...")
     subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile,
-         "-c", "copy", OUT],
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listfile, "-c", "copy", raw],
         check=True, capture_output=True)
+
+    # Captions: write an ASS (for precise burning) + an SRT sidecar for the user.
+    write_ass(cues, os.path.join(tmp, "captions.ass"))
+    write_srt(cues, SRT)
+    print("Burning captions...")
+    vf = (f"pad={VID_W}:{VID_H}:0:0:color=0x0D1117,subtitles=captions.ass")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", "raw.mp4", "-vf", vf,
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "copy", OUT],
+        cwd=tmp, check=True, capture_output=True)
 
     total = duration(OUT)
     size = os.path.getsize(OUT) / 1e6
     shutil.rmtree(tmp, ignore_errors=True)
     print(f"\nDone!  ->  {OUT}")
+    print(f"Captions: {SRT}")
     print(f"Duration: {total:.0f}s   Size: {size:.1f} MB")
 
 

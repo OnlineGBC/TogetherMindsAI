@@ -9,13 +9,18 @@ Two outputs, both built from the real app screens in `assets/` (captured from
 | Script | Output | What it is |
 |---|---|---|
 | `build_consent_gif.py` | `output/patient_consent_demo.gif` | Silent annotated GIF walkthrough |
-| `consent_video.py` | `output/patient_consent_demo.mp4` | Narrated MP4 (voiceover + slides) |
+| `consent_video.py` | `output/patient_consent_demo.mp4` (+ `.srt`) | Narrated MP4 with burned-in captions |
 
 The narrated MP4 reuses the approach from the `YogurtVideo` project: Microsoft
 **Edge TTS** (free, no API key) for the voiceover, then **ffmpeg** times each
 slide to its narration and stitches the video. `consent_video.py` imports its
 slide renderers from `build_consent_gif.py`, so the GIF and MP4 stay visually
 identical.
+
+Captions are synced from Edge TTS **word timings** (`boundary="WordBoundary"`),
+written to an ASS file, and burned into a band added below the slide so they
+never overlap the slide's own caption panel. A reusable `.srt` is also written
+next to the MP4.
 
 ## Setup
 
