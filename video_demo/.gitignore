@@ -1,9 +1,0 @@
-.venv/
-output/
-__pycache__/
-
-# Moved-in media/docs live on disk under assets/ but are not committed
-# (only the PNG source screenshots are tracked).
-assets/*.mp4
-assets/*.gif
-assets/*.docx

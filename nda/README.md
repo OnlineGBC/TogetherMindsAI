@@ -13,9 +13,10 @@ enter the password to open the file.
 This is standard boilerplate, **not legal advice** — have counsel review before real use.
 
 ## Setup
+This uses the repo's single virtualenv, `TogetherMindsAI.venv`. Its dependencies
+(`requirements.txt`: fpdf2, python-docx, msoffcrypto-tool) are installed there:
 ```
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt   # fpdf2, python-docx, msoffcrypto-tool
+../TogetherMindsAI.venv/Scripts/python -m pip install -r requirements.txt
 ```
 
 ## Generate
@@ -23,9 +24,9 @@ python -m venv .venv
    (and, if you keep a copy in Google Secret Manager, store the same value there as your record).
 2. Run:
 ```
-.venv/Scripts/python build_nda.py
+../TogetherMindsAI.venv/Scripts/python build_nda.py
 ```
 Outputs `NDA.pdf` and `NDA.docx` in this folder, both opening only with `NDA_SECRET`.
 
 The generated `NDA.pdf` / `NDA.docx` are committed (they are encrypted and open
-only with `NDA_SECRET`). Only `.venv/` and `__pycache__/` are gitignored.
+only with `NDA_SECRET`). Environments/caches are ignored via the root `.gitignore`.

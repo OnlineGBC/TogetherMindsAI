@@ -24,18 +24,22 @@ next to the MP4.
 
 ## Setup
 
+This tooling shares the repo's single virtualenv, `TogetherMindsAI.venv`. Its
+dependencies (`requirements.txt`: edge-tts + pillow) are installed there:
+
 ```
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt   # edge-tts + pillow
+../TogetherMindsAI.venv/Scripts/python -m pip install -r requirements.txt
 ```
 
 `ffmpeg` and `ffprobe` must be on PATH (system install — not a pip package).
 
 ## Build
 
+Run from this folder with the repo venv (scripts resolve their own paths):
+
 ```
-.venv/Scripts/python build_consent_gif.py    # -> output/patient_consent_demo.gif
-.venv/Scripts/python consent_video.py         # -> output/patient_consent_demo.mp4
+../TogetherMindsAI.venv/Scripts/python build_consent_gif.py   # -> output/patient_consent_demo.gif
+../TogetherMindsAI.venv/Scripts/python consent_video.py        # -> output/patient_consent_demo.mp4
 ```
 
 ## Notes
@@ -45,4 +49,5 @@ python -m venv .venv
   image is the older modal; the live app now shows the same text full-page.
 - Change the narration voice via `VOICE` in `consent_video.py` (any Edge TTS
   voice, e.g. `en-US-AriaNeural`, `en-IN-NeerjaNeural`, `en-US-GuyNeural`).
-- `output/` and `.venv/` are gitignored (generated / environment).
+- `output/` and the moved-in media in `assets/` are gitignored (root `.gitignore`);
+  only the PNG source screenshots are tracked.
