@@ -95,10 +95,13 @@ def test_subscription_plan_and_status_from_dict():
 
 # ---- billing page ---------------------------------------------------------
 
-def test_billing_page_requires_login(client):
+def test_billing_page_is_public_without_login(client):
+    """Pricing is public: an anonymous visitor gets the page (200), not a redirect.
+    The 'Choose' buttons send them to clinician sign-in rather than checkout."""
     rv = client.get("/billing")
-    assert rv.status_code == 302
-    assert "/login" in rv.headers["Location"]
+    assert rv.status_code == 200
+    assert b"Choose Pro" in rv.data
+    assert b'href="/login?next=' in rv.data
 
 
 def test_billing_page_shows_current_plan(client):

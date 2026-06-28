@@ -970,14 +970,16 @@ def _session_clinician(session_id):
 
 @app.route("/billing")
 def billing_page():
+    # Public pricing page — viewable without signing in. Personalized fields stay
+    # empty for anonymous visitors; only a signed-in clinician sees their own plan
+    # / renewal / manage-subscription. Subscribing still requires clinician sign-in.
     cid = _current_clinician_id()
-    if not cid:
-        return redirect(url_for("login"))
-    clin = db.session.get(Clinician, cid)
+    clin = db.session.get(Clinician, cid) if cid else None
     return render_template(
         "billing.html",
         billing_enabled=config.BILLING_ENABLED,
-        current_plan=(clin.plan or "free") if clin else "free",
+        signed_in=bool(clin),
+        current_plan=(clin.plan or "free") if clin else None,
         subscription_status=(clin.subscription_status if clin else None),
         has_customer=bool(clin and clin.stripe_customer_id),
         renews_on=(clin.current_period_end.strftime("%d %b %Y")

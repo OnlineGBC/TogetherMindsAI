@@ -95,10 +95,12 @@
               {% if current_plan == 'pro' %}
                 {% if renews_on %}<div class="small text-muted text-center mb-2"><i class="bi bi-calendar-check me-1"></i>Renews on {{ renews_on }}</div>{% endif %}
                 <button class="btn btn-outline-success rounded-pill w-100" disabled><i class="bi bi-check-circle-fill me-1"></i>Current plan</button>
-              {% else %}
+              {% elif signed_in %}
                 <form method="POST" action="{{ url_for('billing_checkout', plan='pro') }}" class="m-0">
                   <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Pro</button>
                 </form>
+              {% else %}
+                <a href="{{ url_for('login', next='/billing') }}" class="btn btn-primary-green rounded-pill w-100">Choose Pro</a>
               {% endif %}
             </div>
           </div>
@@ -123,10 +125,12 @@
               {% if current_plan == 'premium' %}
                 {% if renews_on %}<div class="small text-muted text-center mb-2"><i class="bi bi-calendar-check me-1"></i>Renews on {{ renews_on }}</div>{% endif %}
                 <button class="btn btn-outline-success rounded-pill w-100" disabled><i class="bi bi-check-circle-fill me-1"></i>Current plan</button>
-              {% else %}
+              {% elif signed_in %}
                 <form method="POST" action="{{ url_for('billing_checkout', plan='premium') }}" class="m-0">
                   <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Premium</button>
                 </form>
+              {% else %}
+                <a href="{{ url_for('login', next='/billing') }}" class="btn btn-primary-green rounded-pill w-100">Choose Premium</a>
               {% endif %}
             </div>
           </div>
@@ -135,7 +139,11 @@
     </div>
 
     <div class="text-center mt-4 d-flex flex-wrap justify-content-center gap-3">
+      {% if signed_in %}
       <a href="/therapist" class="text-muted small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to Co-Pilot</a>
+      {% else %}
+      <a href="/" class="text-muted small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to home</a>
+      {% endif %}
       {% if has_customer %}
       <form method="POST" action="{{ url_for('billing_portal') }}" class="m-0">
         <button type="submit" class="btn btn-link btn-sm text-decoration-none p-0"><i class="bi bi-gear me-1"></i>Manage subscription</button>
