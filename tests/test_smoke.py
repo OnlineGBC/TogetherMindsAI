@@ -170,6 +170,20 @@ def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
     assert 'bi-activity hero-icon' not in body
 
 
+def test_privacy_and_terms_linked_on_every_page(client):
+    """The footer (shared by every page via base.html) must link to BOTH the
+    Privacy Policy and the Terms of Service, for all roles. We state this publicly
+    ('linked on every page'), so verify it on a public page and on the in-session
+    page (client view). Regression guard against the ToS link being dropped."""
+    pages = [
+        client.get("/welcome").data,
+        _session_render(client, as_therapist=False, consented=True).data,  # client session view
+    ]
+    for body in pages:
+        assert b'href="/privacy"' in body, "Privacy Policy link missing from a page footer"
+        assert b'href="/tos"' in body, "Terms of Service link missing from a page footer"
+
+
 def test_home_route_removed_returns_404(client):
     """Regression: /home was deleted after the welcome page absorbed the
     mode-picker UI (the three modes are now clickable directly on /welcome).
