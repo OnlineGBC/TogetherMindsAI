@@ -162,7 +162,7 @@ def build():
                   "used to train AI, and consent can be withdrawn at any time.",
                   "-> Patient chooses 'I consent' or 'Decline'"), 6800),
     (slide_text("Your data, your control",
-                "Encrypted in transit and at rest - audio kept 30 days, transcript up to 6 years - "
+                "Encrypted in transit and at rest - audio & video deleted in 30 days, transcript up to 6 years - "
                 "never sold or used to train AI - turn transcription off or withdraw recording consent anytime."), 6200),
     (slide_text("Consent is explicit, plain-language & revocable",
                 "Reviewed and agreed before every session - withdraw anytime.",

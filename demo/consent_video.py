@@ -85,9 +85,9 @@ SLIDES = [
      "never sold or used to train AI, and consent can be withdrawn at any moment."),
 
     (slide_text("Your data, your control",
-                "Encrypted in transit and at rest - audio kept 30 days, transcript up to 6 years - "
+                "Encrypted in transit and at rest - audio & video deleted in 30 days, transcript up to 6 years - "
                 "never sold or used to train AI - turn transcription off or withdraw recording consent anytime."),
-     "In short: encrypted in transit and at rest. Audio is kept thirty days, then deleted; the transcript "
+     "In short: encrypted in transit and at rest. Audio and video are deleted in thirty days; the transcript "
      "stays up to six years. Nothing is sold or used to train AI, and the patient can stop transcription "
      "or withdraw recording consent anytime."),
 
