@@ -1,32 +1,17 @@
-# Password-protected NDA (PDF + DOCX)
+# NDA
 
-`build_nda.py` generates a one-way (unilateral) Non-Disclosure Agreement as both a
-PDF and a DOCX, each **AES-encrypted with an open password** so recipients must
-enter the password to open the file.
+`NDA.docx` is the **single source** for the Non-Disclosure Agreement.
 
-- **Disclosing Party:** TogetherMindsAI, ai4org, and Global Business Consulting, Inc.
-- **Password:** read from the **`NDA_SECRET`** env var (the repo `.env`, or the
-  environment). It is never hardcoded; the script reads it at generation time.
-- Placeholders to edit per use: `[Effective Date]`, `[State/Jurisdiction]`, the term
-  `[3]` years, and the Receiving Party signature block.
+- Edit `NDA.docx` in Word like any normal document.
+- The web page **`/nda`** reads `NDA.docx` and shows its text — the centered
+  title, the bold section headings, and the body paragraphs. The page is gated by
+  a password (`NDA_SECRET`). Images and Word-specific layout are **not** shown on
+  the web; the text is.
+- **To update the live page:** edit `NDA.docx`, commit, and deploy. The page
+  re-reads the file automatically (cached by its modified time).
+- **To hand someone a copy:** just send `NDA.docx` — it's a normal, unencrypted
+  Word file.
 
-This is standard boilerplate, **not legal advice** — have counsel review before real use.
-
-## Setup
-This uses the repo's single virtualenv, `TogetherMindsAI.venv`. All packages are in
-the repo's main `requirements.txt` (this tool uses fpdf2, python-docx, msoffcrypto-tool):
-```
-../TogetherMindsAI.venv/Scripts/python -m pip install -r ../requirements.txt
-```
-
-## Generate
-1. Put the password in the repo `.env`:  `NDA_SECRET=your-password-here`
-   (and, if you keep a copy in Google Secret Manager, store the same value there as your record).
-2. Run:
-```
-../TogetherMindsAI.venv/Scripts/python build_nda.py
-```
-Outputs `NDA.pdf` and `NDA.docx` in this folder, both opening only with `NDA_SECRET`.
-
-The generated `NDA.pdf` / `NDA.docx` are committed (they are encrypted and open
-only with `NDA_SECRET`). Environments/caches are ignored via the root `.gitignore`.
+The password `NDA_SECRET` lives in `.env` locally and Google Secret Manager on
+Cloud Run; it only controls who can view `/nda` online (the file itself opens
+without a password).

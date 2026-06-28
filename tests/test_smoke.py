@@ -213,12 +213,13 @@ def test_nda_unlocks_only_with_correct_password(client):
         # wrong password -> still locked
         client.post("/nda", data={"password": "wrong"})
         assert b"NON-DISCLOSURE AGREEMENT" not in client.get("/nda").data
-        # correct password -> unlocked, shows the agreement
+        # correct password -> unlocked, shows the agreement read live from NDA.docx
         client.post("/nda", data={"password": "open-sesame"})
         rv = client.get("/nda")
         assert rv.status_code == 200
         assert b"NON-DISCLOSURE AGREEMENT" in rv.data
         assert b"Global Business Consulting" in rv.data
+        assert b"New York" in rv.data        # the governing-law value edited into the doc
 
 
 def test_nda_fails_closed_when_secret_unset(client):

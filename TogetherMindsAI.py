@@ -36,7 +36,6 @@ import recording
 import billing
 from audit import log_event
 from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
-import nda_content
 from log_filter import install_log_filter
 
 install_log_filter()   # redact PHI-bearing fields from all log output (finding 4.3)
@@ -1234,15 +1233,59 @@ def tos():
     return render_template("tos.html")
 
 
+_nda_cache: dict = {}
+
+
+def _nda_html():
+    """Render nda/NDA.docx (the editable source-of-truth Word file) to safe HTML
+    for the /nda page — title, bold section headings, and body paragraphs. Cached
+    by file mtime, so editing the doc and redeploying updates the page. Images and
+    Word-specific layout are not shown; the text is. Returns None if the file is
+    missing."""
+    import html
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nda", "NDA.docx")
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    if _nda_cache.get("mtime") != mtime:
+        out = []
+        for p in Document(path).paragraphs:
+            text = p.text.strip()
+            if not text:
+                continue
+            runs = [r for r in p.runs if r.text]
+            all_bold = bool(runs) and all(r.bold or not r.text.strip() for r in runs)
+            if p.alignment == WD_ALIGN_PARAGRAPH.CENTER and all_bold:
+                out.append(f'<h2 class="text-center">{html.escape(text)}</h2>')
+            elif all_bold:
+                out.append(f"<h3>{html.escape(text)}</h3>")
+            else:
+                inner = ""
+                for r in runs:
+                    piece = html.escape(r.text)
+                    if r.bold:
+                        piece = f"<strong>{piece}</strong>"
+                    if r.italic:
+                        piece = f"<em>{piece}</em>"
+                    inner += piece
+                out.append(f"<p>{inner or html.escape(text)}</p>")
+        _nda_cache["mtime"] = mtime
+        _nda_cache["html"] = "\n".join(out)
+    return _nda_cache["html"]
+
+
 @app.route("/nda", methods=["GET"])
 def nda_page():
     """Standalone NDA page, gated by a single shared password (NDA_SECRET).
     Locked until the right password is entered; the unlock is remembered for the
-    browser session. Not advertised anywhere — shared privately by URL."""
-    return render_template("nda.html", unlocked=bool(session.get("nda_ok")),
-                           title=nda_content.TITLE, subtitle=nda_content.SUBTITLE,
-                           intro=nda_content.INTRO, sections=nda_content.SECTIONS,
-                           sign_intro=nda_content.SIGN_INTRO)
+    browser session. The content is read live from nda/NDA.docx. Not advertised
+    anywhere — shared privately by URL."""
+    unlocked = bool(session.get("nda_ok"))
+    return render_template("nda.html", unlocked=unlocked,
+                           nda_body=_nda_html() if unlocked else None)
 
 
 @app.route("/nda", methods=["POST"])
