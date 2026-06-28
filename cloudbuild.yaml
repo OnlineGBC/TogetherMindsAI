@@ -75,8 +75,6 @@ steps:
       - --set-secrets
       - SECRET_KEY=SECRET_KEY:latest
       - --set-secrets
-      - NDA_SECRET=NDA_SECRET:latest
-      - --set-secrets
       - ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
       - --set-secrets
       - DATABASE_URL=DATABASE_URL:latest
