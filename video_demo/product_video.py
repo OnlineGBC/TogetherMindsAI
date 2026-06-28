@@ -90,11 +90,16 @@ SLIDES = [
      "suggestions, technique reminders, and high-priority risk alerts. It reads tone to help set the "
      "right pace. Clients never see it."),
 
-    (slide_image(_ICD, "5 - Summaries & coding",
-                 "Summaries & billing codes, grounded in ICD-11",
-                 "A clinical summary plus suggested ICD-10 / ICD-11 codes — documentation in minutes."),
-     "After the session, the co-pilot drafts a clinical summary and suggests billing codes, grounded in "
-     "the World Health Organization's I C D eleven — so documentation and coding take minutes, not hours."),
+    (slide_image(_ICD, "5 - Real-time coding",
+                 "Billing codes in real time",
+                 "Suggested ICD-10 / ICD-11 codes surface LIVE during the session — grounded in ICD-11. "
+                 "The after-session AI analysis then carries those same codes into the report — for faster billing."),
+     "And here's a feature clinicians love. As the conversation unfolds, the co-pilot suggests billing "
+     "codes in real time, right in the panel — grounded in the World Health Organization's I C D eleven. "
+     "These codes appear live, during the session, not afterward. Then, once the session ends, the "
+     "co-pilot generates a full AI analysis and clinical summary — and it carries those same billing "
+     "codes right into the report. So the documentation your billing team receives already has the codes "
+     "attached, turning hours of coding and paperwork into minutes."),
 
     (slide_screen(f"{ASSETS}/prod_pricing.png", "6 - Pricing",
                   "Plans for every practice",

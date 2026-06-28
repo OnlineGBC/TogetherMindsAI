@@ -123,70 +123,102 @@ set the right pace Clients never see
 it
 
 32
-00:01:21,820 --> 00:01:24,108
-After the session the co-pilot drafts a
+00:01:21,820 --> 00:01:23,995
+And here's a feature clinicians love As
 
 33
-00:01:24,120 --> 00:01:26,658
-clinical summary and suggests billing codes
+00:01:24,008 --> 00:01:27,108
+the conversation unfolds the co-pilot suggests
 
 34
-00:01:26,920 --> 00:01:29,045
-grounded in the World Health Organization's
+00:01:27,120 --> 00:01:29,658
+billing codes in real time right in
 
 35
-00:01:29,170 --> 00:01:32,070
-I C D eleven so documentation and
+00:01:29,670 --> 00:01:31,745
+the panel grounded in the World Health
 
 36
-00:01:32,082 --> 00:01:34,332
-coding take minutes not hours
+00:01:31,758 --> 00:01:34,758
+Organization's I C D eleven These codes
 
 37
-00:01:35,316 --> 00:01:37,654
-There's a plan for every practice Free
+00:01:34,770 --> 00:01:37,708
+appear live during the session not afterward
 
 38
-00:01:37,666 --> 00:01:40,354
-includes guided sessions and full transcripts
+00:01:38,120 --> 00:01:40,882
+Then once the session ends the co-pilot
 
 39
-00:01:40,779 --> 00:01:42,991
-Pro at ten dollars a month adds
+00:01:40,895 --> 00:01:43,795
+generates a full AI analysis and clinical
 
 40
-00:01:43,004 --> 00:01:46,279
-the AI co-pilot summaries and billing codes
+00:01:43,808 --> 00:01:46,020
+summary and it carries those same billing
 
 41
-00:01:46,704 --> 00:01:49,842
-Premium at twenty-five adds secure audio and
+00:01:46,032 --> 00:01:48,082
+codes right into the report So the
 
 42
-00:01:49,854 --> 00:01:52,166
-video recording with thirty-day storage
+00:01:48,095 --> 00:01:50,770
+documentation your billing team receives already
 
 43
-00:01:53,132 --> 00:01:55,544
-And it's private by design Everything is
+00:01:50,782 --> 00:01:53,158
+has the codes attached turning hours of
 
 44
-00:01:55,557 --> 00:01:58,344
-encrypted handled by Hippa-covered providers
+00:01:53,170 --> 00:01:55,232
+coding and paperwork into minutes
 
 45
-00:01:58,357 --> 00:02:00,957
-under signed agreements and never sold or
+00:01:56,220 --> 00:01:58,558
+There's a plan for every practice Free
 
 46
-00:02:00,970 --> 00:02:03,770
-used to train AI Clients consent before
+00:01:58,571 --> 00:02:01,258
+includes guided sessions and full transcripts
 
 47
-00:02:03,782 --> 00:02:07,369
-anything begins TogetherMindsAI clinician-led
+00:02:01,683 --> 00:02:03,896
+Pro at ten dollars a month adds
 
 48
-00:02:07,657 --> 00:02:09,632
+00:02:03,908 --> 00:02:07,183
+the AI co-pilot summaries and billing codes
+
+49
+00:02:07,608 --> 00:02:10,746
+Premium at twenty-five adds secure audio and
+
+50
+00:02:10,758 --> 00:02:13,070
+video recording with thirty-day storage
+
+51
+00:02:14,036 --> 00:02:16,448
+And it's private by design Everything is
+
+52
+00:02:16,461 --> 00:02:19,248
+encrypted handled by Hippa-covered providers
+
+53
+00:02:19,261 --> 00:02:21,861
+under signed agreements and never sold or
+
+54
+00:02:21,874 --> 00:02:24,674
+used to train AI Clients consent before
+
+55
+00:02:24,686 --> 00:02:28,274
+anything begins TogetherMindsAI clinician-led
+
+56
+00:02:28,561 --> 00:02:30,536
 AI-assisted built on trust
 
