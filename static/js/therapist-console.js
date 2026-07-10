@@ -19,11 +19,36 @@ function initTherapistConsole(sessionId, userId) {
     document.body.appendChild(panel);
     // Shift the page so the fixed panel doesn't cover the chat (desktop CSS).
     document.body.classList.add("tcp-console-open");
-    // On phones/tablets the open panel would cover the chat — start collapsed.
-    if (window.innerWidth < 992) {
-        panel.classList.add("collapsed");
-        document.body.classList.add("tcp-collapsed");
+
+    // ---- Collapse / expand — wired BEFORE the socket check so the panel can
+    // ALWAYS be reopened, even if the socket never connects. ----
+    function _tcSetCollapsed(collapsed) {
+        panel.classList.toggle("collapsed", collapsed);
+        document.body.classList.toggle("tcp-collapsed", collapsed);
     }
+    // Narrow window / phone: start collapsed so the chat keeps the width.
+    _tcSetCollapsed(window.innerWidth < 992);
+
+    document.getElementById("tcCollapseBtn").addEventListener("click", function (e) {
+        e.stopPropagation();            // don't bubble to the reopen-on-click below
+        _tcSetCollapsed(true);
+    });
+    document.getElementById("tcExpandBtn").addEventListener("click", function () {
+        _tcSetCollapsed(false);
+    });
+    // The WHOLE collapsed sliver reopens the panel — a big, reliable target
+    // (the thin chevron alone was easy to miss).
+    panel.addEventListener("click", function () {
+        if (panel.classList.contains("collapsed")) { _tcSetCollapsed(false); }
+    });
+    // Cross the desktop width threshold → auto collapse/expand, so a window
+    // resized from half-screen to full-screen reopens the panel. A manual
+    // collapse on a wide screen is left alone until the next crossing.
+    var _tcWasNarrow = window.innerWidth < 992;
+    window.addEventListener("resize", function () {
+        var narrow = window.innerWidth < 992;
+        if (narrow !== _tcWasNarrow) { _tcWasNarrow = narrow; _tcSetCollapsed(narrow); }
+    });
 
     var sock = window.socket;
     if (!sock) {
@@ -126,17 +151,8 @@ function initTherapistConsole(sessionId, userId) {
         _tcSetStatus(_tcMuted ? "Muted — incoming suggestions are hidden." : "Listening for suggestions…");
     });
 
-    // Collapse / expand — keep the body padding in sync so the chat reclaims space.
-    function _tcSetCollapsed(collapsed) {
-        panel.classList.toggle("collapsed", collapsed);
-        document.body.classList.toggle("tcp-collapsed", collapsed);
-    }
-    document.getElementById("tcCollapseBtn").addEventListener("click", function () {
-        _tcSetCollapsed(!panel.classList.contains("collapsed"));
-    });
-    document.getElementById("tcExpandBtn").addEventListener("click", function () {
-        _tcSetCollapsed(false);
-    });
+    // (Collapse / expand handlers are wired above, before the socket check, so
+    // the panel can always be reopened even if the socket never connected.)
 
     // Resize handle — drag the panel's left edge to grow/shrink it; the chat
     // reclaims the freed space (linked, no overlap). Desktop only.

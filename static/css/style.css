@@ -840,11 +840,12 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
 .tc-expand-handle {
     display: none;
     position: absolute;
-    top: 50%;
-    left: 0;
-    transform: translateY(-50%);
+    top: 0; bottom: 0; left: 0;
     width: 46px;
-    background: none;
+    height: 100%;
+    /* Solid teal tab so it's visible on any theme and fills the whole visible
+       sliver — the entire strip is the click target, not a thin invisible line. */
+    background: linear-gradient(180deg, var(--teal-primary) 0%, var(--green-dark) 100%);
     border: none;
     color: #fff;
     cursor: pointer;
@@ -853,9 +854,11 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.08em;
-    padding: 0.6rem 0;
+    z-index: 5;                 /* above the (hidden) header/body in the sliver */
 }
-.therapist-console.collapsed .tc-expand-handle { display: inline-flex; align-items: center; gap: 0.35rem; }
+.therapist-console.collapsed .tc-expand-handle {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+}
 .therapist-console.collapsed .tc-body { opacity: 0; pointer-events: none; }
 
 .tc-header {
