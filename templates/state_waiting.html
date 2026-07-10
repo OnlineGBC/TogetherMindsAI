@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Waiting to join — TogetherMindsAI{% endblock %}
+{% block head %}
+{# Socket-free poll: reload this gate every 4s. It redirects into the room once
+   the clinician certifies the state, or shows the turn-away page if declined. #}
+<meta http-equiv="refresh" content="4;url={{ url_for('session_state_gate', session_id=session_id) }}">
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6 text-center">
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body p-4">
+                <div class="spinner-border text-primary-green mb-3" role="status">
+                    <span class="visually-hidden">Waiting…</span>
+                </div>
+                <h4 class="fw-bold mb-2">Almost there</h4>
+                <p class="text-muted mb-0">
+                    Your clinician is confirming they can see clients located in
+                    <strong>{{ state }}</strong>. This page updates automatically —
+                    please keep it open.
+                </p>
+            </div>
+        </div>
+        <div class="text-center mt-3">
+            <a href="/" class="text-muted small text-decoration-none">
+                <i class="bi bi-arrow-left me-1"></i>Leave
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

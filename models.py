@@ -219,6 +219,37 @@ class SessionParticipant(db.Model):
         return f"<SessionParticipant session={self.session_id} user={self.user_id}>"
 
 
+class SessionStateCert(db.Model):
+    """The clinician's per-session attestation about a client's U.S. state.
+
+    Telehealth licensure follows the client's PHYSICAL location at session time,
+    so before a client is admitted the clinician certifies (once per state) that
+    they are authorised to provide services to a client located there — via a
+    state licence or an applicable interstate compact. One row per (session,
+    state): the first client from a state triggers it; the rest are covered by
+    the same row.
+
+    decision is 'certified' (admit clients from that state this session) or
+    'declined' (turn them away). This is the audit-grade licensure record; the
+    same event is also written to the tamper-evident audit log.
+    """
+    __tablename__ = "session_state_certs"
+
+    id           = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    session_id   = db.Column(db.String(36), index=True, nullable=False)
+    state        = db.Column(db.String(2), nullable=False)      # USPS code, e.g. "NJ"
+    therapist_id = db.Column(db.String(36), nullable=False)
+    decision     = db.Column(db.String(10), nullable=False)     # certified | declined
+    attested_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("session_id", "state", name="uq_session_state_cert"),
+    )
+
+    def __repr__(self):
+        return f"<SessionStateCert session={self.session_id} state={self.state} {self.decision}>"
+
+
 class NotificationLog(db.Model):
     """Durable ledger of one-shot/annual notifications already sent.
 

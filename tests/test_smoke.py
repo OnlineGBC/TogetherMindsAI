@@ -470,7 +470,8 @@ def test_consent_gate_records_consent_and_admits_client(client):
     # No session content (chat composer) on the consent screen.
     assert b"Share with the group" not in gate.data
 
-    post = client.post(f"/session/{session_id}/consent")
+    post = client.post(f"/session/{session_id}/consent",
+                       data={"state": "NY", "location_attest": "1"})
     assert post.status_code in (301, 302)
     assert f"/therapy/group/{session_id}" in post.headers.get("Location", "")
 

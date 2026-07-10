@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, init_encryption
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis, CRISIS_RESPONSE
 import copilot
@@ -145,6 +145,7 @@ session_therapist_id: dict    = {}  # session_id → therapist user_id (set only
 session_therapist_notes: dict = {}  # session_id → list[str] of the therapist's private notes (co-pilot context)
 session_recent_cards: dict    = {}  # session_id → list[str] of recently shown card texts (dedup memory)
 session_friendly_name: dict   = {}  # session_id → therapist-set shared session label (ephemeral)
+session_pending_state: dict   = {}  # session_id → {user_id: USPS state} for clients awaiting licensure cert
 session_copilot_cadence: dict = {}  # session_id → "more"|"less"|"stop" live-display setting (default "more")
 session_copilot_emit_counter: dict = {}  # session_id → throttle counter used by the "less" cadence
 
@@ -1347,6 +1348,14 @@ def _render_session_room(session_id, mode):
     if not is_therapist and session_id not in session.get("consented_sessions", []):
         return redirect(url_for("session_consent_get", session_id=session_id))
 
+    # Licensure gate — a client may only enter once the clinician has CERTIFIED
+    # they're authorised to see clients in the client's attested state. Enforced
+    # here too (not just at consent) so a direct room URL can't bypass it. Only
+    # applies to therapist-led sessions (no clinician → no licensure to verify).
+    if not is_therapist and ts and ts.therapist_id \
+            and _state_decision(session_id, _client_declared_state(session_id)) != "certified":
+        return redirect(url_for("session_state_gate", session_id=session_id))
+
     cfg = MODE_CONFIG.get(mode, MODE_CONFIG["solo"])
     return render_template(
         "session_live.html",
@@ -1372,6 +1381,73 @@ def therapy_couple(session_id):
 @app.route("/therapy/group/<session_id>")
 def therapy_group(session_id):
     return _render_session_room(session_id, "group")
+
+
+# ---------------------------------------------------------------------------
+# Licensure gate — telehealth licensure follows the CLIENT's physical location
+# at session time, so a client is admitted only once the clinician has certified
+# (once per U.S. state, this session) that they are authorised to see clients
+# there. All of it rides plain HTTP: the consent form POST (client state), the
+# presence heartbeat POST (surfaces pending states to the clinician), and a small
+# certify POST — no sockets on the licensure path.
+# ---------------------------------------------------------------------------
+
+# 50 states + D.C. The app is U.S.-only; a client outside the U.S. cannot join.
+US_STATES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "DC": "District of Columbia", "FL": "Florida", "GA": "Georgia", "HI": "Hawaii",
+    "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+    "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+    "WI": "Wisconsin", "WY": "Wyoming",
+}
+
+
+def _state_decision(session_id: str, state: str):
+    """The clinician's decision for a (session, state): 'certified', 'declined',
+    or None if not yet decided this session."""
+    if not state:
+        return None
+    row = SessionStateCert.query.filter_by(session_id=session_id, state=state).first()
+    return row.decision if row else None
+
+
+def _client_declared_state(session_id: str):
+    """The U.S. state the current browser's client attested at the consent gate
+    (stored in the signed session cookie, so it survives a server restart)."""
+    return (session.get("session_states") or {}).get(session_id)
+
+
+def _register_pending_state(session_id: str, user_id: str, state: str) -> None:
+    """Remember that this client is waiting on a licensure decision for `state`,
+    so the clinician's heartbeat can surface it. Self-heals across restarts: the
+    client's polling re-registers them."""
+    session_pending_state.setdefault(session_id, {})[user_id] = state
+
+
+def _resolve_pending_state(session_id: str, state: str) -> None:
+    """Clear clients waiting on `state` once the clinician has decided it."""
+    waiting = session_pending_state.get(session_id, {})
+    for uid in [u for u, s in list(waiting.items()) if s == state]:
+        waiting.pop(uid, None)
+
+
+def _pending_states(session_id: str) -> list:
+    """Distinct U.S. states of clients currently waiting on a licensure decision
+    (excludes any state already certified/declined). Shown to the clinician."""
+    waiting = session_pending_state.get(session_id, {})
+    counts: dict = {}
+    for _uid, st in waiting.items():
+        if _state_decision(session_id, st) is None:
+            counts[st] = counts.get(st, 0) + 1
+    return [{"code": c, "name": US_STATES.get(c, c), "count": n} for c, n in counts.items()]
 
 
 def _record_consent(session_id, user_id):
@@ -1429,13 +1505,20 @@ def session_consent_get(session_id):
     is_therapist = bool(ts.therapist_id and ts.therapist_id == user_id)
     if is_therapist or session_id in session.get("consented_sessions", []):
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
-    return render_template("consent_gate.html", session_id=session_id, mode=ts.mode)
+    # Sorted (name) list of states for the location selector.
+    states = sorted(US_STATES.items(), key=lambda kv: kv[1])
+    return render_template("consent_gate.html", session_id=session_id, mode=ts.mode, states=states)
 
 
 @app.route("/session/<session_id>/consent", methods=["POST"])
 def session_consent_post(session_id):
-    """Client agrees to the disclosure. Record it (transcript + Co-Pilot + audit),
-    remember it for this browser session, then admit them into the room."""
+    """Client agrees to the disclosure AND attests their physical U.S. state.
+
+    Records consent (transcript + Co-Pilot + audit) and the location attestation,
+    then applies the licensure gate: admit if the clinician has certified that
+    state, turn away if declined or outside the U.S., otherwise hold on the
+    state-gate waiting page until the clinician decides.
+    """
     ts = db.session.get(TherapySession, session_id)
     if not ts:
         return _redirect_invalid_session()
@@ -1443,13 +1526,104 @@ def session_consent_post(session_id):
     if not user_id:
         return redirect(url_for("auth_get", therapy_mode=ts.mode))
     is_therapist = bool(ts.therapist_id and ts.therapist_id == user_id)
-    if not is_therapist:
-        _record_consent(session_id, user_id)
-        consented = session.get("consented_sessions", [])
-        if session_id not in consented:
-            consented.append(session_id)
-            session["consented_sessions"] = consented
-    return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+    if is_therapist:
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+
+    state = (request.form.get("state") or "").strip().upper()
+    # U.S.-only: anything not a valid state code (incl. the "outside the U.S."
+    # option) cannot join.
+    if state not in US_STATES:
+        log_event("client_location_blocked", session_id=session_id, user_id=user_id,
+                  state=(state or "none"))
+        reason = "intl" if state == "INTL" else "invalid"
+        return render_template("state_blocked.html", reason=reason, mode=ts.mode), 403
+
+    # Remember the attested state (signed cookie — survives a restart) and audit it.
+    states = session.get("session_states", {})
+    states[session_id] = state
+    session["session_states"] = states
+    log_event("client_location_attested", session_id=session_id, user_id=user_id, state=state)
+
+    _record_consent(session_id, user_id)
+    consented = session.get("consented_sessions", [])
+    if session_id not in consented:
+        consented.append(session_id)
+        session["consented_sessions"] = consented
+
+    # Licensure applies only to therapist-led sessions (no clinician → no one to
+    # certify). US-only + attestation above still ran regardless.
+    if not ts.therapist_id:
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+
+    decision = _state_decision(session_id, state)
+    if decision == "certified":
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+    if decision == "declined":
+        return render_template("state_blocked.html", reason="declined",
+                               state=US_STATES.get(state), mode=ts.mode), 403
+    # Not yet decided — hold on the waiting page; the clinician sees it next heartbeat.
+    _register_pending_state(session_id, user_id, state)
+    return redirect(url_for("session_state_gate", session_id=session_id))
+
+
+@app.route("/session/<session_id>/state-gate", methods=["GET"])
+def session_state_gate(session_id):
+    """Waiting page for a consented client whose state the clinician hasn't yet
+    certified. Auto-refreshes (meta refresh — no sockets): once certified it
+    redirects into the room; if declined it shows the turn-away page."""
+    ts = db.session.get(TherapySession, session_id)
+    if not ts:
+        return _redirect_invalid_session()
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("auth_get", therapy_mode=ts.mode))
+    if not ts.therapist_id or (ts.therapist_id and ts.therapist_id == user_id):
+        # no clinician to certify, or this is the clinician → straight to the room
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+
+    state = _client_declared_state(session_id)
+    if not state:                       # never attested a state → back to consent
+        return redirect(url_for("session_consent_get", session_id=session_id))
+
+    decision = _state_decision(session_id, state)
+    if decision == "certified":
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+    if decision == "declined":
+        return render_template("state_blocked.html", reason="declined",
+                               state=US_STATES.get(state), mode=ts.mode), 403
+    # Still pending — keep this client registered so the heartbeat surfaces it.
+    _register_pending_state(session_id, user_id, state)
+    return render_template("state_waiting.html", session_id=session_id,
+                           state=US_STATES.get(state), mode=ts.mode)
+
+
+@app.route("/session/<session_id>/certify-state", methods=["POST"])
+def certify_state(session_id):
+    """Clinician certifies (or declines) authorisation for clients in a state.
+    Therapist-only. Records the per-session attestation + audit log, then releases
+    or turns away the clients waiting on that state."""
+    ts = _is_session_therapist(session_id)
+    if ts is None:
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or request.form
+    state = (data.get("state") or "").strip().upper()
+    decision = (data.get("decision") or "").strip().lower()
+    if state not in US_STATES or decision not in ("certify", "decline"):
+        return jsonify({"error": "bad_request"}), 400
+
+    stored = "certified" if decision == "certify" else "declined"
+    row = SessionStateCert.query.filter_by(session_id=session_id, state=state).first()
+    if row is None:
+        row = SessionStateCert(session_id=session_id, state=state)
+        db.session.add(row)
+    row.decision = stored
+    row.therapist_id = ts.therapist_id
+    row.attested_at = datetime.now(timezone.utc)
+    db.session.commit()
+
+    log_event("state_" + stored, session_id=session_id, user_id=ts.therapist_id, state=state)
+    _resolve_pending_state(session_id, state)
+    return jsonify({"ok": True, "state": state, "decision": stored})
 
 
 # ---------------------------------------------------------------------------
@@ -2469,7 +2643,10 @@ def session_heartbeat(session_id):
     if _is_session_therapist(session_id) is None:
         abort(403)
     _mark_therapist_seen(session_id)
-    return ("", 204)
+    # Piggyback the licensure prompt on the existing presence heartbeat: any U.S.
+    # states of clients waiting for a licensure decision, so the clinician can
+    # certify them — no separate socket or poll.
+    return jsonify({"pending_states": _pending_states(session_id)})
 
 
 @app.route("/session/<session_id>/summary")

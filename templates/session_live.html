@@ -306,6 +306,44 @@
         </div>
     </div>
 </div>
+
+{% if is_therapist %}
+<!-- Licensure certification — surfaced by the presence heartbeat when a client
+     is waiting from a U.S. state the clinician hasn't yet certified this session. -->
+<div class="modal fade" id="stateCertModal" tabindex="-1"
+     data-bs-backdrop="static" data-bs-keyboard="false"
+     aria-labelledby="stateCertLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="stateCertLabel">
+                    <i class="bi bi-geo-alt-fill text-primary-green me-2"></i>Confirm licensure
+                </h5>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="mb-2">A client in this session is physically located in
+                    <strong id="stateCertName"></strong>.</p>
+                <p class="small text-muted mb-0">
+                    I certify that I am <strong>legally authorized to provide the services in this
+                    session to a client physically located there</strong> — through a license issued by
+                    that state, an applicable interstate compact (e.g., PSYPACT or the Counseling
+                    Compact), or other lawful authority — and I accept professional responsibility for
+                    this session. I understand TogetherMindsAI does not verify my licensure and relies
+                    on this certification.
+                </p>
+            </div>
+            <div class="modal-footer border-0 pt-2 flex-wrap gap-2">
+                <button type="button" class="btn btn-outline-danger rounded-pill me-auto" id="stateCertNo">
+                    I'm not authorized
+                </button>
+                <button type="button" class="btn btn-primary-green rounded-pill" id="stateCertYes">
+                    <i class="bi bi-check2 me-1"></i>I certify — admit the client
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -437,9 +475,37 @@
         // admitted from the waiting room. DB-backed, so it survives restarts and
         // doesn't depend on the socket staying connected.
         (function () {
+            var certBusy = false;   // guard so we don't re-prompt while one is open
+
+            function showCert(item) {
+                var modalEl = document.getElementById("stateCertModal");
+                if (!modalEl || typeof bootstrap === "undefined") { return; }
+                if (modalEl.classList.contains("show")) { return; }
+                document.getElementById("stateCertName").textContent = item.name;
+                var m = bootstrap.Modal.getOrCreateInstance(modalEl);
+                function decide(decision) {
+                    certBusy = true;
+                    fetch("/session/" + encodeURIComponent(SESSION_ID) + "/certify-state",
+                          { method: "POST", credentials: "same-origin",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ state: item.code, decision: decision }) })
+                      .catch(function () {})
+                      .then(function () { m.hide(); certBusy = false; beat(); });
+                }
+                document.getElementById("stateCertYes").onclick = function () { decide("certify"); };
+                document.getElementById("stateCertNo").onclick  = function () { decide("decline"); };
+                m.show();
+            }
+
             function beat() {
                 fetch("/session/" + encodeURIComponent(SESSION_ID) + "/heartbeat",
-                      { method: "POST", credentials: "same-origin" }).catch(function () {});
+                      { method: "POST", credentials: "same-origin" })
+                  .then(function (r) { return r.ok ? r.json() : null; })
+                  .then(function (data) {
+                      var pend = (data && data.pending_states) || [];
+                      if (pend.length && !certBusy) { showCert(pend[0]); }
+                  })
+                  .catch(function () {});
             }
             beat();
             setInterval(beat, 15000);

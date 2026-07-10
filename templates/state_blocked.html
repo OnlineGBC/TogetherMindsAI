@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Unable to join — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6 text-center">
+        <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body p-4">
+                <i class="bi bi-shield-exclamation text-warning" style="font-size:2.4rem;"></i>
+
+                {% if reason == 'declined' %}
+                <h4 class="fw-bold mt-2 mb-2">You can't join this session</h4>
+                <p class="text-muted">
+                    Your clinician isn't able to see clients located in <strong>{{ state }}</strong>
+                    for this session. This is a licensing requirement, not a reflection on you.
+                </p>
+                {% elif reason == 'intl' %}
+                <h4 class="fw-bold mt-2 mb-2">Available in the U.S. only</h4>
+                <p class="text-muted">
+                    TogetherMindsAI is available only to clients <strong>physically located in the
+                    United States</strong>, so you can't join this session.
+                </p>
+                {% else %}
+                <h4 class="fw-bold mt-2 mb-2">We couldn't confirm your location</h4>
+                <p class="text-muted">
+                    Please go back and choose the U.S. state you're physically located in to join.
+                </p>
+                {% endif %}
+
+                <p class="small text-muted mb-0">
+                    If you're in crisis, help is available now — call or text <strong>988</strong>, or text
+                    <strong>HOME to 741741</strong>. Worldwide:
+                    <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a>.
+                </p>
+            </div>
+        </div>
+        <div class="text-center mt-3">
+            <a href="/" class="text-muted small text-decoration-none">
+                <i class="bi bi-arrow-left me-1"></i>Back to home
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

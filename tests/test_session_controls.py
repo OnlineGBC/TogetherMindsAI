@@ -201,7 +201,7 @@ def test_heartbeat_admits_client_without_therapist_socket(enc_client):
         sid = _seed("ther-1", mode="group")
     with enc_client.session_transaction() as s:
         s["user_id"] = "ther-1"
-    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 204
+    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 200
     c = _raw_join(enc_client, sid, "client-1", mode="group")
     assert "waiting_room" not in _names(c)
 
@@ -226,7 +226,7 @@ def test_heartbeat_requires_therapist(enc_client):
     assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 403   # wrong user
     with enc_client.session_transaction() as s:
         s["user_id"] = "ther-1"
-    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 204   # the therapist
+    assert enc_client.post(f"/session/{sid}/heartbeat").status_code == 200   # the therapist
 
 
 def test_client_message_blocked_without_therapist(enc_client):
@@ -417,8 +417,9 @@ def test_consent_records_transcript_and_copilot_card(enc_client):
     # The client passes the consent gate before entering the room.
     with enc_client.session_transaction() as sess:
         sess["user_id"] = "client-1"
-    resp = enc_client.post(f"/session/{sid}/consent")
-    assert resp.status_code in (301, 302)
+    resp = enc_client.post(f"/session/{sid}/consent",
+                           data={"state": "NY", "location_attest": "1"})
+    assert resp.status_code in (301, 302)   # held at the state gate (consent still recorded)
 
     # 1) The therapist sees an informational Co-Pilot line; the client never does.
     t_cards = [e for e in t.get_received() if e["name"] == "suggestion_cards"]
