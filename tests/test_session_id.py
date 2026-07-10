@@ -59,10 +59,14 @@ class TestCharset:
         assert "2" in SESSION_CHARSET and "9" in SESSION_CHARSET
 
     def test_charset_length(self):
-        # 24 upper (A-Z minus I,O) + 23 lower (a-z minus i,l,o) + 8 digits (2-9) + 4 symbols (-_!$)
-        assert len(SESSION_CHARSET) == 59, (
-            f"Expected 59 chars (24 upper + 23 lower + 8 digits + 4 symbols), got {len(SESSION_CHARSET)}"
+        # 24 upper (A-Z minus I,O) + 23 lower (a-z minus i,l,o) + 8 digits (2-9) + 2 symbols (-_)
+        assert len(SESSION_CHARSET) == 57, (
+            f"Expected 57 chars (24 upper + 23 lower + 8 digits + 2 symbols), got {len(SESSION_CHARSET)}"
         )
+
+    def test_excludes_filename_unsafe_symbols(self):
+        # `!` and `$` were dropped so the id is safe as a download filename prefix.
+        assert "!" not in SESSION_CHARSET and "$" not in SESSION_CHARSET
 
     def test_no_duplicates(self):
         assert len(SESSION_CHARSET) == len(set(SESSION_CHARSET))

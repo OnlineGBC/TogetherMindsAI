@@ -25,7 +25,7 @@ from sqlalchemy.pool import StaticPool
 
 from TogetherMindsAI import app
 from models import db, User, TherapySession, ChatMessage
-from session_id import generate_session_id
+from session_id import generate_session_id, filename_slug
 
 
 @pytest.fixture()
@@ -77,8 +77,10 @@ def test_transcript_download_returns_attachment(client, fmt, ctype):
     assert rv.headers["Content-Type"].startswith(ctype)
     disp = rv.headers.get("Content-Disposition", "")
     assert "attachment" in disp
-    # Real filename is exposed (not a generic "name.pdf").
-    assert f"transcript_{session_id}_" in disp
+    # Real filename is exposed (not a generic "name.pdf"): the session name/id
+    # prefix (slugified) + kind + date. No friendly name here, so it's the id.
+    prefix = filename_slug("", fallback=session_id)
+    assert f"{prefix}_transcript_" in disp
     assert disp.rstrip('"').endswith(f".{fmt}")
     assert len(rv.data) > 0
 

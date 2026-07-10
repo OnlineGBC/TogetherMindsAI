@@ -7,31 +7,34 @@ shown to the user — no derivation, no transformation.
 
 The session_id is effectively a shared password — anyone holding it can
 join the session — so the format is sized to be unguessable:
-59 characters × 16 slots ≈ 94 bits of entropy, comfortably past NIST's
+57 characters × 16 slots ≈ 93 bits of entropy, comfortably past NIST's
 80-bit threshold.
 
-Lookups are case-insensitive: 'aB3k7M-X9_pQrT!$' and 'AB3K7M-X9_PQRT!$'
+Lookups are case-insensitive: 'aB3k7M-X9_pQrTvW' and 'AB3K7M-X9_PQRTVW'
 find the same session. Ambiguous characters are excluded to prevent
 misreading:
   - uppercase: no I (eye), no O (oh)
   - lowercase: no i (eye), no l (ell), no o (oh)
   - digits:    no 0 (zero), no 1 (one)
-  - symbols:   only `-` `_` `!` `$` — URL-path-safe per RFC 3986, on every
-               keyboard, visually distinct, and free of chat-app auto-link
-               edge cases. `#`, `%`, `&`, `@`, `^` etc. are excluded because
-               they either break URL routing or get percent-encoded.
+  - symbols:   only `-` `_` — RFC 3986 unreserved, on every keyboard,
+               visually distinct, and safe in URLs and filenames alike.
+               `!`, `$`, `#`, `%`, `&`, `@`, `^` etc. are excluded because
+               they break URL routing, get percent-encoded, or aren't
+               filename-safe.
 """
 
+import re
 import secrets
+import unicodedata
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-# 24 uppercase + 23 lowercase + 8 digits + 4 symbols = 59 characters,
-# case-sensitive. `-` `_` are RFC 3986 unreserved; `!` `$` are sub-delims
-# allowed unencoded in URL path segments.
-SESSION_CHARSET: str = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789-_!$"
+# 24 uppercase + 23 lowercase + 8 digits + 2 symbols = 57 characters,
+# case-sensitive. `-` `_` are RFC 3986 unreserved AND filename-safe. `!` `$`
+# were dropped so the id is usable verbatim as a download filename prefix.
+SESSION_CHARSET: str = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789-_"
 SESSION_ID_LENGTH: int = 16
 
 
@@ -42,8 +45,8 @@ SESSION_ID_LENGTH: int = 16
 def generate_session_id(existing_ids: set | None = None) -> str:
     """Generate a new unique session ID for any session mode.
 
-    Uses secrets.choice (CSPRNG). With 59 characters and length 16 there are
-    59^16 ≈ 1.5 × 10^28 possible IDs, making collisions astronomically unlikely.
+    Uses secrets.choice (CSPRNG). With 57 characters and length 16 there are
+    57^16 ≈ 1.1 × 10^28 possible IDs, making collisions astronomically unlikely.
 
     Args:
         existing_ids: Optional set of already-in-use IDs. If provided, retries
@@ -143,4 +146,37 @@ def _example_session_id() -> str:
     """Return a static illustrative example of a session ID (not a real session)."""
     # Hard-coded for determinism and readability.
     # Uses only characters from SESSION_CHARSET to self-document the format.
-    return "aB3k7M-X9_pQrT!$"
+    return "aB3k7M-X9_pQrTvW"
+
+
+# ---------------------------------------------------------------------------
+# Filename slug — safe naming for downloads/attachments
+# ---------------------------------------------------------------------------
+
+def filename_slug(text: str, fallback: str = "session", max_len: int = 40) -> str:
+    """Turn an arbitrary label into a safe filename component.
+
+    Keeps only ASCII letters, digits, hyphen and underscore; folds accents to
+    ASCII (Café -> Cafe); collapses whitespace and runs of separators to a
+    single '-'. If nothing usable remains (e.g. an all-emoji or non-Latin
+    name), `fallback` (typically the session id) is slugified and returned.
+
+    Args:
+        text:     The label to slugify (e.g. a session's friendly name).
+        fallback: Used when `text` yields nothing usable (e.g. the session id).
+        max_len:  Maximum length of the returned slug.
+
+    Returns:
+        A filesystem- and header-safe string, never empty.
+    """
+    def _clean(s: str) -> str:
+        s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii")
+        s = re.sub(r"\s+", "-", s.strip())
+        s = re.sub(r"[^A-Za-z0-9_-]", "", s)
+        s = re.sub(r"[-_]{2,}", "-", s).strip("-_")
+        return s
+
+    slug = _clean(text)
+    if not slug:
+        slug = _clean(fallback) or "session"
+    return slug[:max_len]

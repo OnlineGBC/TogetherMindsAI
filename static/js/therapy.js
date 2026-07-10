@@ -772,6 +772,17 @@ function initSessionControls(sessionId, userId, isTherapist) {
         if (inp && data.suggestion) { inp.value = data.suggestion; inp.focus(); inp.select(); }
     });
 
+    // Name rejected — unsafe characters or no letters/numbers. Show why; keep it open.
+    socket.on("friendly_name_invalid", function (data) {
+        data = data || {};
+        var note = document.getElementById("friendlyNameNote");
+        if (note) {
+            note.textContent = data.message ||
+                "That name can't be used. Please use letters or numbers.";
+            note.classList.remove("d-none");
+        }
+    });
+
     socket.on("session_ended", function () {
         _showSessionEndedOverlay();
     });

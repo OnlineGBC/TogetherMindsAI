@@ -35,7 +35,7 @@ import clinical_summary
 import recording
 import billing
 from audit import log_event
-from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder
+from session_id import generate_session_id, normalise_join_input, rejoin_format_hint, rejoin_placeholder, filename_slug
 from log_filter import install_log_filter
 
 install_log_filter()   # redact PHI-bearing fields from all log output (finding 4.3)
@@ -2683,8 +2683,9 @@ def recording_download(token):
     # downloads DIRECTLY from storage. Routing 78 MB through the app hit Cloud Run's
     # ~32 MiB response cap ("Response size was too large") — a direct download has
     # no such limit. Access is still gated above (must be the session's clinician).
+    ts = db.session.get(TherapySession, row.session_id)
     url = recording.signed_download_url(row.gcs_object, minutes=15,
-                                        filename=f"recording-{row.id}.mp4")
+                                        filename=_download_name(ts, "recording", "mp4"))
     if not url:
         abort(502)   # see the 'signed_download_url failed' log line for the cause
     log_event("recording_downloaded", session_id=row.session_id,
@@ -2937,7 +2938,8 @@ def download_transcript_pdf(session_id):
     # PHI disclosure — record it (HIPAA § 164.312(b) access logging).
     log_event("transcript_downloaded", session_id=session_id,
               user_id=session.get("user_id"), format="pdf")
-    filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
+    ts = db.session.get(TherapySession, session_id)
+    filename = _download_name(ts, "transcript", "pdf")
     # send_file streams via the WSGI file wrapper and supports range/conditional
     # requests, so the browser's ranged download completes instead of resetting.
     return send_file(_transcript_pdf_buf(session_id), mimetype="application/pdf",
@@ -3036,7 +3038,8 @@ def download_transcript_docx(session_id):
     # PHI disclosure — record it (HIPAA § 164.312(b) access logging).
     log_event("transcript_downloaded", session_id=session_id,
               user_id=session.get("user_id"), format="docx")
-    filename = f"transcript_{session_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.docx"
+    ts = db.session.get(TherapySession, session_id)
+    filename = _download_name(ts, "transcript", "docx")
     return send_file(
         _transcript_docx_buf(session_id),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -3060,13 +3063,14 @@ def recording_download_doc(token, fmt):
         return _gate
     log_event("transcript_downloaded", session_id=row.session_id,
               user_id=session.get("user_id"), format=fmt, via="recording_token")
+    ts = db.session.get(TherapySession, row.session_id)
     if fmt == "pdf":
         return send_file(_transcript_pdf_buf(row.session_id), mimetype="application/pdf",
-                         as_attachment=True, download_name=f"session-{row.id}.pdf")
+                         as_attachment=True, download_name=_download_name(ts, "transcript", "pdf"))
     return send_file(
         _transcript_docx_buf(row.session_id),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        as_attachment=True, download_name=f"session-{row.id}.docx")
+        as_attachment=True, download_name=_download_name(ts, "transcript", "docx"))
 
 
 @app.route("/session/transcript/<token>/<fmt>")
@@ -3086,11 +3090,44 @@ def session_transcript_doc(token, fmt):
               user_id=session.get("user_id"), format=fmt, via="session_token")
     if fmt == "pdf":
         return send_file(_transcript_pdf_buf(ts.id), mimetype="application/pdf",
-                         as_attachment=True, download_name="session.pdf")
+                         as_attachment=True, download_name=_download_name(ts, "transcript", "pdf"))
     return send_file(
         _transcript_docx_buf(ts.id),
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        as_attachment=True, download_name="session.docx")
+        as_attachment=True, download_name=_download_name(ts, "transcript", "docx"))
+
+
+# ---------------------------------------------------------------------------
+# Download file naming — every emailed/downloaded file is prefixed with the
+# therapist's chosen session name (slugified) or the session id.
+# ---------------------------------------------------------------------------
+
+# Path-/header-unsafe and control characters barred from a session friendly name.
+_FRIENDLY_NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+def _friendly_name_is_valid(name: str) -> bool:
+    """A session friendly name may not contain path/header-unsafe or control
+    characters, and must include at least one alphanumeric character (any
+    language). Display-friendly punctuation, spaces and accents are allowed;
+    the filename is slugified separately (see _session_file_prefix)."""
+    if _FRIENDLY_NAME_BAD.search(name):
+        return False
+    return any(ch.isalnum() for ch in name)
+
+
+def _session_file_prefix(ts) -> str:
+    """Safe filename prefix for a session's downloads: the therapist's chosen
+    friendly name (slugified) if set, else the session id."""
+    name = (getattr(ts, "friendly_name", None) or "") if ts else ""
+    fallback = (getattr(ts, "id", None) if ts else None) or "session"
+    return filename_slug(name, fallback=fallback)
+
+
+def _download_name(ts, kind: str, ext: str) -> str:
+    """Build '<prefix>_<kind>_<YYYYMMDD>.<ext>' for an attachment/download."""
+    date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return f"{_session_file_prefix(ts)}_{kind}_{date}.{ext}"
 
 
 def _ensure_session_token(ts) -> str:
@@ -3814,6 +3851,10 @@ def on_set_friendly_name(data):
     if session_therapist_id.get(session_id) != user_id:
         return
     name = (data.get("name") or "").strip()[:60]
+    if name and not _friendly_name_is_valid(name):
+        emit("friendly_name_invalid", {"message":
+             'A name can\'t contain \\ / : * ? " < > | and must include a letter or number.'})
+        return
     ts = db.session.get(TherapySession, session_id)
     if ts is None:
         return
