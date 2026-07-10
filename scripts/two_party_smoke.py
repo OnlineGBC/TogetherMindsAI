@@ -9,8 +9,8 @@ echo — this path uses no mic/camera).
     stay signed in across runs.
   - CLIENT    → Playwright's bundled Chromium in a fresh (incognito-like) context.
 
-The script pauses for you to complete each OAuth sign-in by hand (Google /
-Microsoft can't be scripted), then automates the rest:
+It first prompts you to OPEN the two browsers, then to LOG IN to both (Google /
+Microsoft OAuth can't be scripted). After that it automates the rest:
 
   therapist starts a group session → client joins → consent + U.S. state
   attestation → held at the licensure gate → therapist's certify prompt appears
@@ -71,7 +71,12 @@ def main() -> None:
         sys.exit(1)
 
     with sync_playwright() as p:
-        # ---- THERAPIST: Brave, persistent profile (login persists) -----------
+        # 1) Prompt to OPEN the two browsers ----------------------------------
+        pause("Press Enter and I'll OPEN the two browser windows:\n"
+              "      • Brave    → the THERAPIST\n"
+              "      • Chromium → the CLIENT")
+
+        # THERAPIST: Brave, persistent profile (login persists across runs).
         ther_ctx = p.chromium.launch_persistent_context(
             user_data_dir=BRAVE_PROFILE,
             executable_path=BRAVE_PATH,
@@ -81,34 +86,43 @@ def main() -> None:
             args=["--new-window"],
         )
         ther = ther_ctx.new_page()
+        ther.goto(BASE + "/login")
 
-        # ---- CLIENT: bundled Chromium, fresh context (incognito-like) --------
+        # CLIENT: bundled Chromium, fresh context (incognito-like).
         cli_browser = p.chromium.launch(headless=False)
         cli_ctx = cli_browser.new_context(ignore_https_errors=True, no_viewport=True)
         cli = cli_ctx.new_page()
+        cli.goto(BASE + "/client/login")
 
-        # 1) Therapist sign-in (manual OAuth) ---------------------------------
-        ther.goto(BASE + "/login")
-        pause("BRAVE window: sign in as the THERAPIST (Google / Microsoft).")
+        # 2) Prompt to LOG IN to both ------------------------------------------
+        pause("Both windows are open on their sign-in pages. Now LOG IN:\n"
+              "      • BRAVE    → sign in as the THERAPIST (Google / Microsoft)\n"
+              "      • CHROMIUM → sign in as the CLIENT\n"
+              "    Then come back here.")
+
+        # Make sure the THERAPIST actually signed in before starting a session.
         ther.goto(BASE + "/therapist")
-        if "/login" in ther.url:
-            pause("Not signed in yet — finish the THERAPIST login in Brave.")
+        while "/login" in ther.url:
+            pause("The THERAPIST (Brave) isn't signed in yet — finish it in Brave.")
             ther.goto(BASE + "/therapist")
 
-        # 2) Start a session ---------------------------------------------------
+        # 3) Therapist starts a session ---------------------------------------
         ther.check("#agreeTherapist")
         ther.click(f'button.mode-btn[data-mode="{MODE}"]')
         ther.wait_for_url(f"**/therapy/{MODE}/**", timeout=30000)
         sid = ther.url.rstrip("/").split("/")[-1]
         print(f"\n[✓] Therapist started a {MODE} session: {sid}")
 
-        # 3) Client sign-in (manual OAuth) ------------------------------------
-        cli.goto(BASE + "/client/login")
-        pause("CHROMIUM window: sign in as the CLIENT (or use a second Google account).")
-
         # 4) Client joins → consent + state attestation -----------------------
         cli.goto(f"{BASE}/therapy/{MODE}/{sid}")           # → redirects to consent
-        cli.wait_for_selector("#stateSelect", timeout=30000)
+        for _ in range(4):
+            try:
+                cli.wait_for_selector("#stateSelect", timeout=12000)
+                break
+            except Exception:
+                # not on the consent page — usually the CLIENT isn't signed in yet
+                pause("The CLIENT (Chromium) isn't signed in yet — finish it in Chromium.")
+                cli.goto(f"{BASE}/therapy/{MODE}/{sid}")
         cli.select_option("#stateSelect", STATE)
         cli.check("#locationAttest")
         cli.click('button:has-text("I understand and agree")')
