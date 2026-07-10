@@ -947,9 +947,12 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
 .tc-card-reference   { border-left-color: #6f42c1; }
 .tc-card-risk,
 .tc-card-urgent {
-    background: #fff5f4;
-    border-color: #f5c6c2;
-    border-left-color: #d32f2f;
+    /* Dark surface like the other card types. Previously a light-pink box, which
+       left the shared light body text (var(--text-dark)) unreadable on it. Urgency
+       now reads from the red border + red label + top-pinning, not a light box. */
+    background: var(--surface);
+    border-color: rgba(239, 83, 80, 0.45);
+    border-left-color: #ef5350;
 }
 .tc-card-label {
     display: inline-flex;
@@ -966,7 +969,7 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
 .tc-card-observation .tc-card-label { color: #c2570a; }
 .tc-card-reference   .tc-card-label { color: #6f42c1; }
 .tc-card-risk .tc-card-label,
-.tc-card-urgent .tc-card-label { color: #b71c1c; }
+.tc-card-urgent .tc-card-label { color: #ef5350; }
 .tc-card-text { font-size: 0.86rem; line-height: 1.4; color: var(--text-dark); }
 .tc-card-code {
     display: flex;
