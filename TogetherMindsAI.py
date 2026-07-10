@@ -2401,21 +2401,25 @@ def _session_summary_payload(session_id: str, ts) -> dict:
     transcript = _session_transcript_text(messages, ts)
     codes = _surfaced_codes(session_id)
     summary = clinical_summary.generate(transcript, codes, mode=ts.mode if ts else "solo") or {}
+    clinical = summary.get("clinical", "")
     log_event("session_summary_generated", session_id=session_id,
               user_id=ts.therapist_id if ts else None,
-              codes=len(codes), narrative=bool(summary))
+              codes=len(codes), narrative=bool(clinical))
     payload = {
         "session_id": session_id,
         "generated_at": generated_at,
         "disclaimer": clinical_summary.DISCLAIMER,
         "codes": codes,
-        "clinical": summary.get("clinical", ""),
+        "clinical": clinical,
         "codes_rationale": summary.get("codes_rationale", ""),
         "client_recap": summary.get("client_recap", ""),
-        "narrative_available": bool(summary),
+        "narrative_available": bool(clinical),
         "cached": False,
     }
-    _store_summary(session_id, payload, msg_count)
+    # Only cache once the clinical narrative succeeded, so a transient LLM
+    # failure retries on the next download instead of being frozen empty.
+    if clinical:
+        _store_summary(session_id, payload, msg_count)
     return payload
 
 

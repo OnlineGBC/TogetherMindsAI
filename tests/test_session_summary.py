@@ -108,30 +108,65 @@ def _docx_text(resp):
 # clinical_summary.generate
 # ---------------------------------------------------------------------------
 
-def test_generate_parses_three_parts():
-    raw = json.dumps({"clinical": "Detailed recap.", "codes_rationale": "F43.2 fits.",
-                      "client_recap": "Today we talked about work stress."})
-    with patch("clinical_summary._get_claude_client", return_value=_claude_returning(raw)):
-        out = clinical_summary.generate("Therapist: hi\nClient: stressed", [], mode="solo")
-    assert out["clinical"] == "Detailed recap."
-    assert out["codes_rationale"] == "F43.2 fits."
-    assert out["client_recap"].startswith("Today we talked")
+def test_generate_returns_three_plain_text_fields():
+    """Each field is its own plain-text call (no JSON). With codes present, all
+    three fields are produced — one call each."""
+    cl = _claude_returning("A plain-text field.")
+    codes = [{"label": "Adjustment disorder", "code": "F43.2", "source": "ICD-10-CM"}]
+    with patch("clinical_summary._get_claude_client", return_value=cl):
+        out = clinical_summary.generate("Therapist: hi\nClient: stressed", codes, mode="solo")
+    assert out["clinical"] == "A plain-text field."
+    assert out["codes_rationale"] == "A plain-text field."
+    assert out["client_recap"] == "A plain-text field."
+    assert cl.messages.create.call_count == 3          # one call per field
 
 
-def test_generate_none_on_bad_json():
-    with patch("clinical_summary._get_claude_client", return_value=_claude_returning("not json")):
-        assert clinical_summary.generate("Client: hi", []) is None
+def test_generate_skips_codes_call_when_no_codes():
+    """With no surfaced codes, the codes-rationale call is skipped entirely."""
+    cl = _claude_returning("text")
+    with patch("clinical_summary._get_claude_client", return_value=cl):
+        out = clinical_summary.generate("Client: hi", [])
+    assert out["codes_rationale"] == ""
+    assert cl.messages.create.call_count == 2          # clinical + client_recap only
 
 
-def test_generate_none_on_api_error():
-    bad = MagicMock()
-    bad.messages.create.side_effect = RuntimeError("API down")
-    with patch("clinical_summary._get_claude_client", return_value=bad):
-        assert clinical_summary.generate("Client: hi", []) is None
+def test_generate_partial_result_when_one_field_fails():
+    """A failure in one field's call must not lose the others — plain text per
+    field means partial results instead of all-or-nothing."""
+    ok = MagicMock(); ok.content = [MagicMock(text="ok")]; ok.stop_reason = "end_turn"
+    cl = MagicMock()
+    # order: clinical (fails), codes_rationale (ok), client_recap (ok)
+    cl.messages.create.side_effect = [RuntimeError("boom"), ok, ok]
+    codes = [{"label": "X", "code": "F1", "source": "s"}]
+    with patch("clinical_summary._get_claude_client", return_value=cl):
+        out = clinical_summary.generate("Client: hi", codes)
+    assert out is not None
+    assert out["clinical"] == ""                        # failed field omitted
+    assert out["codes_rationale"] == "ok"
+    assert out["client_recap"] == "ok"                  # others still produced
 
 
 def test_generate_empty_transcript_makes_no_call():
     assert clinical_summary.generate("   ", []) is None
+
+
+def test_call_uses_6000_max_tokens():
+    """Per-field output ceiling is 6000 tokens."""
+    cl = _claude_returning("x")
+    with patch("clinical_summary._get_claude_client", return_value=cl):
+        clinical_summary._call("sys", "user", label="clinical")
+    _, kwargs = cl.messages.create.call_args
+    assert kwargs["max_tokens"] == 6000
+
+
+def test_call_returns_truncated_text_on_max_tokens():
+    """A field that hits the token ceiling still returns its (partial) text —
+    truncation is logged, not fatal (and never breaks JSON, since there is none)."""
+    msg = MagicMock(); msg.content = [MagicMock(text="partial answer")]; msg.stop_reason = "max_tokens"
+    cl = MagicMock(); cl.messages.create.return_value = msg
+    with patch("clinical_summary._get_claude_client", return_value=cl):
+        out = clinical_summary._call("sys", "user", label="clinical")
+    assert out == "partial answer"
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +258,21 @@ def test_summary_is_cached_across_calls(enc_client):
     assert first["cached"] is False
     assert second["cached"] is True
     assert second["clinical"] == "c"
+
+
+def test_failed_summary_is_not_cached(enc_client):
+    """A failed narrative (empty clinical) must NOT be cached, so the next
+    download retries instead of being frozen 'unavailable' forever."""
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        ts = db.session.get(TherapySession, sid)
+        gen = MagicMock(return_value={"clinical": "", "codes_rationale": "", "client_recap": ""})
+        with patch("clinical_summary.generate", gen):
+            first = _session_summary_payload(sid, ts)
+            second = _session_summary_payload(sid, ts)
+    assert gen.call_count == 2            # not cached → retried
+    assert first["narrative_available"] is False
+    assert second["cached"] is False      # never served from cache
 
 
 def test_summary_cache_invalidated_by_new_message(enc_client):
