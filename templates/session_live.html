@@ -110,8 +110,8 @@
             {% if recording_enabled %}
             <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
                 {% if is_therapist %}
-                <button class="btn btn-sm btn-outline-secondary rounded-pill" id="recRequestBtn" title="Recording is off — tap to start (needs everyone's consent)">
-                    <i class="bi bi-record-circle"></i><span class="ms-1">Recording (audio + video) is OFF</span>
+                <button class="btn btn-sm btn-outline-danger rounded-pill" id="recRequestBtn" title="Recording (audio + video) is off — tap to start (needs everyone's consent)">
+                    <i class="bi bi-record-circle"></i><span class="ms-1">Recording off</span>
                 </button>
                 <button class="btn btn-sm btn-danger rounded-pill d-none" id="recStopBtn">Stop</button>
                 {% else %}

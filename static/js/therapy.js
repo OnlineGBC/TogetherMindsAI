@@ -413,8 +413,11 @@ function initRecordingControls(sessionId, userId, isTherapist) {
             if (!requested) {
                 // Reset the idle button to the clear OFF status (e.g. after a cancel).
                 if (requestBtn) {
-                    requestBtn.innerHTML = '<i class="bi bi-record-circle"></i><span class="ms-1">Recording (audio + video) is OFF</span>';
-                    requestBtn.title = "Recording is off — tap to start (needs everyone's consent)";
+                    // Red-outline "record" identity + compact label (matches the
+                    // server-rendered default); audio+video clarifier is in the tooltip.
+                    requestBtn.className = "btn btn-sm btn-outline-danger rounded-pill";
+                    requestBtn.innerHTML = '<i class="bi bi-record-circle"></i><span class="ms-1">Recording off</span>';
+                    requestBtn.title = "Recording (audio + video) is off — tap to start (needs everyone's consent)";
                 }
                 show(requestBtn); hide(stopBtn);
             } else {

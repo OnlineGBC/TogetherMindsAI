@@ -544,12 +544,21 @@ def test_recording_consent_states_legal_basis(client):
 
 
 def test_recording_status_button_says_audio_video(client):
+    """The therapist Record control reads as a record button (red outline, distinct
+    from the plain mic/cam toggles) with a compact 'Recording off' label; the
+    audio + video clarifier lives in the tooltip."""
     from unittest.mock import patch
     import config
     with patch.object(config, "RECORDING_ENABLED", True):
         rv = _session_render(client, as_therapist=True)   # Record control is therapist-only
     assert rv.status_code == 200
-    assert b"Recording (audio + video) is OFF" in rv.data
+    body = rv.data
+    # Red-outline record identity, tied to the request button.
+    assert b'btn btn-sm btn-outline-danger rounded-pill" id="recRequestBtn"' in body
+    # Compact label matching the neighbouring toggles...
+    assert b">Recording off<" in body
+    # ...with the audio + video clarifier preserved in the tooltip.
+    assert b"Recording (audio + video) is off" in body
 
 
 # ---------------------------------------------------------------------------
