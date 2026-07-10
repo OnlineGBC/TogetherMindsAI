@@ -3045,6 +3045,15 @@ def _render_summary_docx(doc, summary: dict) -> None:
     doc.add_heading("Transcript", level=2)
 
 
+def _session_friendly_label(session_id: str):
+    """The therapist-set friendly name for a session, if any — DB first, then the
+    ephemeral in-memory label. Shown on downloaded documents alongside the id."""
+    ts = db.session.get(TherapySession, session_id)
+    name = (getattr(ts, "friendly_name", None) if ts else None) \
+        or session_friendly_name.get(session_id)
+    return name or None
+
+
 def _transcript_pdf_buf(session_id: str) -> io.BytesIO:
     """Render the session transcript as a PDF in memory. Includes the therapist's
     private summary + co-pilot alert record when the viewer is the clinician."""
@@ -3069,6 +3078,9 @@ def _transcript_pdf_buf(session_id: str) -> io.BytesIO:
     pdf.set_font("DejaVu", "", 10)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 6, f"Session ID : {session_id}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    _friendly = _session_friendly_label(session_id)
+    if _friendly:
+        pdf.cell(0, 6, f"Session Name : {_friendly}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Mode       : {mode}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.cell(0, 6, f"Generated  : {generated_at}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(4)
@@ -3173,6 +3185,11 @@ def _transcript_docx_buf(session_id: str) -> io.BytesIO:
     meta = doc.add_paragraph()
     meta.add_run("Session ID : ").bold = True
     meta.add_run(session_id)
+    _friendly = _session_friendly_label(session_id)
+    if _friendly:
+        meta_name = doc.add_paragraph()
+        meta_name.add_run("Session Name : ").bold = True
+        meta_name.add_run(_friendly)
     meta2 = doc.add_paragraph()
     meta2.add_run("Mode       : ").bold = True
     meta2.add_run(mode)

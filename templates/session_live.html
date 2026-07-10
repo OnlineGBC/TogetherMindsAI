@@ -537,8 +537,10 @@
                 "box-shadow:0 12px 40px rgba(0,0,0,.5);text-align:center;font-size:.95rem;color:var(--text-dark);";
             box.innerHTML =
                 '<div class="spinner-border text-success mb-2" role="status" aria-hidden="true"></div>' +
-                '<div>Preparing your document…<br>' +
-                '<span style="font-size:.82rem;color:#666;">This can take a few seconds the first time.</span></div>';
+                '<div>Please wait while we prepare your document.<br>' +
+                '<span style="font-size:.82rem;color:#666;">This can take several seconds while the session is ' +
+                'analyzed and the document generated with full transcription, AI analyses for you and the ' +
+                'client(s) and suggested ICD codes for billing.</span></div>';
             o.appendChild(box);
             document.body.appendChild(o);
             return o;

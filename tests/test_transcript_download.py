@@ -85,6 +85,39 @@ def test_transcript_download_returns_attachment(client, fmt, ctype):
     assert len(rv.data) > 0
 
 
+def test_docx_includes_friendly_session_name(client):
+    """The downloaded document shows the therapist's friendly Session name in
+    addition to the Session ID, when one has been set."""
+    import io
+    from docx import Document
+
+    user_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    with app.app_context():
+        db.session.add(User(id=user_id, therapy_mode="solo"))
+        db.session.add(TherapySession(
+            id=session_id, mode="solo", created_by=user_id,
+            created_at=datetime.now(timezone.utc), friendly_name="Team Alpha",
+        ))
+        db.session.add(ChatMessage(
+            session_id=session_id, user_id=user_id, text="Hello there.",
+            display_name="Solo1",
+        ))
+        db.session.commit()
+
+    with client.session_transaction() as sess:
+        sess["user_id"] = user_id
+
+    rv = client.get(f"/transcript/{session_id}/docx")
+    assert rv.status_code == 200
+    doc = Document(io.BytesIO(rv.data))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Session Name" in text
+    assert "Team Alpha" in text
+    # The Session ID is still present too.
+    assert session_id in text
+
+
 @pytest.mark.parametrize("fmt", ["pdf", "docx"])
 def test_transcript_download_forbidden_without_access(client, fmt):
     """A user with no stake in the session can't download its transcript."""

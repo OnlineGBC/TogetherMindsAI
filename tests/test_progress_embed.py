@@ -65,6 +65,18 @@ def test_progress_embed_strips_chrome_for_modal(client):
     assert "Your Progress" in body
 
 
+def test_progress_embed_download_shows_wait_indicator(client):
+    """Downloads in the embedded Progress modal show a 'please wait' spinner while
+    the AI builds the document server-side, instead of a silent hang. The live
+    page's own interceptor can't reach these iframe buttons, so the embedded
+    page carries its own."""
+    uid = "u-wait"
+    _login(client, uid)
+    body = client.get(f"/progress/{uid}/solo?embed=1").get_data(as_text=True)
+    assert "Please wait while we prepare your document." in body
+    assert "initProgressDownload" in body
+
+
 def test_progress_embed_still_enforces_owner_only(client):
     """The IDOR guard must still apply in embed mode — you can only view your own."""
     _login(client, "owner")
