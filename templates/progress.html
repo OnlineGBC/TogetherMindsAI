@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends layout|default("base.html") %}
 {% block title %}Progress — TogetherMindsAI{% endblock %}
 
 {% block content %}
@@ -99,6 +99,9 @@
 
         <!-- Back button + delete -->
         <div class="d-flex gap-2 flex-wrap align-items-center">
+            {# Back button is redundant inside the live-session Progress modal (it
+               has its own close button), so it's hidden when embedded. #}
+            {% if not embed %}
             {% if therapy_mode == "solo" %}
             <a href="/therapy/solo/{{ session_id }}" class="btn btn-primary-green rounded-pill px-4">
                 <i class="bi bi-arrow-left me-1"></i>Back to Solo Therapy
@@ -111,6 +114,7 @@
             <a href="/therapy/group/{{ session_id }}" class="btn btn-primary-green rounded-pill px-4">
                 <i class="bi bi-arrow-left me-1"></i>Back to Group Therapy
             </a>
+            {% endif %}
             {% endif %}
             {% if not is_clinician %}
             <button

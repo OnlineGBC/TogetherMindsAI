@@ -495,7 +495,12 @@ def test_each_mode_renders_its_config(enc_client, mode, label, placeholder):
     assert label in body
     assert placeholder in body
     assert f'"{mode}"' in body                       # var MODE / window.SESSION_MODE
-    assert f"/progress/{tid}/{mode}" in body         # progress + end-session URLs
+    # Progress now opens in a modal (iframe → embedded progress page) rather than
+    # navigating away, so the button targets the modal and the embed URL is built
+    # in JS from USER_ID/MODE (which still carry the right therapist id + mode).
+    assert 'data-bs-target="#progressModal"' in body
+    assert "?embed=1" in body
+    assert f'"{tid}"' in body                         # USER_ID var carries the therapist id
 
 
 def test_url_mode_mismatch_redirects_to_canonical(enc_client):

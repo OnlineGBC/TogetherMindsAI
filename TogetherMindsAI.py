@@ -2070,6 +2070,11 @@ def progress(user_id, therapy_mode):
         .scalar()
     )
 
+    # embed=1 renders inside the live-session Progress modal (iframe): a stripped
+    # layout with no navbar/crisis bar/footer, and the "Back to therapy" button
+    # hidden (the modal has its own close). The IDOR check above still applies.
+    embed = request.args.get("embed") == "1"
+
     return render_template(
         "progress.html",
         chart_data=chart_data,
@@ -2079,6 +2084,8 @@ def progress(user_id, therapy_mode):
         # The clinician owns the clinical record, so "Hide my data" is a client-only
         # control — never shown to a logged-in clinician viewing their own progress.
         is_clinician=bool(session.get("clinician_id")),
+        embed=embed,
+        layout="base_embed.html" if embed else "base.html",
     )
 
 

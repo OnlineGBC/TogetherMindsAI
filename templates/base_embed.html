@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}TogetherMindsAI{% endblock %}</title>
+
+    <!-- Minimal layout for content shown inside a modal iframe (e.g. the
+         Progress overlay on the live-session page). No navbar, crisis bar,
+         footer, or feedback button — just the page content. -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2026-06-21-d" />
+    {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}embed-page{% endblock %}">
+
+<main class="container py-3">
+    {% block content %}{% endblock %}
+</main>
+
+<!-- Bootstrap JS (modals/tooltips inside the embedded page) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Chart.js (progress chart) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+{% block scripts %}{% endblock %}
+
+</body>
+</html>

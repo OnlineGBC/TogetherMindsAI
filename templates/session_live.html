@@ -47,10 +47,11 @@
                     <i class="bi bi-card-text"></i><span class="d-none d-md-inline ms-1">Transcript</span>
                 </button>
                 {% endif %}
-                <a href="/progress/{{ user_id }}/{{ mode }}"
-                   class="btn btn-outline-green btn-sm rounded-pill" title="Progress">
+                <button type="button" id="progressBtn"
+                        class="btn btn-outline-green btn-sm rounded-pill"
+                        data-bs-toggle="modal" data-bs-target="#progressModal" title="Progress">
                     <i class="bi bi-bar-chart-fill"></i><span class="d-none d-md-inline ms-1">Progress</span>
-                </a>
+                </button>
                 {% if is_therapist %}
                 <button type="button"
                         class="btn btn-outline-danger btn-sm rounded-pill"
@@ -285,6 +286,26 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Progress overlay — loads the Progress page in an iframe so the therapist
+     never navigates away from the live session (avoids the beforeunload popup). -->
+<div class="modal fade" id="progressModal" tabindex="-1"
+     aria-labelledby="progressModalLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="progressModalLabel">
+                    <i class="bi bi-bar-chart-fill text-primary-green me-2"></i>Progress
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-2">
+                <iframe id="progressFrame" title="Progress"
+                        style="width:100%; height:70vh; border:0; border-radius:0.5rem;"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -311,6 +332,23 @@
     (function () {
         var el = document.getElementById("privacyBannerCode");
         if (el && !el.textContent.trim()) { el.textContent = DISPLAY_ID; }
+    })();
+
+    // Progress modal: load the embedded Progress page only when opened, and
+    // unload it on close so it isn't running in the background mid-session.
+    (function () {
+        var modalEl = document.getElementById("progressModal");
+        var frame   = document.getElementById("progressFrame");
+        if (!modalEl || !frame) return;
+        modalEl.addEventListener("shown.bs.modal", function () {
+            if (!frame.getAttribute("src")) {
+                frame.src = "/progress/" + encodeURIComponent(USER_ID) + "/" +
+                            encodeURIComponent(MODE) + "?embed=1";
+            }
+        });
+        modalEl.addEventListener("hidden.bs.modal", function () {
+            frame.removeAttribute("src");
+        });
     })();
 
     // One-time cleanup: earlier versions of the banner stored dismissal in
