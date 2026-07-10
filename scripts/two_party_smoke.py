@@ -11,12 +11,14 @@ You are in control of the browsers and the therapist actions:
      report back:
         • THERAPIST → Brave        (sign in)
         • CLIENT    → Chromium     (NO sign-in — joins by the shared name)
-  2. In Brave you MANUALLY start a session and give it a FRIENDLY NAME (the ✏️
-     control in the session header) — the name you'd share with a real client.
+  2. In Brave you MANUALLY start a session (click a format) and give it a FRIENDLY
+     NAME (the ✏️ control in the session header) — the name you'd share with a
+     real client.
   3. You type that friendly name to the script.
   4. The script then attaches over the debug port and automates the rest:
         client joins by name (anonymously) → consent + U.S. state attestation →
-        licensure gate → therapist certifies → client admitted.
+        held at the licensure gate → the script opens the therapist's room and
+        certifies → client admitted.
 
 It never opens or closes your browsers — it only drives them.
 
@@ -36,6 +38,7 @@ Environment overrides (all optional):
   BRAVE_PATH    Brave executable path   (default: standard Windows install)
 """
 import os
+import re
 import sys
 
 from playwright.sync_api import sync_playwright
@@ -51,7 +54,7 @@ BRAVE_PATH = os.environ.get(
 THER_PORT, CLI_PORT = 9222, 9223
 HOME = os.path.expanduser("~")
 THER_DIR = os.path.join(HOME, ".tm_smoke_brave")       # therapist profile (persists login)
-CLI_DIR = os.path.join(HOME, ".tm_smoke_chromium")     # client profile (fresh identity)
+CLI_DIR = os.path.join(HOME, ".tm_smoke_chromium")     # client profile
 
 
 def pause(msg: str) -> None:
@@ -73,18 +76,6 @@ def _launch_cmd(exe: str, port: int, profile: str) -> str:
 def _new_tab(browser):
     ctx = browser.contexts[0] if browser.contexts else browser.new_context()
     return ctx.new_page()
-
-
-def _find_session_tab(browser):
-    """The therapist's open session-room tab (URL contains /therapy/)."""
-    for ctx in browser.contexts:
-        for pg in ctx.pages:
-            try:
-                if "/therapy/" in pg.url:
-                    return pg
-            except Exception:
-                pass
-    return None
 
 
 def main() -> None:
@@ -130,33 +121,36 @@ def main() -> None:
         # ---- STEP 3: therapist creates + names a session (manual) -----------
         print("\n" + "=" * 74)
         print("STEP 3 — in BRAVE, do this yourself:")
-        print("   1. Start a session (Solo / Couple / Group).")
+        print("   1. CLICK a session format (1:1 / Couple / Group) to START it.")
+        print("      (Just checking the license box is not enough — click a format.)")
         print("   2. Set a FRIENDLY NAME with the  ✏️  control in the session header.")
-        print("      (This is the name you'd share with a real client.)")
+        print("      Friendly names are unique — use a NEW one each run (e.g. add a suffix).")
         print("=" * 74)
         friendly = ""
         while not friendly:
             friendly = ask("Type the FRIENDLY NAME you set (what the client will use to join):")
 
-        ther = _find_session_tab(ther_browser)
-        while ther is None:
-            pause("I can't find an open session tab in Brave — make sure you started the session.")
-            ther = _find_session_tab(ther_browser)
-        print(f"[✓] Found the therapist's session tab: {ther.url}")
-
-        # ---- STEP 4: client joins by name (anonymous, no OAuth) -------------
+        # ---- STEP 4: client joins by name → we learn the session id ---------
         cli = _new_tab(cli_browser)
-        cli.goto(BASE + "/session/join")
-        cli.fill("#session_id", friendly)
-        cli.click("#rejoinForm button[type='submit']")
+        for _ in range(5):
+            cli.goto(BASE + "/session/join")
+            cli.fill("#session_id", friendly)
+            cli.click("#rejoinForm button[type='submit']")
+            try:
+                cli.wait_for_selector("#agreeAll, #stateSelect", timeout=8000)
+                break
+            except Exception:
+                friendly = ask(
+                    f"'{friendly}' didn't match a session. Confirm you STARTED and NAMED it in "
+                    f"Brave (names are case-insensitive), then re-enter the name:") or friendly
+        else:
+            print("Gave up — the session name never resolved.")
+            sys.exit(1)
 
-        # Anonymous identity page (skipped if this browser already has an identity).
-        try:
-            cli.wait_for_selector("#agreeAll", timeout=8000)
+        # Anonymous identity page (only when this browser has no identity yet).
+        if cli.query_selector("#agreeAll"):
             cli.check("#agreeAll")
             cli.click("#continueBtn")
-        except Exception:
-            pass
 
         # Consent gate → state attestation.
         cli.wait_for_selector("#stateSelect", timeout=30000)
@@ -164,18 +158,27 @@ def main() -> None:
         cli.check("#locationAttest")
         cli.click('button:has-text("I understand and agree")')
         cli.wait_for_url("**/state-gate", timeout=30000)
-        print(f"[✓] Client joined '{friendly}' from {STATE} — held at the licensure gate.")
 
-        # ---- STEP 5: therapist certifies (auto, with manual fallback) -------
-        print("[…] Waiting for the certification prompt in Brave (heartbeat, ≤15s)…")
+        m = re.search(r"/session/([^/]+)/state-gate", cli.url)
+        sid = m.group(1) if m else None
+        print(f"[✓] Client joined '{friendly}' (session {sid}) from {STATE} — held at the gate.")
+
+        # ---- STEP 5: certify — the script opens the therapist's room ---------
+        # No need to hunt for a tab: the Brave browser is signed in as the
+        # clinician, so opening the room URL renders it as the therapist (the
+        # heartbeat + certify prompt appear). Mode in the URL doesn't matter —
+        # the server redirects to the session's real mode.
+        print("[…] Opening the therapist's room in Brave and waiting for the certify prompt…")
+        ther = _new_tab(ther_browser)
         try:
-            ther.bring_to_front()
+            ther.goto(f"{BASE}/therapy/group/{sid}")
             ther.wait_for_selector("#stateCertYes", state="visible", timeout=30000)
             who = (ther.text_content("#stateCertName") or "").strip()
             print(f"[✓] Certify prompt shown for: {who}")
             ther.click("#stateCertYes")
         except Exception:
-            pause("In Brave, click 'I certify — admit the client' on the licensure prompt.")
+            pause("In Brave, open the session room and click 'I certify — admit the client' "
+                  "on the licensure prompt.")
 
         # ---- STEP 6: client admitted ----------------------------------------
         cli.wait_for_url("**/therapy/**", timeout=30000)
