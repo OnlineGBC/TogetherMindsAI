@@ -302,7 +302,7 @@ def test_no_ai_autoreply_in_therapist_led(enc_client):
     assert all(m["user_id"] != "AI" for m in c_new)
 
 
-def test_crisis_shows_client_message_and_therapist_risk_card(enc_client):
+def test_crisis_alerts_therapist_only_no_client_transcript_message(enc_client):
     t_sio, c_sio, sid, client_user = _join_pair(enc_client)
 
     with patch("copilot.generate_suggestions", return_value=[]):
@@ -312,13 +312,19 @@ def test_crisis_shows_client_message_and_therapist_risk_card(enc_client):
     t_recv = t_sio.get_received()
     c_recv = c_sio.get_received()
 
-    # "Both": the client still sees the crisis-resources safety-net message.
+    # The AI never addresses the client: no crisis safety-net message is posted
+    # to the transcript (the client does not see the transcript anyway).
     c_new = _args_of(c_recv, "new_message")
-    assert any(m["user_id"] == "AI" and m["text"] == CRISIS_RESPONSE for m in c_new)
+    assert not any(m["user_id"] == "AI" for m in c_new)
+    assert all(m["text"] != CRISIS_RESPONSE for m in c_new)
 
     # The therapist gets a high-priority risk card; the client gets no cards.
     t_cards = _args_of(t_recv, "suggestion_cards")
-    assert t_cards and any(card["type"] == "risk" for card in t_cards[0]["cards"])
+    assert t_cards
+    risk = [card for card in t_cards[0]["cards"] if card["type"] == "risk"]
+    assert risk
+    # The card must not falsely claim the client was shown crisis resources.
+    assert "shown to the client" not in risk[0]["text"].lower()
     assert "suggestion_cards" not in _names(c_recv)
 
 

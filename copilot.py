@@ -193,8 +193,7 @@ def build_risk_cards(text: str) -> list:
             "confidence": 1.0,
             "text": (
                 "⚠ Crisis language detected — possible self-harm or suicidal ideation. "
-                "Crisis resources have been shown to the client; consider a direct safety "
-                "assessment now."
+                "Consider a direct safety assessment now."
             ),
         }]
     if detect_escalation(text):

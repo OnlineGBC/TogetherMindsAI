@@ -29,7 +29,7 @@ from cryptography.exceptions import InvalidSignature
 
 from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, init_encryption
 from authlib.integrations.flask_client import OAuth
-from ai_therapist import detect_crisis, CRISIS_RESPONSE
+from ai_therapist import detect_crisis
 import copilot
 import clinical_summary
 import recording
@@ -3731,22 +3731,14 @@ def on_send_message(data):
             # Every utterance drives the co-pilot — including the therapist's own,
             # so they get feedback on their interventions, not just the client's words.
             if user_id != therapist_id:
-                # CLIENT spoke. Crisis safety net retained: the resources message is
-                # still shown to the client (chosen "Both"), and a risk card alerts
-                # the therapist. trigger_text drives the keyword risk check.
+                # CLIENT spoke. The clinician is present and leads the session; the
+                # AI never addresses the client. On crisis language we log it and
+                # alert the therapist with a keyword RISK card (via _run_copilot's
+                # trigger_text below). We do NOT post a message to the transcript —
+                # the client does not see the transcript, so it would reach no one.
                 if detect_crisis(text):
-                    crisis_now = datetime.now(timezone.utc)
-                    db.session.add(ChatMessage(
-                        session_id=session_id, user_id="AI", text=CRISIS_RESPONSE,
-                        timestamp=crisis_now,
-                    ))
-                    db.session.commit()
-                    emit("new_message",
-                         {"user_id": "AI", "text": CRISIS_RESPONSE, "display_name": None,
-                          "timestamp": crisis_now.strftime("%Y-%m-%d %H:%M:%S")},
-                         to=session_id)
                     log_event("crisis_detected", session_id=session_id, user_id=user_id,
-                              layer="keyword", recipient="client_and_therapist")
+                              layer="keyword", recipient="therapist")
                 _run_copilot(session_id, mode, trigger_text=text, trigger_user_id=user_id)
             else:
                 # THERAPIST spoke. Reflect on the intervention too. No client crisis
