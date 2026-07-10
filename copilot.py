@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Re-exported so the orchestrator builds grounded ICD reference cards the same way
 # it builds keyword risk cards: copilot.build_reference_cards(transcript).
-__all__ = ["generate_suggestions", "build_risk_cards", "build_reference_cards", "dedupe_cards"]
+__all__ = ["generate_suggestions", "answer_therapist", "build_risk_cards", "build_reference_cards", "dedupe_cards"]
 
 # Card types the advisor model may emit. "risk" is produced only by
 # build_risk_cards (keyword-driven), never by the model.
@@ -88,6 +88,55 @@ Rules:
   codes, or a "reference" card — a separate grounded layer cites those.
 - Output ONLY the raw JSON array. No code fences, no commentary before or after.
 """
+
+
+ADVISOR_REPLY_SYSTEM_PROMPT = """\
+You are a clinical co-pilot answering a licensed therapist's PRIVATE question during a live session. \
+Only the therapist sees your answer; the client never will.
+
+Assume the therapist is trained (CBT, ACT, IFS, person-centred). Answer their question directly, \
+concisely and practically — a few sentences at most. Ground your answer in what was actually said in \
+the session when relevant, and you may also draw on general clinical knowledge when they ask for it.
+
+You are an assistive aid, not the clinician: offer options and considerations, never a diagnosis or a \
+directive, and the therapist stays responsible for the session. If their message is a steer rather than \
+a question (e.g. "focus on the finances"), briefly acknowledge it and note how you'll use it. \
+Session: {framing}.
+
+Plain text only — no markdown, no headings, no JSON, no sign-off. Just your answer.
+"""
+
+
+def answer_therapist(question: str, transcript: str = "", notes: str = "", mode: str = "solo") -> str:
+    """Return a short, private co-pilot answer to the therapist's note/question.
+
+    Never raises — any API failure yields "" so the live session is undisturbed.
+    """
+    if not question or not question.strip():
+        return ""
+
+    system_prompt = ADVISOR_REPLY_SYSTEM_PROMPT.format(
+        framing=_MODE_FRAMING.get(mode, _MODE_FRAMING["solo"]),
+    )
+    user_content = f"Therapist's question or note:\n{question.strip()}"
+    if transcript and transcript.strip():
+        user_content += f"\n\nRecent session transcript (for context):\n{transcript}"
+    if notes and notes.strip():
+        user_content += f"\n\nTherapist's earlier private notes:\n{notes}"
+    user_content += "\n\nAnswer the therapist now."
+
+    try:
+        client = _get_claude_client()
+        response = client.messages.create(
+            model=ADVISOR_MODEL,
+            max_tokens=400,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        return (response.content[0].text or "").strip()
+    except Exception as exc:
+        logger.warning("Co-pilot reply generation failed (%s).", exc)
+        return ""
 
 
 def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: str = "") -> list:

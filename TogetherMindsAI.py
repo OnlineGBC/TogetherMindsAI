@@ -293,6 +293,33 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
         app.logger.error("copilot error: %s", type(e).__name__)
 
 
+def _answer_therapist_note(session_id: str, user_id: str, question: str) -> None:
+    """Generate the co-pilot's private reply to the therapist's note and emit it
+    to the therapist-only room. Pro/Premium only (same tier as suggestions);
+    always shown live (a direct answer is not subject to the chattiness cadence)
+    and never reaches clients. Persisted so it replays on reconnect. Never raises.
+    """
+    try:
+        if not _has_ai_analysis(_session_clinician(session_id)):
+            socketio.emit("copilot_reply_locked",
+                          {"message": "Co-pilot answers are a Pro feature — "
+                                      "your note was saved to steer suggestions."},
+                          to=_therapist_room(session_id))
+            return
+        transcript = _build_transcript(session_id)
+        notes = "\n".join(session_therapist_notes.get(session_id, []))
+        answer = copilot.answer_therapist(
+            question, transcript, notes, mode=room_mode.get(session_id, "solo"))
+        if not answer:
+            return
+        card = {"type": "reply", "text": answer, "question": question}
+        _persist_cards(session_id, [card], user_id)
+        log_event("copilot_reply", session_id=session_id, user_id=user_id)
+        socketio.emit("copilot_reply", {"card": card}, to=_therapist_room(session_id))
+    except Exception as e:
+        app.logger.error("copilot reply error: %s", type(e).__name__)
+
+
 def _copilot_should_emit(session_id: str) -> bool:
     """Whether to show co-pilot cards LIVE, per the therapist's chattiness setting:
     more = every message (default), less = ~1 in 3, stop = never. Saving to the
@@ -3573,8 +3600,11 @@ def on_therapist_note(data):
     notes = session_therapist_notes.setdefault(session_id, [])
     notes.append(text)
     del notes[:-20]   # keep the most recent notes only
+    # The note still steers the suggestion cards (existing behaviour)...
     _run_copilot(session_id, room_mode.get(session_id, "solo"), trigger_text=None,
                  trigger_user_id=user_id)
+    # ...and the co-pilot now also replies to the therapist directly.
+    _answer_therapist_note(session_id, user_id, text)
 
 
 @socketio.on("copilot_cadence")

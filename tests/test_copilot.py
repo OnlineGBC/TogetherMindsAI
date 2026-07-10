@@ -382,6 +382,62 @@ def test_therapist_note_rejected_from_non_therapist(enc_client):
     assert "suggestion_cards" not in _names(t_sio.get_received())
 
 
+def test_therapist_note_gets_private_reply(enc_client):
+    """The co-pilot replies to the therapist's note, privately — a direct answer
+    delivered to the therapist room only, echoing their question."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+
+    answer = "Try a brief grounding exercise; ask what they notice in their body."
+    with patch("copilot.answer_therapist", return_value=answer), \
+         patch("copilot.generate_suggestions", return_value=[]):
+        t_sio.emit("therapist_note", {"session_id": sid, "user_id": session_therapist_id[sid],
+                                      "text": "What can I do for their panic right now?"})
+
+    replies = _args_of(t_sio.get_received(), "copilot_reply")
+    assert replies, "therapist should receive a copilot_reply"
+    card = replies[0]["card"]
+    assert card["type"] == "reply"
+    assert card["question"] == "What can I do for their panic right now?"
+    assert "grounding" in card["text"]
+    # Never leaks to the client.
+    c_names = _names(c_sio.get_received())
+    assert "copilot_reply" not in c_names
+    assert "suggestion_cards" not in c_names
+
+
+def test_copilot_reply_gated_for_free_tier(enc_client):
+    """Without AI analysis (free tier), the note still steers suggestions but the
+    therapist gets a 'locked' notice instead of a generated answer."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+
+    with patch("TogetherMindsAI._has_ai_analysis", return_value=False), \
+         patch("copilot.answer_therapist") as ans:
+        t_sio.emit("therapist_note", {"session_id": sid, "user_id": session_therapist_id[sid],
+                                      "text": "How should I open the next session?"})
+        ans.assert_not_called()
+
+    names = _names(t_sio.get_received())
+    assert "copilot_reply_locked" in names
+    assert "copilot_reply" not in names
+
+
+def test_answer_therapist_returns_stripped_text(monkeypatch):
+    """copilot.answer_therapist returns the model's plain-text answer."""
+    import copilot
+    msg = MagicMock()
+    msg.content = [MagicMock(text="  Consider a brief grounding exercise.  ")]
+    cl = MagicMock()
+    cl.messages.create.return_value = msg
+    monkeypatch.setattr(copilot, "_get_claude_client", lambda: cl)
+    out = copilot.answer_therapist("What helps with panic?", transcript="Client: I feel panicky")
+    assert out == "Consider a brief grounding exercise."
+
+
+def test_answer_therapist_empty_question_returns_empty():
+    import copilot
+    assert copilot.answer_therapist("   ") == ""
+
+
 # ---------------------------------------------------------------------------
 # Therapist-led 1:1 (solo) — distinct client identity + realtime co-pilot
 # ---------------------------------------------------------------------------

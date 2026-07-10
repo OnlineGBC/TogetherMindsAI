@@ -51,6 +51,19 @@ function initTherapistConsole(sessionId, userId) {
         _tcTrim();
     });
 
+    // Co-pilot's private reply to a therapist note. Shown even when the panel is
+    // muted — it's a direct answer the therapist explicitly asked for.
+    sock.on("copilot_reply", function (data) {
+        var card = data && data.card;
+        if (card) { _tcRenderCard(card); _tcTrim(); }
+        _tcSetStatus("");
+    });
+
+    // Free tier: answers are a Pro feature. The note still steered suggestions.
+    sock.on("copilot_reply_locked", function (data) {
+        _tcSetStatus((data && data.message) || "Co-pilot answers are a Pro feature.");
+    });
+
     // Notes box → therapist_note
     var noteInput = document.getElementById("tcNoteInput");
     var noteBtn   = document.getElementById("tcNoteBtn");
@@ -64,7 +77,7 @@ function initTherapistConsole(sessionId, userId) {
             text:       text,
         });
         noteInput.value = "";
-        _tcSetStatus("Note sent — refreshing suggestions…");
+        _tcSetStatus("Note sent — the co-pilot is replying…");
     }
 
     noteBtn.addEventListener("click", sendNote);
@@ -216,6 +229,7 @@ function _tcRenderCard(card) {
         technique:   { label: "Technique", icon: "life-preserver" },
         observation: { label: "Notice",    icon: "eye-fill" },
         reference:   { label: "Reference", icon: "journal-medical" },
+        reply:       { label: "Co-pilot reply", icon: "chat-left-heart-fill" },
     }[type] || { label: "Note", icon: "sticky-fill" };
 
     var dismiss = document.createElement("button");
@@ -235,6 +249,13 @@ function _tcRenderCard(card) {
 
     el.appendChild(dismiss);
     el.appendChild(head);
+    // Reply cards echo the therapist's question above the co-pilot's answer.
+    if (type === "reply" && card.question) {
+        var q = document.createElement("div");
+        q.className = "tc-reply-q";
+        q.textContent = card.question;
+        el.appendChild(q);
+    }
     el.appendChild(body);
 
     // Reference cards carry a grounded ICD code + source citation (read from the
