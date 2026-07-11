@@ -39,3 +39,12 @@ def test_risk_card_label_is_readable_on_dark():
     block = _rule(_css(), ".tc-card-risk .tc-card-label")
     assert "#b71c1c" not in block
     assert "#ef5350" in block
+
+
+def test_reply_card_fills_opaque_surface_not_translucent_tint():
+    """The co-pilot reply card must fill an OPAQUE dark surface. The old
+    translucent-only tint (rgba(0, 150, 136, 0.10)) composited over a light part
+    of the panel, so the near-white answer text was invisible until selected."""
+    block = _rule(_css(), ".tc-card-reply {")
+    assert "var(--surface)" in block                       # opaque dark base
+    assert "background: rgba(0, 150, 136, 0.10);" not in block  # not translucent-only

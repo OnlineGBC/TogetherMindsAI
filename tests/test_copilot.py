@@ -444,6 +444,16 @@ def test_answer_therapist_empty_question_returns_empty():
     assert copilot.answer_therapist("   ") == ""
 
 
+def test_reply_prompt_allows_suggested_billing_codes():
+    """When the therapist asks for codes, the reply co-pilot may offer SUGGESTED,
+    non-final ICD codes to verify — it no longer refuses all diagnostic codes."""
+    import copilot
+    p = copilot.ADVISOR_REPLY_SYSTEM_PROMPT.lower()
+    assert "icd" in p
+    assert "suggest" in p                       # framed as suggestions, not assigned
+    assert "verify" in p or "confirm" in p      # therapist must confirm before billing
+
+
 # ---------------------------------------------------------------------------
 # Therapist-led 1:1 (solo) — distinct client identity + realtime co-pilot
 # ---------------------------------------------------------------------------

@@ -977,7 +977,9 @@ body.tc-resizing .therapist-console, body.tc-resizing main { transition: none !i
    reads as the co-pilot "speaking back", distinct from suggestion cards. */
 .tc-card-reply {
     border-left-color: var(--teal-primary);
-    background: rgba(0, 150, 136, 0.10);
+    /* Opaque so the near-white body text stays readable: a teal wash over the dark
+       card surface. The old translucent-only fill composited light and hid the answer. */
+    background: linear-gradient(rgba(0, 150, 136, 0.16), rgba(0, 150, 136, 0.16)), var(--surface);
 }
 .tc-card-reply .tc-card-label { color: #4fd6c6; }
 .tc-reply-q {
