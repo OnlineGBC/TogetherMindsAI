@@ -315,6 +315,17 @@ class TestSessionCookieConfig:
         assert "SameSite=Lax" in set_cookie
 
 
+def test_app_secret_key_has_no_hardcoded_fallback():
+    """The app must sign sessions with the configured SECRET_KEY and NEVER fall
+    back to a hardcoded/guessable default (which would allow cookie forgery)."""
+    assert app.config["SECRET_KEY"]                          # non-empty
+    assert app.config["SECRET_KEY"] != "dev-fallback-key"    # the removed literal
+    # Guard against the fallback ever being reintroduced into the source.
+    import inspect
+    import TogetherMindsAI as _tm
+    assert "dev-fallback-key" not in inspect.getsource(_tm)
+
+
 class TestValidateConfigEncryptionKey:
     def test_raises_when_field_encryption_key_missing(self):
         base_env = {

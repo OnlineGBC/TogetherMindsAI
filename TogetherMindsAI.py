@@ -43,7 +43,13 @@ from log_filter import install_log_filter
 install_log_filter()   # redact PHI-bearing fields from all log output (finding 4.3)
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = config.SECRET_KEY or os.environ.get("SECRET_KEY", "dev-fallback-key")
+_secret_key = config.SECRET_KEY or os.environ.get("SECRET_KEY", "")
+if not _secret_key:
+    # Fail closed — never fall back to a hardcoded/guessable signing key, which
+    # would allow session-cookie forgery. Set SECRET_KEY in the environment
+    # (.env locally, Secret Manager on Cloud Run).
+    raise RuntimeError("SECRET_KEY is required and has no default — set it in the environment.")
+app.config["SECRET_KEY"] = _secret_key
 app.config["SQLALCHEMY_DATABASE_URI"] = config.DATABASE_URL
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = config.SQLALCHEMY_ENGINE_OPTIONS
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False

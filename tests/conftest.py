@@ -15,6 +15,11 @@ import time
 import pytest
 from unittest.mock import MagicMock, patch
 
+# The app now fails closed if SECRET_KEY is unset (no hardcoded fallback), so
+# guarantee every test module that imports the app has one. Individual test
+# files may still set their own; setdefault never overrides those.
+os.environ.setdefault("SECRET_KEY", "conftest-test-secret-key")
+
 # ---------------------------------------------------------------------------
 # Rate limiter reset — runs before every test to prevent counter bleed-over
 # ---------------------------------------------------------------------------
