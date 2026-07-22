@@ -228,7 +228,11 @@ android.keystore
 .gradle/
 *.apk
 *.apk.idsig
+*.aab
 manifest-checksum.txt
+
+# Generated demo videos — rendered from video_demo/ scripts, not source
+video_demo/output/
 
 # Runtime server log dumps (may contain PHI)
 nohup.out
