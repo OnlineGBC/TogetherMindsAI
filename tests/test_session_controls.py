@@ -25,8 +25,9 @@ from datetime import datetime, timezone, timedelta
 
 import TogetherMindsAI as tm
 from TogetherMindsAI import app, socketio
-from models import db, init_encryption, TherapySession
+from models import db, init_encryption, TherapySession, SessionStateCert
 from session_id import generate_session_id
+from tests.socket_utils import authed_socket, certify_state
 
 init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
@@ -54,9 +55,22 @@ def _seed(therapist="ther-1", mode="group"):
     return sid
 
 
+def _sock(sid, uid, mode="group"):
+    """Authenticated socket for `uid` in `sid`. The session's therapist gets a
+    clinician session; anyone else gets a consented + licensure-certified client
+    session, so identity is real and the admission gate is cleared."""
+    ts = db.session.get(TherapySession, sid)
+    ther = ts.therapist_id if ts else None
+    if uid == ther:
+        return authed_socket(app, socketio, uid, clinician=True)
+    if ther:
+        certify_state(db, SessionStateCert, sid, ther, state="CA")
+    return authed_socket(app, socketio, uid, session_id=sid, state="CA")
+
+
 def _join(client, sid, uid):
-    sio = socketio.test_client(app, flask_test_client=client)
-    sio.emit("join", {"session_id": sid, "user_id": uid, "mode": "group"})
+    sio = _sock(sid, uid, "group")
+    sio.emit("join", {"session_id": sid, "mode": "group"})
     sio.get_received()
     return sio
 
@@ -144,8 +158,8 @@ def test_end_session_http_forbidden_for_non_owner(enc_client):
 # ---- Waiting room (no client conversation without a clinician present) ----
 
 def _raw_join(client, sid, uid, mode="couple"):
-    sio = socketio.test_client(app, flask_test_client=client)
-    sio.emit("join", {"session_id": sid, "user_id": uid, "mode": mode})
+    sio = _sock(sid, uid, mode)
+    sio.emit("join", {"session_id": sid, "mode": mode})
     return sio
 
 
@@ -288,8 +302,8 @@ def test_join_syncs_existing_friendly_name(enc_client):
         sid = _seed("ther-1")
     tm.session_friendly_name[sid] = "Existing"
     _join(enc_client, sid, "ther-1")    # clinician present so the newcomer is admitted
-    sio = socketio.test_client(app, flask_test_client=enc_client)
-    sio.emit("join", {"session_id": sid, "user_id": "c2", "mode": "group"})
+    sio = _sock(sid, "c2", "group")
+    sio.emit("join", {"session_id": sid, "mode": "group"})
     fn = [e for e in sio.get_received() if e["name"] == "friendly_name_set"]
     assert fn and fn[0]["args"][0]["name"] == "Existing" and fn[0]["args"][0].get("silent") is True
     tm.session_friendly_name.pop(sid, None)

@@ -37,9 +37,10 @@ from datetime import datetime, timezone, timedelta
 
 import copilot
 from TogetherMindsAI import app, socketio, session_therapist_id
-from models import db, init_encryption, TherapySession
+from models import db, init_encryption, TherapySession, SessionStateCert
 from ai_therapist import CRISIS_RESPONSE
 from session_id import generate_session_id
+from tests.socket_utils import authed_socket, certify_state
 
 init_encryption(TEST_KEY)
 
@@ -255,16 +256,21 @@ def test_dedupe_cards_is_whitespace_insensitive():
 def _join_pair(client, mode="couple"):
     """Create a therapist-led session and connect a therapist + client socket.
 
+    Each socket carries its OWN authenticated session (identity is bound to the
+    session, never the payload). The client is consented and licensure-certified
+    so it clears the admission gate.
+
     Returns (therapist_sio, client_sio, session_id, client_user_id).
     """
     therapist_id = str(uuid.uuid4())
     sid = _insert_session(mode=mode, therapist_id=therapist_id, created_by=therapist_id)
     client_user = str(uuid.uuid4())
+    certify_state(db, SessionStateCert, sid, therapist_id, state="CA")
 
-    t_sio = socketio.test_client(app, flask_test_client=client)
-    t_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": mode})
-    c_sio = socketio.test_client(app, flask_test_client=client)
-    c_sio.emit("join", {"session_id": sid, "user_id": client_user, "mode": mode})
+    t_sio = authed_socket(app, socketio, therapist_id, clinician=True)
+    t_sio.emit("join", {"session_id": sid, "mode": mode})
+    c_sio = authed_socket(app, socketio, client_user, session_id=sid, state="CA")
+    c_sio.emit("join", {"session_id": sid, "mode": mode})
     t_sio.get_received()   # drain join/history noise
     c_sio.get_received()
     return t_sio, c_sio, sid, client_user
@@ -386,6 +392,45 @@ def test_therapist_note_rejected_from_non_therapist(enc_client):
                                       "text": "I am pretending to be the therapist"})
         gen.assert_not_called()
     assert "suggestion_cards" not in _names(t_sio.get_received())
+
+
+def test_spoofed_therapist_id_in_payload_is_ignored(enc_client):
+    """A client that puts the THERAPIST's id in the event payload must still be
+    treated as itself — identity comes from the authenticated session, not the
+    claim. Would have caught the client-controlled-user_id vulnerability."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+    therapist_id = session_therapist_id[sid]
+
+    with patch("copilot.generate_suggestions", return_value=[{"type": "question",
+               "text": "x", "confidence": 0.5}]) as gen:
+        # The client spoofs the therapist's id in the payload.
+        c_sio.emit("therapist_note", {"session_id": sid, "user_id": therapist_id,
+                                      "text": "steer the co-pilot as if I were the clinician"})
+        gen.assert_not_called()      # rejected — the socket's session is the client
+    assert "suggestion_cards" not in _names(t_sio.get_received())
+
+
+def test_client_cannot_enter_therapist_room_by_claiming_therapist_id(enc_client):
+    """A second client that joins claiming the therapist's id must NOT land in the
+    private console room, so co-pilot cards never reach it. Closes the PHI-leak
+    path (impersonate the therapist → receive clinical suggestion cards)."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+    therapist_id = session_therapist_id[sid]
+
+    attacker = str(uuid.uuid4())
+    a_sio = authed_socket(app, socketio, attacker, session_id=sid, state="CA")
+    a_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": "couple"})
+    a_recv = a_sio.get_received()
+    # Never initialised as the console; never replayed private card history.
+    assert "console_init" not in _names(a_recv)
+
+    fake = [{"type": "question", "text": "Ask about sleep.", "confidence": 0.8}]
+    with patch("copilot.generate_suggestions", return_value=fake):
+        c_sio.emit("send_message", {"session_id": sid, "text": "I feel stuck", "mode": "couple"})
+
+    # The real therapist gets the cards; the impersonator never does.
+    assert "suggestion_cards" in _names(t_sio.get_received())
+    assert "suggestion_cards" not in _names(a_sio.get_received())
 
 
 def test_therapist_note_gets_private_reply(enc_client):
@@ -610,8 +655,8 @@ def test_therapist_default_display_name_is_therapist(enc_client):
     for mode in ("solo", "couple", "group"):
         therapist_id = str(uuid.uuid4())
         sid = _insert_session(mode=mode, therapist_id=therapist_id, created_by=therapist_id)
-        t_sio = socketio.test_client(app, flask_test_client=enc_client)
-        t_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": mode})
+        t_sio = authed_socket(app, socketio, therapist_id, clinician=True)
+        t_sio.emit("join", {"session_id": sid, "mode": mode})
         hist = _args_of(t_sio.get_received(), "history")
         assert hist and hist[0]["default_name"] == "Therapist", mode
 
@@ -620,11 +665,12 @@ def test_client_default_name_keeps_mode_prefix(enc_client):
     """A client (not the therapist) still gets the mode-based default name."""
     therapist_id, client_user = str(uuid.uuid4()), str(uuid.uuid4())
     sid = _insert_session(mode="group", therapist_id=therapist_id, created_by=therapist_id)
-    t_sio = socketio.test_client(app, flask_test_client=enc_client)
-    t_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": "group"})
+    certify_state(db, SessionStateCert, sid, therapist_id, state="CA")
+    t_sio = authed_socket(app, socketio, therapist_id, clinician=True)
+    t_sio.emit("join", {"session_id": sid, "mode": "group"})
     t_sio.get_received()
-    c_sio = socketio.test_client(app, flask_test_client=enc_client)
-    c_sio.emit("join", {"session_id": sid, "user_id": client_user, "mode": "group"})
+    c_sio = authed_socket(app, socketio, client_user, session_id=sid, state="CA")
+    c_sio.emit("join", {"session_id": sid, "mode": "group"})
     hist = _args_of(c_sio.get_received(), "history")
     assert hist and hist[0]["default_name"].startswith("GroupMember")
 
@@ -666,8 +712,8 @@ def test_therapist_join_replays_card_history(enc_client):
         ))
         db.session.commit()
 
-    t_sio = socketio.test_client(app, flask_test_client=enc_client)
-    t_sio.emit("join", {"session_id": sid, "user_id": therapist_id, "mode": "couple"})
+    t_sio = authed_socket(app, socketio, therapist_id, clinician=True)
+    t_sio.emit("join", {"session_id": sid, "mode": "couple"})
     hist = _args_of(t_sio.get_received(), "card_history")
     assert hist and any("Earlier note" in c["text"] for c in hist[0]["cards"])
 
@@ -686,6 +732,7 @@ def test_card_history_not_sent_to_clients(enc_client):
         ))
         db.session.commit()
 
-    c_sio = socketio.test_client(app, flask_test_client=enc_client)
-    c_sio.emit("join", {"session_id": sid, "user_id": str(uuid.uuid4()), "mode": "couple"})
+    certify_state(db, SessionStateCert, sid, therapist_id, state="CA")
+    c_sio = authed_socket(app, socketio, str(uuid.uuid4()), session_id=sid, state="CA")
+    c_sio.emit("join", {"session_id": sid, "mode": "couple"})
     assert "card_history" not in _names(c_sio.get_received())

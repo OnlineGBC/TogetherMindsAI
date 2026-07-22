@@ -1425,6 +1425,36 @@ def _client_declared_state(session_id: str):
     return (session.get("session_states") or {}).get(session_id)
 
 
+def _may_enter_room(session_id: str, user_id: str) -> bool:
+    """Whether `user_id` is authorised to be in this live session *right now* —
+    the SAME consent + licensure gates the HTTP room render enforces
+    (_render_session_room). The clinician who leads the session is never gated.
+
+    This is the single source of truth for realtime admission: the SocketIO
+    'join' handler and the RTC token endpoints both defer to it, so a client
+    turned away at the HTTP consent/licensure gate cannot slip into the live
+    transcript, audio room, or transcription stream through a side channel.
+
+    Consent and the client's attested state live in the signed session cookie,
+    which is present on both the socket handshake and the RTC token POST (both
+    originate from the already-gated room page)."""
+    if not user_id:
+        return False
+    ts = db.session.get(TherapySession, session_id)
+    if not ts:
+        return False
+    # The clinician leading the session is never consent/licensure gated.
+    if ts.therapist_id and ts.therapist_id == user_id:
+        return True
+    # A client must have cleared the consent gate this browser-session…
+    if session_id not in (session.get("consented_sessions") or []):
+        return False
+    # …and, for a clinician-led session, be licensure-certified for their state.
+    if ts.therapist_id and _state_decision(session_id, _client_declared_state(session_id)) != "certified":
+        return False
+    return True
+
+
 def _register_pending_state(session_id: str, user_id: str, state: str) -> None:
     """Remember that this client is waiting on a licensure decision for `state`,
     so the clinician's heartbeat can surface it. Self-heals across restarts: the
@@ -1641,6 +1671,10 @@ def _rtc_guard(session_id):
         return None, (jsonify({"error": "no_identity"}), 403)
     if not _session_exists(session_id):
         return None, (jsonify({"error": "no_session"}), 404)
+    # Only an admitted participant may mint a room/STT token — same consent +
+    # licensure gate as the room itself, so knowing a session_id is not enough.
+    if not _may_enter_room(session_id, user_id):
+        return None, (jsonify({"error": "not_admitted"}), 403)
     return user_id, None
 
 
@@ -3541,12 +3575,38 @@ def api_auth_verify():
 # SocketIO Events
 # ---------------------------------------------------------------------------
 
+def _socket_user_id():
+    """The authenticated identity for a SocketIO event, taken from the signed
+    Flask session established at the socket handshake — NEVER from the event
+    payload. Returns None for an unauthenticated socket (no session identity).
+
+    Binding identity to the session (not `data["user_id"]`) is what stops a
+    client from impersonating the therapist, spoofing message authorship, or
+    driving therapist-only controls."""
+    return session.get("user_id")
+
+
+@socketio.on("connect")
+def on_connect():
+    """Refuse any socket whose handshake carries no authenticated session.
+
+    Every event handler binds identity to the session, so an anonymous socket
+    has no identity to act as — reject it up front. The room page only opens a
+    socket after the HTTP entry has set session['user_id'], so this never blocks
+    a legitimate participant."""
+    if not session.get("user_id"):
+        return False   # returning False makes Flask-SocketIO reject the connection
+
+
 @socketio.on("join")
 def on_join(data):
     try:
         session_id = data.get("session_id")
-        user_id    = data.get("user_id")
+        user_id    = _socket_user_id()
         mode       = data.get("mode", "solo")
+        if not user_id:
+            emit("error", {"message": "Please sign in and rejoin the session."})
+            return
 
         ts = db.session.get(TherapySession, session_id)
         therapist_id = ts.therapist_id if ts else None
@@ -3555,6 +3615,16 @@ def on_join(data):
         # send_message guard and presence checks always know this is therapist-led.
         if therapist_id:
             session_therapist_id[session_id] = therapist_id
+
+        # Admission gate: a client must have cleared the SAME consent + licensure
+        # gates the HTTP room render enforces. Closes the socket bypass where a
+        # client turned away at the gate still emits 'join' and receives the
+        # transcript history. The clinician leading the session is never gated.
+        is_therapist = bool(therapist_id and user_id == therapist_id)
+        if not is_therapist and not _may_enter_room(session_id, user_id):
+            emit("error", {"message":
+                 "You're not admitted to this session yet. Please refresh."})
+            return
 
         # Hard capacity gate: reject a client that would exceed the mode's cap
         # (solo=1, couple=2, group=unlimited). The therapist is never blocked.
@@ -3698,9 +3768,11 @@ def on_disconnect():
 def on_send_message(data):
     try:
         session_id = data.get("session_id")
-        user_id    = data.get("user_id")
+        user_id    = _socket_user_id()
         text       = data.get("text", "").strip()
 
+        if not user_id:
+            return
         if not text:
             return
         if len(text) > _MAX_MSG_LEN:
@@ -3777,9 +3849,9 @@ def on_therapist_note(data):
     the session's therapist.
     """
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
+    user_id    = _socket_user_id()
     text       = (data.get("text") or "").strip()
-    if not text:
+    if not user_id or not text:
         return
     therapist_id = session_therapist_id.get(session_id)
     if therapist_id is None or user_id != therapist_id:
@@ -3802,9 +3874,9 @@ def on_copilot_cadence(data):
     """Therapist sets how chatty the co-pilot is LIVE: more / less / stop. Alerts
     are still always saved to the record (see _run_copilot). Therapist-only."""
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
+    user_id    = _socket_user_id()
     mode       = (data.get("mode") or "").lower()
-    if mode not in ("more", "less", "stop"):
+    if not user_id or mode not in ("more", "less", "stop"):
         return
     if session_therapist_id.get(session_id) != user_id:
         return   # only the session therapist may change the cadence
@@ -3823,9 +3895,11 @@ def on_set_display_name(data):
     On conflict emits name_error back to the caller only.
     """
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
+    user_id    = _socket_user_id()
     name       = data.get("display_name", "").strip()
 
+    if not user_id:
+        return
     if not name or len(name) > 40:
         emit("name_error", {"message": "Display name must be between 1 and 40 characters."})
         return
@@ -3851,9 +3925,11 @@ def on_rename(data):
     On conflict emits name_error back to the caller only.
     """
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
+    user_id    = _socket_user_id()
     new_name   = data.get("new_name", "").strip()
 
+    if not user_id:
+        return
     if not new_name or len(new_name) > 40:
         emit("name_error", {"message": "Display name must be between 1 and 40 characters."})
         return
@@ -3946,11 +4022,11 @@ def _evaluate_recording(session_id: str) -> None:
 def on_recording_request(data):
     """Clinician asks to record — everyone is then prompted to consent."""
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
+    user_id    = _socket_user_id()
     if not config.RECORDING_ENABLED:
         emit("recording_unavailable", {"message": "Recording is not available for this service."})
         return
-    if session_therapist_id.get(session_id) != user_id:
+    if not user_id or session_therapist_id.get(session_id) != user_id:
         return   # only the session's clinician may start recording
     if not _has_recording(_session_clinician(session_id)):
         emit("recording_unavailable", {"message": "Recording is a Premium-plan feature. Upgrade in Plans & billing."})
@@ -3966,8 +4042,8 @@ def on_recording_request(data):
 def on_recording_consent(data):
     """A participant grants or withdraws consent (can change at any time)."""
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
-    if user_id not in room_participants.get(session_id, set()):
+    user_id    = _socket_user_id()
+    if not user_id or user_id not in room_participants.get(session_id, set()):
         return
     session_recording_consent[session_id][user_id] = bool(data.get("consent"))
     _evaluate_recording(session_id)
@@ -3978,8 +4054,8 @@ def on_recording_consent(data):
 def on_recording_cancel(data):
     """Clinician turns recording off entirely (stops it and clears the request)."""
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
-    if session_therapist_id.get(session_id) != user_id:
+    user_id    = _socket_user_id()
+    if not user_id or session_therapist_id.get(session_id) != user_id:
         return
     session_recording_requested[session_id] = False
     _evaluate_recording(session_id)
@@ -4067,8 +4143,8 @@ def on_set_friendly_name(data):
     — the therapist accepts it or picks another). Persisted on the session row so a
     participant can rejoin by it. Therapist-only."""
     session_id = data.get("session_id", "")
-    user_id    = data.get("user_id", "")
-    if session_therapist_id.get(session_id) != user_id:
+    user_id    = _socket_user_id()
+    if not user_id or session_therapist_id.get(session_id) != user_id:
         return
     name = (data.get("name") or "").strip()[:60]
     if name and not _friendly_name_is_valid(name):

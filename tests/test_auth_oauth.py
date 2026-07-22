@@ -29,7 +29,8 @@ os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 import TogetherMindsAI as tm
 from TogetherMindsAI import app, socketio
-from models import db, Clinician, ClientAccount, ChatMessage, TherapySession, SessionParticipant, init_encryption
+from models import db, Clinician, ClientAccount, ChatMessage, TherapySession, SessionParticipant, SessionStateCert, init_encryption
+from tests.socket_utils import authed_socket, certify_state
 
 init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
@@ -398,12 +399,11 @@ def _make_therapist_led_session(sid="SESS-JOIN", mode="couple"):
 
 def test_join_records_participation_idempotently(client):
     sid = _make_therapist_led_session()
-    with client.session_transaction() as s:
-        s["client_account_id"] = "cli-join"; s["user_id"] = "cli-join"
-    sio = socketio.test_client(app, flask_test_client=client)
+    certify_state(db, SessionStateCert, sid, "therapist-1", state="CA")
+    sio = authed_socket(app, socketio, "cli-join", session_id=sid, state="CA")
     # Join twice (reconnects happen constantly) — must not duplicate or error.
-    sio.emit("join", {"session_id": sid, "user_id": "cli-join", "mode": "couple"})
-    sio.emit("join", {"session_id": sid, "user_id": "cli-join", "mode": "couple"})
+    sio.emit("join", {"session_id": sid, "mode": "couple"})
+    sio.emit("join", {"session_id": sid, "mode": "couple"})
     sio.disconnect()
 
     rows = SessionParticipant.query.filter_by(session_id=sid, user_id="cli-join").all()
@@ -415,8 +415,9 @@ def test_my_sessions_lists_silent_attendee_session(client):
     sid = _make_therapist_led_session(sid="SESS-SILENT")
     with client.session_transaction() as s:
         s["client_account_id"] = "cli-silent"; s["user_id"] = "cli-silent"
-    sio = socketio.test_client(app, flask_test_client=client)
-    sio.emit("join", {"session_id": sid, "user_id": "cli-silent", "mode": "couple"})
+    certify_state(db, SessionStateCert, sid, "therapist-1", state="CA")
+    sio = authed_socket(app, socketio, "cli-silent", session_id=sid, state="CA")
+    sio.emit("join", {"session_id": sid, "mode": "couple"})
     sio.disconnect()
 
     # No ChatMessage exists for this client — only a participation row.

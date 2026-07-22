@@ -27,8 +27,9 @@ from datetime import datetime, timezone, timedelta
 import config
 import TogetherMindsAI as tm
 from TogetherMindsAI import app, socketio
-from models import db, init_encryption, TherapySession, SessionRecording, Clinician
+from models import db, init_encryption, TherapySession, SessionRecording, Clinician, SessionStateCert
 from session_id import generate_session_id
+from tests.socket_utils import authed_socket, certify_state
 
 init_encryption(TEST_KEY)
 
@@ -61,8 +62,15 @@ def _seed(therapist="ther-1", mode="solo"):
 
 
 def _join(client, sid, uid, mode="solo"):
-    sio = socketio.test_client(app, flask_test_client=client)
-    sio.emit("join", {"session_id": sid, "user_id": uid, "mode": mode})
+    ts = db.session.get(TherapySession, sid)
+    ther = ts.therapist_id if ts else None
+    if uid == ther:
+        sio = authed_socket(app, socketio, uid, clinician=True)
+    else:
+        if ther:
+            certify_state(db, SessionStateCert, sid, ther, state="CA")
+        sio = authed_socket(app, socketio, uid, session_id=sid, state="CA")
+    sio.emit("join", {"session_id": sid, "mode": mode})
     sio.get_received()
     return sio
 

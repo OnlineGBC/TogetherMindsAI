@@ -26,6 +26,7 @@ os.environ["FIELD_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 from TogetherMindsAI import app, socketio, _MAX_MSG_LEN
 from models import db, User, TherapySession, init_encryption
 from session_id import generate_session_id
+from tests.socket_utils import authed_socket
 
 init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
@@ -51,9 +52,11 @@ def session():
             created_at=datetime.now(timezone.utc),
         ))
         db.session.commit()
-        with app.test_client() as c:
-            sio = socketio.test_client(app, flask_test_client=c)
-            sio.emit("join", {"session_id": sid, "user_id": user_id, "mode": "couple"})
+        with app.test_client():
+            # Identity is bound to the authenticated session; this session has no
+            # therapist, so consent alone admits the user.
+            sio = authed_socket(app, socketio, user_id, session_id=sid)
+            sio.emit("join", {"session_id": sid, "mode": "couple"})
             sio.get_received()   # drain join noise
             yield sio, sid, user_id
         db.session.remove()
