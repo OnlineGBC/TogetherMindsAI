@@ -65,3 +65,59 @@ def test_render_summary_docx_handles_empty_summary():
     text = "\n".join(p.text for p in doc.paragraphs)
     # ICD block is always emitted, even with no codes.
     assert "No ICD reference codes surfaced during this session." in text
+
+
+# ---------------------------------------------------------------------------
+# Transcript builders — pure, data passed in (no DB / session)
+# ---------------------------------------------------------------------------
+
+class _Msg:
+    """Minimal stand-in for a ChatMessage row."""
+    def __init__(self, user_id, display_name, text, ts):
+        self.user_id = user_id
+        self.display_name = display_name
+        self.text = text
+        self.timestamp = ts
+
+
+def _messages():
+    from datetime import datetime
+    return [
+        _Msg("u1", "Alex", "I felt anxious this week.", datetime(2026, 7, 1, 10, 0)),
+        _Msg("AI", None, "Noted — a grounding exercise may help.", datetime(2026, 7, 1, 10, 1)),
+    ]
+
+
+def test_transcript_pdf_buf_renders_messages_and_summary():
+    buf = documents.transcript_pdf_buf(
+        "SESS-1", _messages(), "couple", "2026-07-01 10:05 UTC",
+        friendly_label="Smith wk3", summary=_SUMMARY,
+        font_regular=os.path.join(_FONT_DIR, "DejaVuSans.ttf"),
+        font_bold=os.path.join(_FONT_DIR, "DejaVuSans-Bold.ttf"),
+    )
+    out = buf.read()
+    assert out.startswith(b"%PDF")
+    assert len(out) > 1000
+
+
+def test_transcript_pdf_buf_handles_no_messages():
+    buf = documents.transcript_pdf_buf(
+        "SESS-2", [], "solo", "2026-07-01 10:05 UTC",
+        font_regular=os.path.join(_FONT_DIR, "DejaVuSans.ttf"),
+        font_bold=os.path.join(_FONT_DIR, "DejaVuSans-Bold.ttf"),
+    )
+    assert buf.read().startswith(b"%PDF")
+
+
+def test_transcript_docx_buf_renders_speakers():
+    from docx import Document
+    buf = documents.transcript_docx_buf(
+        "SESS-3", _messages(), "couple", "2026-07-01 10:05 UTC",
+        friendly_label="Smith wk3", summary=None,
+    )
+    doc = Document(buf)
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Session Name : " in text and "Smith wk3" in text
+    assert "SESS-3-Alex" in text          # human speaker labelled with session prefix
+    assert "AI Co-Pilot" in text           # AI speaker labelled
+    assert "I felt anxious this week." in text

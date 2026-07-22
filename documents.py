@@ -20,6 +20,8 @@ The expected ``summary`` shape (all keys optional):
     }
 """
 
+import io
+
 _CARD_LABEL = {
     "risk": "Risk", "reference": "Reference",
     "suggestion": "Suggestion", "observation": "Observation",
@@ -153,3 +155,181 @@ def render_summary_docx(doc, summary: dict) -> None:
 
     doc.add_paragraph("─" * 40)
     doc.add_heading("Transcript", level=2)
+
+
+def transcript_pdf_buf(session_id, messages, mode, generated_at,
+                       friendly_label=None, summary=None,
+                       font_regular=None, font_bold=None) -> io.BytesIO:
+    """Render a session transcript as a PDF in memory.
+
+    Data is passed in (the caller does the DB/billing lookups): `messages` are
+    the ChatMessage rows, `friendly_label` the optional session name, and
+    `summary` the therapist-only clinical summary dict to prepend (or None)."""
+    from fpdf import FPDF
+    from fpdf.enums import XPos, YPos
+
+    pdf = FPDF()
+    pdf.set_margins(20, 20, 20)
+    pdf.add_font("DejaVu",      fname=font_regular)
+    pdf.add_font("DejaVu", "B", fname=font_bold)
+    pdf.add_page()
+
+    # Title
+    pdf.set_font("DejaVu", "B", 16)
+    pdf.cell(0, 10, "TogetherMindsAI — Session Transcript",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(2)
+
+    # Metadata
+    pdf.set_font("DejaVu", "", 10)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 6, f"Session ID : {session_id}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    if friendly_label:
+        pdf.cell(0, 6, f"Session Name : {friendly_label}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 6, f"Mode       : {mode}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 6, f"Generated  : {generated_at}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(4)
+
+    # Divider
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(20, pdf.get_y(), 190, pdf.get_y())
+    pdf.ln(6)
+
+    # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    if summary is not None:
+        render_summary_pdf(pdf, summary)
+
+    # Assign a distinct RGB color to each human participant
+    _PDF_PARTICIPANT_COLORS = [
+        (30,  80,  160),   # blue
+        (146, 39,  15),    # rust red
+        (107, 33,  168),   # purple
+        (13,  110, 110),   # teal
+        (180, 90,  9),     # amber
+        (26,  92,  46),    # dark green
+    ]
+    pdf_participant_color: dict = {}
+    _pdf_color_idx = 0
+    for msg in messages:
+        if msg.user_id != "AI" and msg.user_id not in pdf_participant_color:
+            pdf_participant_color[msg.user_id] = _PDF_PARTICIPANT_COLORS[_pdf_color_idx % len(_PDF_PARTICIPANT_COLORS)]
+            _pdf_color_idx += 1
+
+    if not messages:
+        pdf.set_text_color(120, 120, 120)
+        pdf.set_font("DejaVu", "", 11)
+        pdf.cell(0, 8, "No messages recorded for this session.",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    else:
+        for msg in messages:
+            is_ai = msg.user_id == "AI"
+            if is_ai:
+                speaker = "AI Co-Pilot"
+            elif msg.display_name:
+                speaker = f"{session_id}-{msg.display_name}"
+            else:
+                speaker = "User"
+            ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
+
+            # Speaker + timestamp line
+            pdf.set_font("DejaVu", "B", 10)
+            if is_ai:
+                pdf.set_text_color(30, 120, 60)
+            else:
+                r, g, b = pdf_participant_color.get(msg.user_id, (30, 80, 160))
+                pdf.set_text_color(r, g, b)
+            pdf.cell(0, 7, f"{speaker}  [{ts}]",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+            # Message body
+            pdf.set_font("DejaVu", "", 11)
+            pdf.set_text_color(30, 30, 30)
+            pdf.multi_cell(0, 6, msg.text)
+            pdf.ln(3)
+
+    buf = io.BytesIO(pdf.output())
+    buf.seek(0)
+    return buf
+
+
+def transcript_docx_buf(session_id, messages, mode, generated_at,
+                        friendly_label=None, summary=None) -> io.BytesIO:
+    """Render a session transcript as a DOCX in memory. See transcript_pdf_buf
+    for the data-in contract."""
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+
+    doc = Document()
+
+    # Title
+    title = doc.add_heading("TogetherMindsAI — Session Transcript", level=1)
+    title.runs[0].font.color.rgb = RGBColor(0x1E, 0x78, 0x40)
+
+    # Metadata
+    meta = doc.add_paragraph()
+    meta.add_run("Session ID : ").bold = True
+    meta.add_run(session_id)
+    if friendly_label:
+        meta_name = doc.add_paragraph()
+        meta_name.add_run("Session Name : ").bold = True
+        meta_name.add_run(friendly_label)
+    meta2 = doc.add_paragraph()
+    meta2.add_run("Mode       : ").bold = True
+    meta2.add_run(mode)
+    meta3 = doc.add_paragraph()
+    meta3.add_run("Generated  : ").bold = True
+    meta3.add_run(generated_at)
+
+    doc.add_paragraph("─" * 40)
+
+    # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    if summary is not None:
+        render_summary_docx(doc, summary)
+
+    # Assign a distinct color to each human participant (AI is always green)
+    _PARTICIPANT_COLORS = [
+        RGBColor(0x1E, 0x50, 0xA0),  # blue
+        RGBColor(0x92, 0x27, 0x0F),  # rust red
+        RGBColor(0x6B, 0x21, 0xA8),  # purple
+        RGBColor(0x0D, 0x6E, 0x6E),  # teal
+        RGBColor(0xB4, 0x5A, 0x09),  # amber
+        RGBColor(0x1A, 0x5C, 0x2E),  # dark green
+    ]
+    participant_color: dict = {}
+    _color_idx = 0
+    for msg in messages:
+        if msg.user_id != "AI" and msg.user_id not in participant_color:
+            participant_color[msg.user_id] = _PARTICIPANT_COLORS[_color_idx % len(_PARTICIPANT_COLORS)]
+            _color_idx += 1
+
+    if not messages:
+        p = doc.add_paragraph("No messages recorded for this session.")
+        p.runs[0].italic = True
+    else:
+        for msg in messages:
+            is_ai = msg.user_id == "AI"
+            if is_ai:
+                speaker = "AI Co-Pilot"
+            elif msg.display_name:
+                speaker = f"{session_id}-{msg.display_name}"
+            else:
+                speaker = "User"
+            ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
+
+            # Speaker heading
+            p = doc.add_paragraph()
+            run = p.add_run(f"{speaker}  [{ts}]")
+            run.bold = True
+            run.font.size = Pt(10)
+            if is_ai:
+                run.font.color.rgb = RGBColor(0x1E, 0x78, 0x3C)
+            else:
+                run.font.color.rgb = participant_color.get(msg.user_id, RGBColor(0x1E, 0x50, 0xA0))
+
+            # Message body
+            doc.add_paragraph(msg.text)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
