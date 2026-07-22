@@ -425,3 +425,14 @@ def test_my_sessions_lists_silent_attendee_session(client):
     rv = client.get("/me/sessions")
     assert rv.status_code == 200
     assert b"SESS-SILENT" in rv.data
+
+
+def test_oauth_routes_extracted_to_module(client):
+    """The login routes now live in routes_oauth.py but are attached with their
+    ORIGINAL endpoint names, so url_for(...) and templates are unchanged."""
+    for ep in ("login", "oauth_login", "oauth_callback", "logout",
+               "client_login", "client_oauth_login", "client_oauth_callback"):
+        assert ep in app.view_functions, ep
+        assert app.view_functions[ep].__module__ == "routes_oauth", ep
+    # Endpoints still resolve to their original URLs.
+    assert app.url_map.is_endpoint_expecting("oauth_callback", "provider")

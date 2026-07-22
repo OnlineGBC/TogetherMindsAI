@@ -828,16 +828,6 @@ def _inject_auth_state():
     }
 
 
-@app.route("/login")
-def login():
-    """Clinician login page — Sign in with Google / Microsoft."""
-    if _current_clinician_id():
-        return redirect(url_for("therapist_start"))
-    # Carry a safe return target (e.g. a download link opened on a phone) through
-    # to the sign-in buttons so we can come back to it after login.
-    return render_template("login.html", next=_safe_next(request.args.get("next")))
-
-
 # ---------------------------------------------------------------------------
 # Shared OAuth plumbing — used by BOTH the clinician routes (/auth/...) and the
 # client routes (/client/auth/...). The network/OIDC exchange lives here once;
@@ -888,76 +878,6 @@ def _safe_next(target):
     if target and target.startswith("/") and not target.startswith("//"):
         return target
     return None
-
-
-# ---------------------------------------------------------------------------
-# Clinician OAuth routes
-# ---------------------------------------------------------------------------
-
-@app.route("/auth/<provider>/login")
-def oauth_login(provider):
-    # Stash the post-login return target HERE — the same request where Authlib
-    # writes its OAuth state — so it survives the provider round-trip reliably
-    # (a session set earlier, e.g. on the download redirect, can be dropped by
-    # mobile in-app browsers).
-    nxt = _safe_next(request.args.get("next"))
-    if nxt:
-        session["post_login_next"] = nxt
-    # Clinicians grant "email" so we can send them their own recording links +
-    # retention notices (Phase 4 Step 3). The client flow stays at "openid".
-    return _oauth_start(provider, "oauth_callback", scope="openid email")
-
-
-@app.route("/auth/<provider>/callback")
-def oauth_callback(provider):
-    if provider not in _OAUTH_PROVIDERS:
-        return _redirect_invalid_session()
-    info = _oauth_userinfo(provider)
-    subject = info.get("sub") if info else None
-    if not subject:
-        flash("Sign-in did not complete. Please try again.", "warning")
-        return redirect(url_for("login"))
-    email = (info.get("email") or "").strip().lower() or None
-
-    now = datetime.now(timezone.utc)
-    clinician = (
-        Clinician.query
-        .filter_by(provider=provider, provider_subject=subject)
-        .first()
-    )
-    if clinician is None:
-        clinician = Clinician(
-            id=str(uuid.uuid4()), provider=provider, provider_subject=subject,
-            email=email, created_at=now, last_login_at=now,
-        )
-        db.session.add(clinician)
-        log_event("clinician_registered", user_id=clinician.id, provider=provider)
-    else:
-        clinician.last_login_at = now
-        if email and clinician.email != email:
-            clinician.email = email   # backfill / keep current for existing accounts
-    db.session.commit()
-
-    # The clinician's account id is their identity everywhere (session owner).
-    session["user_id"]      = clinician.id
-    session["clinician_id"] = clinician.id
-    session.permanent = True
-    log_event("clinician_login", user_id=clinician.id, provider=provider)
-    # Return to where they came from (e.g. a download link), else the dashboard.
-    nxt = _safe_next(session.pop("post_login_next", None))
-    return redirect(nxt or url_for("therapist_start"))
-
-
-@app.route("/logout")
-def logout():
-    cid = _current_clinician_id()
-    if cid:
-        log_event("clinician_logout", user_id=cid)
-    client_id = _current_client_account_id()
-    if client_id:
-        log_event("client_logout", user_id=client_id)
-    session.clear()
-    return redirect(url_for("welcome"))
 
 
 # ---------------------------------------------------------------------------
@@ -1127,58 +1047,8 @@ def stripe_webhook():
 # never create a Clinician account; both share the _oauth_* helpers above.
 # ---------------------------------------------------------------------------
 
-@app.route("/client/login")
-def client_login():
-    """Optional client sign-in page — Google / Microsoft."""
-    if _current_client_account_id():
-        return redirect(url_for("my_sessions"))
-    # Optionally remember where to return after login (e.g. a session URL).
-    nxt = _safe_next(request.args.get("next"))
-    if nxt:
-        session["client_login_next"] = nxt
-    return render_template("client_login.html")
-
-
-@app.route("/client/auth/<provider>/login")
-def client_oauth_login(provider):
-    return _oauth_start(provider, "client_oauth_callback")
-
-
-@app.route("/client/auth/<provider>/callback")
-def client_oauth_callback(provider):
-    if provider not in _OAUTH_PROVIDERS:
-        return _redirect_invalid_session()
-    subject = _oauth_subject(provider)
-    if not subject:
-        flash("Sign-in did not complete. Please try again.", "warning")
-        return redirect(url_for("client_login"))
-
-    now = datetime.now(timezone.utc)
-    account = (
-        ClientAccount.query
-        .filter_by(provider=provider, provider_subject=subject)
-        .first()
-    )
-    if account is None:
-        account = ClientAccount(
-            id=str(uuid.uuid4()), provider=provider, provider_subject=subject,
-            created_at=now, last_login_at=now,
-        )
-        db.session.add(account)
-        log_event("client_registered", user_id=account.id, provider=provider)
-    else:
-        account.last_login_at = now
-    db.session.commit()
-
-    # The account id becomes the client's stable user_id, so their messages link
-    # across devices and "my sessions" can find the sessions they took part in.
-    session["user_id"]           = account.id
-    session["client_account_id"] = account.id
-    session.permanent = True
-    log_event("client_login", user_id=account.id, provider=provider)
-
-    nxt = _safe_next(session.pop("client_login_next", None))
-    return redirect(nxt or url_for("my_sessions"))
+# Clinician & client OAuth login routes live in routes_oauth.py (registered at
+# the bottom of this module). The shared plumbing above stays here.
 
 
 @app.route("/me/sessions")
@@ -3733,6 +3603,18 @@ def on_set_friendly_name(data):
     session_friendly_name[session_id] = name
     log_event("friendly_name_set", session_id=session_id, user_id=user_id)
     emit("friendly_name_set", {"name": name, "by": "Therapist"}, to=session_id)
+
+
+# ---------------------------------------------------------------------------
+# OAuth login routes — defined in routes_oauth.py, attached here with their
+# ORIGINAL endpoint names (login, oauth_login, oauth_callback, logout,
+# client_login, client_oauth_login, client_oauth_callback) so every url_for /
+# template link is unchanged. Registered at the bottom because the route bodies
+# use this module's shared OAuth plumbing (oauth, _oauth_start, …) at request
+# time.
+# ---------------------------------------------------------------------------
+import routes_oauth
+routes_oauth.register_oauth_routes(app)
 
 
 if __name__ == "__main__":
