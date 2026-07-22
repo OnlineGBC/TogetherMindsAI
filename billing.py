@@ -3,7 +3,7 @@ billing.py
 ----------
 Phase 4 Step 4 — clinician subscription billing via Stripe.
 
-Three tiers (see config): free / plus ($10, AI analysis) / pro ($25, + recording).
+Three tiers (see config): free / pro ($10, AI analysis) / premium ($25, + recording).
 Payment is handled entirely by Stripe Checkout + the Stripe-hosted billing portal,
 so no card data ever touches this app. Subscription state is delivered back via
 signed webhooks (verified with STRIPE_WEBHOOK_SECRET).

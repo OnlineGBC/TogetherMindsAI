@@ -127,7 +127,7 @@ class Clinician(db.Model):
     created_at       = db.Column(db.DateTime, nullable=False)
     last_login_at    = db.Column(db.DateTime, nullable=True)
     # Subscription billing (Phase 4 Step 4 — Stripe). plan is the entitlement tier:
-    # "free" | "plus" ($10, AI analysis) | "pro" ($25, + recording). A NULL/absent
+    # "free" | "pro" ($10, AI analysis) | "premium" ($25, + recording). A NULL/absent
     # plan is treated as "free". subscription_status mirrors Stripe (active,
     # trialing, past_due, canceled, …); only active/trialing grant the paid tier.
     stripe_customer_id  = db.Column(db.String(64), nullable=True)
