@@ -59,6 +59,69 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = config.IS_PRODUCTION   # True on Cloud Run (HTTPS); False on localhost/test
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
+# ---------------------------------------------------------------------------
+# CSRF protection (HIPAA / finding 3 — defense in depth).
+# Synchronizer-token pattern: a per-session token must accompany every
+# state-changing request, via the `csrf_token` form field or the `X-CSRFToken`
+# header. A cross-site page cannot read the token (same-origin policy), so it
+# cannot forge a valid request even though the browser sends the login cookie.
+# Endpoints authenticated by cryptographic signature rather than the session
+# cookie are exempt (the Stripe webhook and the ECDSA client-auth API).
+# ---------------------------------------------------------------------------
+
+# View-function names exempt from CSRF: they authenticate by signature, not by
+# the session cookie, and are called by non-browser / cross-origin clients.
+_CSRF_EXEMPT = {
+    "stripe_webhook",       # Stripe -> verified by STRIPE_WEBHOOK_SECRET signature
+    "api_auth_register",    # ECDSA client auth (public-key registration)
+    "api_auth_challenge",
+    "api_auth_verify",
+}
+_CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _csrf_token() -> str:
+    """The current session's CSRF token, created once per session."""
+    tok = session.get("_csrf_token")
+    if not tok:
+        tok = secrets.token_urlsafe(32)
+        session["_csrf_token"] = tok
+    return tok
+
+
+def _csrf_enabled() -> bool:
+    """CSRF is enforced everywhere except under the pytest runner, which disables
+    it by default so the suite needn't thread a token through every POST (the
+    standard Flask-WTF testing behaviour). Production (TESTING unset) always
+    enforces; test_csrf.py sets CSRF_ENABLED=True to exercise it.
+
+    Read the live TESTING env var (not config.IS_TESTING) so another test
+    reloading the config module can't accidentally flip enforcement on."""
+    override = app.config.get("CSRF_ENABLED")
+    if override is not None:
+        return bool(override)
+    return os.environ.get("TESTING", "").lower() not in ("1", "true")
+
+
+@app.context_processor
+def _inject_csrf_token():
+    """Expose csrf_token to every template (forms + the meta tag read by JS)."""
+    return {"csrf_token": _csrf_token()}
+
+
+@app.before_request
+def _csrf_protect():
+    if not _csrf_enabled():
+        return
+    if request.method not in _CSRF_METHODS or request.endpoint is None:
+        return
+    if request.endpoint in _CSRF_EXEMPT:
+        return
+    submitted = request.headers.get("X-CSRFToken") or request.form.get("csrf_token") or ""
+    expected = session.get("_csrf_token") or ""
+    if not expected or not secrets.compare_digest(submitted, expected):
+        return jsonify({"error": "csrf_invalid"}), 400
+
 db.init_app(app)
 
 # Per-IP rate limiter (finding 3.9).

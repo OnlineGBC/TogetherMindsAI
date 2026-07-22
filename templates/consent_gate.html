@@ -39,6 +39,7 @@
                     You can turn your own transcription off at any time from the audio controls.</p>
 
                 <form method="post" action="{{ url_for('session_consent_post', session_id=session_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                     <hr class="my-3">
                     <div class="mb-3">
                         <label for="stateSelect" class="form-label fw-semibold mb-1">

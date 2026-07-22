@@ -21,6 +21,7 @@
                 {% endif %}
 
                 <form method="POST" action="/session/join" id="rejoinForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                     <div class="mb-4">
                         <label for="session_id" class="form-label fw-semibold">
                             <i class="bi bi-hash me-1 text-primary-green"></i>Session ID

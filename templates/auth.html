@@ -151,7 +151,7 @@
     form hits the server-side auth_post route, which creates the user and redirects
     to the therapy page — identical end result, no client-side crypto needed.
 -->
-<form id="legacyAuthForm" method="POST" action="/auth/{{ therapy_mode }}" class="d-none"></form>
+<form id="legacyAuthForm" method="POST" action="/auth/{{ therapy_mode }}" class="d-none"><input type="hidden" name="csrf_token" value="{{ csrf_token }}" /></form>
 
 <!-- Terms of Service modal -->
 <div class="modal fade" id="tosModal" tabindex="-1" aria-labelledby="tosModalLabel" aria-modal="true" role="dialog">

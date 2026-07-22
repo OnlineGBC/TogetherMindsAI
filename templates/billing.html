@@ -97,6 +97,7 @@
                 <button class="btn btn-outline-success rounded-pill w-100" disabled><i class="bi bi-check-circle-fill me-1"></i>Current plan</button>
               {% elif signed_in %}
                 <form method="POST" action="{{ url_for('billing_checkout', plan='pro') }}" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                   <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Pro</button>
                 </form>
               {% else %}
@@ -127,6 +128,7 @@
                 <button class="btn btn-outline-success rounded-pill w-100" disabled><i class="bi bi-check-circle-fill me-1"></i>Current plan</button>
               {% elif signed_in %}
                 <form method="POST" action="{{ url_for('billing_checkout', plan='premium') }}" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                   <button type="submit" class="btn btn-primary-green rounded-pill w-100"{% if not billing_enabled %} disabled{% endif %}>Choose Premium</button>
                 </form>
               {% else %}
@@ -146,6 +148,7 @@
       {% endif %}
       {% if has_customer %}
       <form method="POST" action="{{ url_for('billing_portal') }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
         <button type="submit" class="btn btn-link btn-sm text-decoration-none p-0"><i class="bi bi-gear me-1"></i>Manage subscription</button>
       </form>
       {% endif %}

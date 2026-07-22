@@ -29,6 +29,29 @@
     <link rel="apple-touch-icon" sizes="152x152" href="{{ url_for('static', filename='icons/apple-touch-icon-152.png') }}" />
     <!-- Custom styles -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=2026-07-10-c" />
+    <!-- CSRF: token + a global fetch wrapper that attaches it to every same-origin
+         state-changing request, so no AJAX call can forget it. -->
+    <meta name="csrf-token" content="{{ csrf_token }}" />
+    <script>
+    (function () {
+      var token = "{{ csrf_token }}";
+      var _fetch = window.fetch;
+      window.fetch = function (input, init) {
+        init = init || {};
+        var method = (init.method || (input && typeof input === "object" && input.method) || "GET").toUpperCase();
+        if (["POST", "PUT", "PATCH", "DELETE"].indexOf(method) !== -1) {
+          var url = (typeof input === "string") ? input : (input && input.url) || "";
+          var sameOrigin = !/^https?:\/\//i.test(url) || url.indexOf(window.location.origin) === 0;
+          if (sameOrigin) {
+            var headers = new Headers(init.headers || (input && typeof input === "object" ? input.headers : undefined) || {});
+            if (!headers.has("X-CSRFToken")) headers.set("X-CSRFToken", token);
+            init.headers = headers;
+          }
+        }
+        return _fetch.call(this, input, init);
+      };
+    })();
+    </script>
     {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -287,6 +310,7 @@
                 <!-- Plain HTML form POST: reaches the server directly, with no dependence
                      on JavaScript, the live socket, or the service-worker cache. -->
                 <form id="endSessionForm" method="post" action="/session/{{ session_id }}/end" class="d-inline m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                     <button type="submit" class="btn btn-danger rounded-pill">
                         <i class="bi bi-door-open-fill me-1"></i>End session
                     </button>

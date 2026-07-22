@@ -216,6 +216,7 @@
                 <!-- Mode options — each starts a new therapist-led session -->
                 <div class="d-grid gap-2">
                     <form method="POST" action="/therapist/start/solo" class="m-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                         <button type="submit" class="mode-btn therapist-start-btn w-100" data-mode="solo" disabled>
                             <span class="mb-chip"><i class="bi bi-person-fill"></i></span>
                             <span>
@@ -226,6 +227,7 @@
                         </button>
                     </form>
                     <form method="POST" action="/therapist/start/couple" class="m-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                         <button type="submit" class="mode-btn therapist-start-btn w-100" data-mode="couple" disabled>
                             <span class="mb-chip"><i class="bi bi-people-fill"></i></span>
                             <span>
@@ -236,6 +238,7 @@
                         </button>
                     </form>
                     <form method="POST" action="/therapist/start/group" class="m-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
                         <button type="submit" class="mode-btn therapist-start-btn w-100" data-mode="group" disabled>
                             <span class="mb-chip"><i class="bi bi-person-lines-fill"></i></span>
                             <span>
