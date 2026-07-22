@@ -344,3 +344,11 @@ def test_copilot_runs_ai_for_pro(client):
             tm._run_copilot("s1", "solo", trigger_text="I feel hopeless")
     ref.assert_called_once()
     sug.assert_called_once()
+
+
+def test_billing_routes_extracted_to_module(client):
+    """The billing routes now live in routes_billing.py but are attached with
+    their ORIGINAL endpoint names, so url_for(...) and templates are unchanged."""
+    for ep in ("billing_page", "billing_checkout", "billing_portal", "stripe_webhook"):
+        assert ep in app.view_functions, ep
+        assert app.view_functions[ep].__module__ == "routes_billing", ep

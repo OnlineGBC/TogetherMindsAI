@@ -913,132 +913,10 @@ def _session_clinician(session_id):
     return None
 
 
-# ---------------------------------------------------------------------------
-# Billing routes — Stripe Checkout + hosted billing portal + webhook. No card
-# data ever reaches this app; subscription state arrives via signed webhooks.
-# ---------------------------------------------------------------------------
-
-@app.route("/billing")
-def billing_page():
-    # Public pricing page — viewable without signing in. Personalized fields stay
-    # empty for anonymous visitors; only a signed-in clinician sees their own plan
-    # / renewal / manage-subscription. Subscribing still requires clinician sign-in.
-    cid = _current_clinician_id()
-    clin = db.session.get(Clinician, cid) if cid else None
-    return render_template(
-        "billing.html",
-        billing_enabled=config.BILLING_ENABLED,
-        signed_in=bool(clin),
-        current_plan=(clin.plan or "free") if clin else None,
-        subscription_status=(clin.subscription_status if clin else None),
-        has_customer=bool(clin and clin.stripe_customer_id),
-        renews_on=(clin.current_period_end.strftime("%d %b %Y")
-                   if clin and clin.current_period_end else None),
-    )
-
-
-@app.route("/billing/checkout/<plan>", methods=["POST"])
-def billing_checkout(plan):
-    cid = _current_clinician_id()
-    if not cid:
-        abort(403)
-    if not config.BILLING_ENABLED or plan not in billing.PAID_PLANS:
-        abort(404)
-    clin = db.session.get(Clinician, cid)
-    base = url_for("billing_page", _external=True, _scheme="https")
-    url = billing.create_checkout_url(clin, plan, base + "?success=1", base + "?canceled=1")
-    db.session.commit()                    # persist any newly-created stripe_customer_id
-    if not url:
-        flash("Could not start checkout. Please try again.", "warning")
-        return redirect(url_for("billing_page"))
-    log_event("billing_checkout_started", user_id=cid, plan=plan)
-    return redirect(url, code=303)
-
-
-@app.route("/billing/portal", methods=["POST"])
-def billing_portal():
-    cid = _current_clinician_id()
-    if not cid:
-        abort(403)
-    clin = db.session.get(Clinician, cid)
-    if not (clin and clin.stripe_customer_id):
-        return redirect(url_for("billing_page"))
-    url = billing.create_portal_url(clin.stripe_customer_id,
-                                    url_for("billing_page", _external=True, _scheme="https"))
-    if not url:
-        flash("Could not open the billing portal. Please try again.", "warning")
-        return redirect(url_for("billing_page"))
-    return redirect(url, code=303)
-
-
-def _clinician_for_event_object(obj):
-    """Resolve the Clinician a Stripe event object belongs to — by stored customer
-    id first, falling back to client_reference_id / metadata. Backfills the
-    customer id when learned from checkout."""
-    cust = obj.get("customer")
-    clin = Clinician.query.filter_by(stripe_customer_id=cust).first() if cust else None
-    if clin is None:
-        ref = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("clinician_id")
-        if ref:
-            clin = db.session.get(Clinician, ref)
-            if clin and cust and not clin.stripe_customer_id:
-                clin.stripe_customer_id = cust
-    return clin
-
-
-def _apply_checkout_completed(obj):
-    clin = _clinician_for_event_object(obj)
-    if clin is None:
-        return
-    plan = (obj.get("metadata") or {}).get("plan") or "free"
-    clin.plan = plan
-    clin.subscription_status = "active"
-    db.session.commit()
-    log_event("billing_subscribed", user_id=clin.id, plan=plan)
-
-
-def _apply_subscription_change(obj):
-    clin = _clinician_for_event_object(obj)
-    if clin is None:
-        return
-    plan, status = billing.subscription_plan_and_status(obj)
-    clin.plan = plan
-    clin.subscription_status = status
-    cpe = obj.get("current_period_end")
-    if cpe:
-        clin.current_period_end = datetime.fromtimestamp(cpe, tz=timezone.utc)
-    db.session.commit()
-    log_event("billing_subscription_updated", user_id=clin.id, plan=plan, status=status)
-
-
-def _apply_subscription_deleted(obj):
-    clin = _clinician_for_event_object(obj)
-    if clin is None:
-        return
-    clin.plan = "free"
-    clin.subscription_status = "canceled"
-    db.session.commit()
-    log_event("billing_subscription_canceled", user_id=clin.id)
-
-
-@app.route("/stripe/webhook", methods=["POST"])
-def stripe_webhook():
-    event = billing.verify_webhook(request.get_data(), request.headers.get("Stripe-Signature", ""))
-    if event is None:
-        return jsonify({"error": "invalid_signature"}), 400
-    etype = event.get("type", "")
-    obj = (event.get("data") or {}).get("object") or {}
-    try:
-        if etype == "checkout.session.completed":
-            _apply_checkout_completed(obj)
-        elif etype in ("customer.subscription.created", "customer.subscription.updated"):
-            _apply_subscription_change(obj)
-        elif etype == "customer.subscription.deleted":
-            _apply_subscription_deleted(obj)
-    except Exception:
-        db.session.rollback()
-        app.logger.error("stripe webhook handling error (%s)", etype)
-    return jsonify({"received": True}), 200
+# Billing routes (pricing page, Checkout, portal, Stripe webhook) live in
+# routes_billing.py (registered at the bottom of this module). The entitlement
+# helpers above (_effective_plan, _has_ai_analysis, _has_recording,
+# _session_clinician) stay here — they are used app-wide, not just by billing.
 
 
 # ---------------------------------------------------------------------------
@@ -3615,6 +3493,12 @@ def on_set_friendly_name(data):
 # ---------------------------------------------------------------------------
 import routes_oauth
 routes_oauth.register_oauth_routes(app)
+
+# Billing routes — same pattern: defined in routes_billing.py, attached here with
+# their original endpoint names (billing_page, billing_checkout, billing_portal,
+# stripe_webhook). The Stripe logic stays in billing.py.
+import routes_billing
+routes_billing.register_billing_routes(app)
 
 
 if __name__ == "__main__":
