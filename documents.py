@@ -1,13 +1,13 @@
 """
 documents.py
 ------------
-Document rendering for downloadable session records.
+Document rendering for downloadable session records (PDF + Word).
 
 Pure formatting helpers: each takes an already-created document object (an fpdf
-``FPDF`` or a python-docx ``Document``) plus a plain summary ``dict`` and writes
-the clinician summary onto it. They touch no database, no Flask session, and no
-shared state — so they are safe to unit-test in isolation and safe to call from
-the transcript builders in the main app.
+``FPDF`` or a python-docx ``Document``) plus plain data (a summary ``dict`` /
+message rows). They touch no database, no Flask session, and no shared state —
+so they are safe to unit-test in isolation and safe to call from the transcript
+builders in the main app.
 
 The expected ``summary`` shape (all keys optional):
     {
@@ -27,196 +27,201 @@ _CARD_LABEL = {
     "suggestion": "Suggestion", "observation": "Observation",
 }
 
+# Brand palette (RGB). Used across both PDF and DOCX for one consistent look.
+_BRAND    = (14, 110, 85)     # deep teal-green — header banner
+_INK      = (33, 37, 41)      # body text
+_MUTED    = (120, 120, 120)   # secondary text
+_RULE     = (222, 228, 225)   # hairline rules
+_PANEL    = (243, 247, 245)   # light panel fill
+_HEADING  = (14, 110, 85)     # section headings
+_PRIVATE  = (146, 39, 15)     # rust — "private / therapist-only"
+_AI_GREEN = (30, 120, 60)
+
+# Distinct colours assigned to human participants, in order.
+_PARTICIPANT_RGB = [
+    (30, 80, 160), (146, 39, 15), (107, 33, 168),
+    (13, 110, 110), (180, 90, 9), (26, 92, 46),
+]
+
+
+# ===========================================================================
+# PDF
+# ===========================================================================
+
+def _pdf_class():
+    """FPDF subclass adding a footer (confidentiality note + page number) on
+    every page. Defined lazily so importing this module needs no fpdf."""
+    from fpdf import FPDF
+
+    class _TranscriptPDF(FPDF):
+        def footer(self):
+            self.set_y(-13)
+            try:
+                self.set_font("DejaVu", "", 8)
+            except Exception:
+                self.set_font("Helvetica", "", 8)
+            self.set_text_color(*_MUTED)
+            self.set_draw_color(*_RULE)
+            self.line(20, self.get_y() - 1, 190, self.get_y() - 1)
+            self.cell(0, 8, "Confidential clinical record", align="L")
+            self.set_y(-13)
+            self.cell(0, 8, f"Page {self.page_no()}", align="R")
+
+    return _TranscriptPDF
+
+
+def _pdf_heading(pdf, text, private=False):
+    from fpdf.enums import XPos, YPos
+    pdf.ln(1)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.set_text_color(*(_PRIVATE if private else _HEADING))
+    pdf.cell(0, 7, text, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_draw_color(*_RULE)
+    pdf.line(20, pdf.get_y() + 0.5, 190, pdf.get_y() + 0.5)
+    pdf.ln(2.5)
+
 
 def render_summary_pdf(pdf, summary: dict) -> None:
-    """Prepend the therapist-only summary to the PDF, above the transcript."""
+    """Render the therapist-only clinician summary onto the PDF (above the
+    transcript). Does NOT draw the 'Transcript' heading — the caller does."""
     from fpdf.enums import XPos, YPos
-
-    # multi_cell defaults to new_x=RIGHT, which leaves the cursor at the right
-    # margin and makes the NEXT multi_cell raise "not enough horizontal space".
-    # Return to the left margin after every block.
     mc = {"new_x": XPos.LMARGIN, "new_y": YPos.NEXT}
 
-    pdf.set_font("DejaVu", "B", 14)
-    pdf.set_text_color(146, 39, 15)
-    pdf.cell(0, 9, "Clinician Summary — Private (therapist only)",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.set_font("DejaVu", "", 9)
-    pdf.set_text_color(120, 120, 120)
-    pdf.multi_cell(0, 5, summary.get("disclaimer", ""), **mc)
-    pdf.ln(2)
+    _pdf_heading(pdf, "Clinician summary — private (therapist only)", private=True)
+    if summary.get("disclaimer"):
+        pdf.set_font("DejaVu", "", 8.5)
+        pdf.set_text_color(*_MUTED)
+        pdf.multi_cell(0, 4.6, summary["disclaimer"], **mc)
+        pdf.ln(2)
 
-    def _section(title, body):
+    def _block(title, body):
         if not body:
             return
-        pdf.set_font("DejaVu", "B", 11)
-        pdf.set_text_color(40, 40, 40)
+        pdf.set_font("DejaVu", "B", 10.5)
+        pdf.set_text_color(*_INK)
         pdf.multi_cell(0, 6, title, **mc)
         pdf.set_font("DejaVu", "", 10)
-        pdf.set_text_color(30, 30, 30)
-        pdf.multi_cell(0, 5, body, **mc)
-        pdf.ln(2)
+        pdf.set_text_color(*_INK)
+        pdf.multi_cell(0, 5.2, body, **mc)
+        pdf.ln(2.5)
 
-    _section("Clinical summary",
-             summary.get("clinical") or "(AI narrative unavailable — see transcript below.)")
+    _block("Clinical summary",
+           summary.get("clinical") or "(AI narrative unavailable — see transcript below.)")
 
     # ICD codes — always rendered (grounded data), even if the narrative failed.
-    pdf.set_font("DejaVu", "B", 11)
-    pdf.set_text_color(40, 40, 40)
+    pdf.set_font("DejaVu", "B", 10.5)
+    pdf.set_text_color(*_INK)
     pdf.multi_cell(0, 6, "ICD codes (billing reference)", **mc)
     pdf.set_font("DejaVu", "", 10)
-    pdf.set_text_color(30, 30, 30)
     codes = summary.get("codes") or []
     if codes:
         for c in codes:
             label = f"{c['label']} — " if c.get("label") else ""
-            pdf.multi_cell(0, 5, f"• {label}{c.get('code', '')}  ({c.get('source', '')})", **mc)
+            pdf.multi_cell(0, 5.2, f"•  {label}{c.get('code', '')}  ({c.get('source', '')})", **mc)
     else:
-        pdf.multi_cell(0, 5, "No ICD reference codes surfaced during this session.", **mc)
+        pdf.multi_cell(0, 5.2, "No ICD reference codes surfaced during this session.", **mc)
     if summary.get("codes_rationale"):
-        pdf.ln(1)
+        pdf.ln(0.5)
+        pdf.set_text_color(*_MUTED)
         pdf.multi_cell(0, 5, summary["codes_rationale"], **mc)
-    pdf.ln(2)
+    pdf.ln(2.5)
 
     # Co-pilot alerts — the full saved record (incl. any not shown live).
     cards = summary.get("copilot_cards") or []
     if cards:
-        pdf.set_font("DejaVu", "B", 11)
-        pdf.set_text_color(40, 40, 40)
+        pdf.set_font("DejaVu", "B", 10.5)
+        pdf.set_text_color(*_INK)
         pdf.multi_cell(0, 6, "Co-pilot alerts (full record)", **mc)
         pdf.set_font("DejaVu", "", 10)
-        pdf.set_text_color(30, 30, 30)
         for c in cards:
             lbl = _CARD_LABEL.get(c.get("type"), (c.get("type") or "Note").title())
             code = f"  [{c['code']}]" if c.get("code") else ""
-            pdf.multi_cell(0, 5, f"• [{lbl}] {c.get('text', '')}{code}", **mc)
-        pdf.ln(2)
+            pdf.multi_cell(0, 5.2, f"•  [{lbl}] {c.get('text', '')}{code}", **mc)
+        pdf.ln(2.5)
 
-    _section("Client-facing draft — share only at your discretion "
-             "(the client cannot see this unless you give it to them)",
-             summary.get("client_recap"))
-
-    pdf.set_draw_color(200, 200, 200)
-    pdf.line(20, pdf.get_y(), 190, pdf.get_y())
-    pdf.ln(6)
-    pdf.set_font("DejaVu", "B", 13)
-    pdf.set_text_color(30, 30, 30)
-    pdf.cell(0, 8, "Transcript", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(2)
-
-
-def render_summary_docx(doc, summary: dict) -> None:
-    """Prepend the therapist-only summary to the DOCX, above the transcript."""
-    from docx.shared import Pt, RGBColor
-
-    h = doc.add_heading("Clinician Summary — Private (therapist only)", level=2)
-    h.runs[0].font.color.rgb = RGBColor(0x92, 0x27, 0x0F)
-    disc = doc.add_paragraph()
-    run = disc.add_run(summary.get("disclaimer", ""))
-    run.italic = True
-    run.font.size = Pt(9)
-    run.font.color.rgb = RGBColor(0x78, 0x78, 0x78)
-
-    def _section(title, body):
-        if not body:
-            return
-        p = doc.add_paragraph()
-        p.add_run(title).bold = True
-        doc.add_paragraph(body)
-
-    _section("Clinical summary",
-             summary.get("clinical") or "(AI narrative unavailable — see transcript below.)")
-
-    p = doc.add_paragraph()
-    p.add_run("ICD codes (billing reference)").bold = True
-    codes = summary.get("codes") or []
-    if codes:
-        for c in codes:
-            label = f"{c['label']} — " if c.get("label") else ""
-            doc.add_paragraph(f"• {label}{c.get('code', '')}  ({c.get('source', '')})")
-    else:
-        doc.add_paragraph("No ICD reference codes surfaced during this session.")
-    if summary.get("codes_rationale"):
-        doc.add_paragraph(summary["codes_rationale"])
-
-    # Co-pilot alerts — the full saved record (incl. any not shown live).
-    cards = summary.get("copilot_cards") or []
-    if cards:
-        p = doc.add_paragraph()
-        p.add_run("Co-pilot alerts (full record)").bold = True
-        for c in cards:
-            lbl = _CARD_LABEL.get(c.get("type"), (c.get("type") or "Note").title())
-            code = f"  [{c['code']}]" if c.get("code") else ""
-            doc.add_paragraph(f"• [{lbl}] {c.get('text', '')}{code}")
-
-    _section("Client-facing draft — share only at your discretion "
-             "(the client cannot see this unless you give it to them)",
-             summary.get("client_recap"))
-
-    doc.add_paragraph("─" * 40)
-    doc.add_heading("Transcript", level=2)
+    _block("Client-facing draft — share only at your discretion "
+           "(the client cannot see this unless you give it to them)",
+           summary.get("client_recap"))
 
 
 def transcript_pdf_buf(session_id, messages, mode, generated_at,
                        friendly_label=None, summary=None,
                        font_regular=None, font_bold=None) -> io.BytesIO:
-    """Render a session transcript as a PDF in memory.
-
-    Data is passed in (the caller does the DB/billing lookups): `messages` are
-    the ChatMessage rows, `friendly_label` the optional session name, and
-    `summary` the therapist-only clinical summary dict to prepend (or None)."""
-    from fpdf import FPDF
+    """Render a session transcript as a PDF in memory (data passed in)."""
     from fpdf.enums import XPos, YPos
 
-    pdf = FPDF()
+    pdf = _pdf_class()()
+    pdf.set_auto_page_break(auto=True, margin=18)
     pdf.set_margins(20, 20, 20)
     pdf.add_font("DejaVu",      fname=font_regular)
     pdf.add_font("DejaVu", "B", fname=font_bold)
     pdf.add_page()
 
-    # Title
-    pdf.set_font("DejaVu", "B", 16)
-    pdf.cell(0, 10, "TogetherMindsAI — Session Transcript",
+    # ---- Header banner (page 1) --------------------------------------------
+    pdf.set_fill_color(*_BRAND)
+    pdf.rect(0, 0, 210, 26, style="F")
+    pdf.set_xy(20, 7)
+    pdf.set_font("DejaVu", "B", 17)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 8, "TogetherMindsAI", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_x(20)
+    pdf.set_font("DejaVu", "", 9)
+    pdf.cell(0, 5, "Session record — confidential; encrypted, never sold or used to train AI.",
              new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(2)
+    pdf.set_y(32)
 
-    # Metadata
-    pdf.set_font("DejaVu", "", 10)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, f"Session ID : {session_id}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    # ---- Metadata panel ----------------------------------------------------
+    meta = [("Session ID", session_id)]
     if friendly_label:
-        pdf.cell(0, 6, f"Session Name : {friendly_label}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.cell(0, 6, f"Mode       : {mode}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.cell(0, 6, f"Generated  : {generated_at}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.ln(4)
+        meta.append(("Session name", friendly_label))
+    meta.append(("Mode", mode))
+    meta.append(("Generated", generated_at))
+    box_h = 5.8 * len(meta) + 5
+    y0 = pdf.get_y()
+    pdf.set_fill_color(*_PANEL)
+    pdf.rect(20, y0, 170, box_h, style="F")
+    pdf.set_xy(25, y0 + 2.5)
+    for label, val in meta:
+        pdf.set_font("DejaVu", "B", 9)
+        pdf.set_text_color(*_MUTED)
+        pdf.cell(34, 5.8, label, new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.set_font("DejaVu", "", 9.5)
+        pdf.set_text_color(*_INK)
+        pdf.cell(0, 5.8, str(val), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_x(25)
+    pdf.set_y(y0 + box_h + 4)
 
-    # Divider
-    pdf.set_draw_color(200, 200, 200)
-    pdf.line(20, pdf.get_y(), 190, pdf.get_y())
-    pdf.ln(6)
-
-    # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    # ---- Therapist-only summary (Pro/Premium) ------------------------------
     if summary is not None:
         render_summary_pdf(pdf, summary)
 
-    # Assign a distinct RGB color to each human participant
-    _PDF_PARTICIPANT_COLORS = [
-        (30,  80,  160),   # blue
-        (146, 39,  15),    # rust red
-        (107, 33,  168),   # purple
-        (13,  110, 110),   # teal
-        (180, 90,  9),     # amber
-        (26,  92,  46),    # dark green
-    ]
-    pdf_participant_color: dict = {}
-    _pdf_color_idx = 0
+    # ---- Transcript --------------------------------------------------------
+    _pdf_heading(pdf, "Transcript")
+
+    # Assign a distinct colour to each human participant + a short name for the legend.
+    color_by_user, name_by_user, idx = {}, {}, 0
     for msg in messages:
-        if msg.user_id != "AI" and msg.user_id not in pdf_participant_color:
-            pdf_participant_color[msg.user_id] = _PDF_PARTICIPANT_COLORS[_pdf_color_idx % len(_PDF_PARTICIPANT_COLORS)]
-            _pdf_color_idx += 1
+        if msg.user_id != "AI" and msg.user_id not in color_by_user:
+            color_by_user[msg.user_id] = _PARTICIPANT_RGB[idx % len(_PARTICIPANT_RGB)]
+            name_by_user[msg.user_id] = msg.display_name or "User"
+            idx += 1
+
+    # Speaker colour legend.
+    if color_by_user or messages:
+        pdf.set_font("DejaVu", "", 8)
+        pdf.set_text_color(*_MUTED)
+        pdf.cell(pdf.get_string_width("Speakers:") + 3, 5, "Speakers:",
+                 new_x=XPos.RIGHT, new_y=YPos.TOP)
+        for uid, rgb in color_by_user.items():
+            pdf.set_text_color(*rgb)
+            nm = name_by_user.get(uid, "User")
+            pdf.cell(pdf.get_string_width(nm) + 5, 5, nm, new_x=XPos.RIGHT, new_y=YPos.TOP)
+        pdf.set_text_color(*_AI_GREEN)
+        pdf.cell(0, 5, "AI Co-Pilot", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(2)
 
     if not messages:
-        pdf.set_text_color(120, 120, 120)
+        pdf.set_text_color(*_MUTED)
         pdf.set_font("DejaVu", "", 11)
         pdf.cell(0, 8, "No messages recorded for this session.",
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
@@ -224,27 +229,19 @@ def transcript_pdf_buf(session_id, messages, mode, generated_at,
         for msg in messages:
             is_ai = msg.user_id == "AI"
             if is_ai:
-                speaker = "AI Co-Pilot"
+                speaker, rgb = "AI Co-Pilot", _AI_GREEN
             elif msg.display_name:
-                speaker = f"{session_id}-{msg.display_name}"
+                speaker, rgb = f"{session_id}-{msg.display_name}", color_by_user.get(msg.user_id, (30, 80, 160))
             else:
-                speaker = "User"
+                speaker, rgb = "User", color_by_user.get(msg.user_id, (30, 80, 160))
             ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
 
-            # Speaker + timestamp line
             pdf.set_font("DejaVu", "B", 10)
-            if is_ai:
-                pdf.set_text_color(30, 120, 60)
-            else:
-                r, g, b = pdf_participant_color.get(msg.user_id, (30, 80, 160))
-                pdf.set_text_color(r, g, b)
-            pdf.cell(0, 7, f"{speaker}  [{ts}]",
-                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-            # Message body
-            pdf.set_font("DejaVu", "", 11)
-            pdf.set_text_color(30, 30, 30)
-            pdf.multi_cell(0, 6, msg.text)
+            pdf.set_text_color(*rgb)
+            pdf.cell(0, 6.5, f"{speaker}  ·  {ts}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.set_font("DejaVu", "", 10.5)
+            pdf.set_text_color(*_INK)
+            pdf.multi_cell(0, 5.6, msg.text)
             pdf.ln(3)
 
     buf = io.BytesIO(pdf.output())
@@ -252,55 +249,131 @@ def transcript_pdf_buf(session_id, messages, mode, generated_at,
     return buf
 
 
+# ===========================================================================
+# DOCX
+# ===========================================================================
+
+def _docx_page_number(paragraph):
+    """Insert a live PAGE field into a docx paragraph (renders in Word)."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    run = paragraph.add_run()
+    for kind, txt in (("begin", None), (None, "PAGE"), ("end", None)):
+        if kind:
+            el = OxmlElement("w:fldChar")
+            el.set(qn("w:fldCharType"), kind)
+        else:
+            el = OxmlElement("w:instrText")
+            el.set(qn("xml:space"), "preserve")
+            el.text = txt
+        run._r.append(el)
+
+
+def _docx_heading(doc, text, private=False):
+    from docx.shared import Pt, RGBColor
+    h = doc.add_heading(text, level=2)
+    rgb = RGBColor(*(_PRIVATE if private else _HEADING))
+    for r in h.runs:
+        r.font.color.rgb = rgb
+
+
+def render_summary_docx(doc, summary: dict) -> None:
+    """Render the therapist-only clinician summary onto the DOCX (above the
+    transcript). Does NOT add the 'Transcript' heading — the caller does."""
+    from docx.shared import Pt, RGBColor
+
+    _docx_heading(doc, "Clinician summary — private (therapist only)", private=True)
+    if summary.get("disclaimer"):
+        disc = doc.add_paragraph()
+        run = disc.add_run(summary["disclaimer"])
+        run.italic = True
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(*_MUTED)
+
+    def _block(title, body):
+        if not body:
+            return
+        p = doc.add_paragraph()
+        p.add_run(title).bold = True
+        doc.add_paragraph(body)
+
+    _block("Clinical summary",
+           summary.get("clinical") or "(AI narrative unavailable — see transcript below.)")
+
+    p = doc.add_paragraph()
+    p.add_run("ICD codes (billing reference)").bold = True
+    codes = summary.get("codes") or []
+    if codes:
+        for c in codes:
+            label = f"{c['label']} — " if c.get("label") else ""
+            doc.add_paragraph(f"{label}{c.get('code', '')}  ({c.get('source', '')})", style="List Bullet")
+    else:
+        doc.add_paragraph("No ICD reference codes surfaced during this session.")
+    if summary.get("codes_rationale"):
+        rat = doc.add_paragraph()
+        rr = rat.add_run(summary["codes_rationale"])
+        rr.font.color.rgb = RGBColor(*_MUTED)
+
+    cards = summary.get("copilot_cards") or []
+    if cards:
+        p = doc.add_paragraph()
+        p.add_run("Co-pilot alerts (full record)").bold = True
+        for c in cards:
+            lbl = _CARD_LABEL.get(c.get("type"), (c.get("type") or "Note").title())
+            code = f"  [{c['code']}]" if c.get("code") else ""
+            doc.add_paragraph(f"[{lbl}] {c.get('text', '')}{code}", style="List Bullet")
+
+    _block("Client-facing draft — share only at your discretion "
+           "(the client cannot see this unless you give it to them)",
+           summary.get("client_recap"))
+
+
 def transcript_docx_buf(session_id, messages, mode, generated_at,
                         friendly_label=None, summary=None) -> io.BytesIO:
-    """Render a session transcript as a DOCX in memory. See transcript_pdf_buf
-    for the data-in contract."""
+    """Render a session transcript as a DOCX in memory (data passed in)."""
     from docx import Document
     from docx.shared import Pt, RGBColor
 
     doc = Document()
 
-    # Title
-    title = doc.add_heading("TogetherMindsAI — Session Transcript", level=1)
-    title.runs[0].font.color.rgb = RGBColor(0x1E, 0x78, 0x40)
+    # ---- Title + confidentiality subtitle ----------------------------------
+    title = doc.add_heading("TogetherMindsAI — Session Record", level=0)
+    for r in title.runs:
+        r.font.color.rgb = RGBColor(*_BRAND)
+    sub = doc.add_paragraph()
+    sr = sub.add_run("Confidential clinical record — encrypted; never sold or used to train AI.")
+    sr.italic = True
+    sr.font.size = Pt(9)
+    sr.font.color.rgb = RGBColor(*_MUTED)
 
-    # Metadata
-    meta = doc.add_paragraph()
-    meta.add_run("Session ID : ").bold = True
-    meta.add_run(session_id)
+    # ---- Metadata table ----------------------------------------------------
+    meta = [("Session ID", session_id)]
     if friendly_label:
-        meta_name = doc.add_paragraph()
-        meta_name.add_run("Session Name : ").bold = True
-        meta_name.add_run(friendly_label)
-    meta2 = doc.add_paragraph()
-    meta2.add_run("Mode       : ").bold = True
-    meta2.add_run(mode)
-    meta3 = doc.add_paragraph()
-    meta3.add_run("Generated  : ").bold = True
-    meta3.add_run(generated_at)
+        meta.append(("Session name", friendly_label))
+    meta.append(("Mode", mode))
+    meta.append(("Generated", generated_at))
+    table = doc.add_table(rows=0, cols=2)
+    for label, val in meta:
+        cells = table.add_row().cells
+        lr = cells[0].paragraphs[0].add_run(label)
+        lr.bold = True
+        lr.font.size = Pt(9)
+        lr.font.color.rgb = RGBColor(*_MUTED)
+        vr = cells[1].paragraphs[0].add_run(str(val))
+        vr.font.size = Pt(9)
 
-    doc.add_paragraph("─" * 40)
-
-    # Therapist-only: prepend the private clinical summary + grounded ICD codes.
+    # ---- Therapist-only summary --------------------------------------------
     if summary is not None:
         render_summary_docx(doc, summary)
 
-    # Assign a distinct color to each human participant (AI is always green)
-    _PARTICIPANT_COLORS = [
-        RGBColor(0x1E, 0x50, 0xA0),  # blue
-        RGBColor(0x92, 0x27, 0x0F),  # rust red
-        RGBColor(0x6B, 0x21, 0xA8),  # purple
-        RGBColor(0x0D, 0x6E, 0x6E),  # teal
-        RGBColor(0xB4, 0x5A, 0x09),  # amber
-        RGBColor(0x1A, 0x5C, 0x2E),  # dark green
-    ]
-    participant_color: dict = {}
-    _color_idx = 0
+    # ---- Transcript --------------------------------------------------------
+    _docx_heading(doc, "Transcript")
+
+    color_by_user, idx = {}, 0
     for msg in messages:
-        if msg.user_id != "AI" and msg.user_id not in participant_color:
-            participant_color[msg.user_id] = _PARTICIPANT_COLORS[_color_idx % len(_PARTICIPANT_COLORS)]
-            _color_idx += 1
+        if msg.user_id != "AI" and msg.user_id not in color_by_user:
+            color_by_user[msg.user_id] = RGBColor(*_PARTICIPANT_RGB[idx % len(_PARTICIPANT_RGB)])
+            idx += 1
 
     if not messages:
         p = doc.add_paragraph("No messages recorded for this session.")
@@ -309,25 +382,28 @@ def transcript_docx_buf(session_id, messages, mode, generated_at,
         for msg in messages:
             is_ai = msg.user_id == "AI"
             if is_ai:
-                speaker = "AI Co-Pilot"
+                speaker, rgb = "AI Co-Pilot", RGBColor(*_AI_GREEN)
             elif msg.display_name:
                 speaker = f"{session_id}-{msg.display_name}"
+                rgb = color_by_user.get(msg.user_id, RGBColor(30, 80, 160))
             else:
-                speaker = "User"
+                speaker, rgb = "User", color_by_user.get(msg.user_id, RGBColor(30, 80, 160))
             ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
 
-            # Speaker heading
             p = doc.add_paragraph()
-            run = p.add_run(f"{speaker}  [{ts}]")
+            run = p.add_run(f"{speaker}  ·  {ts}")
             run.bold = True
             run.font.size = Pt(10)
-            if is_ai:
-                run.font.color.rgb = RGBColor(0x1E, 0x78, 0x3C)
-            else:
-                run.font.color.rgb = participant_color.get(msg.user_id, RGBColor(0x1E, 0x50, 0xA0))
-
-            # Message body
+            run.font.color.rgb = rgb
             doc.add_paragraph(msg.text)
+
+    # ---- Footer: confidentiality + page number -----------------------------
+    footer = doc.sections[0].footer
+    fp = footer.paragraphs[0]
+    fr = fp.add_run("Confidential clinical record — Page ")
+    fr.font.size = Pt(8)
+    fr.font.color.rgb = RGBColor(*_MUTED)
+    _docx_page_number(fp)
 
     buf = io.BytesIO()
     doc.save(buf)

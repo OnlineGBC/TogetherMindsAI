@@ -224,7 +224,7 @@ def test_therapist_docx_contains_summary(enc_client):
         rv = enc_client.get(f"/transcript/{sid}/docx")
     assert rv.status_code == 200
     text = _docx_text(rv)
-    assert "Clinician Summary" in text
+    assert "Clinician summary" in text
     assert "CLINICAL_RECAP_MARKER." in text
     assert "F43.2" in text                       # grounded code rendered
     assert "CLIENT_DRAFT_MARKER." in text        # client draft is in the THERAPIST's copy
@@ -351,6 +351,6 @@ def test_therapist_docx_still_works_when_narrative_fails(enc_client):
         rv = enc_client.get(f"/transcript/{sid}/docx")
     assert rv.status_code == 200
     text = _docx_text(rv)
-    assert "Clinician Summary" in text
+    assert "Clinician summary" in text
     assert "F43.2" in text                       # codes still present
     assert "narrative unavailable" in text.lower()

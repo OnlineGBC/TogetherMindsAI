@@ -109,6 +109,16 @@ def test_transcript_pdf_buf_handles_no_messages():
     assert buf.read().startswith(b"%PDF")
 
 
+def _docx_all_text(doc):
+    """All text in a docx — paragraphs AND table cells (metadata is a table)."""
+    parts = [p.text for p in doc.paragraphs]
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                parts.append(cell.text)
+    return "\n".join(parts)
+
+
 def test_transcript_docx_buf_renders_speakers():
     from docx import Document
     buf = documents.transcript_docx_buf(
@@ -116,8 +126,8 @@ def test_transcript_docx_buf_renders_speakers():
         friendly_label="Smith wk3", summary=None,
     )
     doc = Document(buf)
-    text = "\n".join(p.text for p in doc.paragraphs)
-    assert "Session Name : " in text and "Smith wk3" in text
+    text = _docx_all_text(doc)
+    assert "Session name" in text and "Smith wk3" in text   # metadata table
     assert "SESS-3-Alex" in text          # human speaker labelled with session prefix
     assert "AI Co-Pilot" in text           # AI speaker labelled
     assert "I felt anxious this week." in text

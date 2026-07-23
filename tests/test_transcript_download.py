@@ -112,7 +112,11 @@ def test_docx_includes_friendly_session_name(client):
     assert rv.status_code == 200
     doc = Document(io.BytesIO(rv.data))
     text = "\n".join(p.text for p in doc.paragraphs)
-    assert "Session Name" in text
+    for t in doc.tables:                       # metadata is a borderless table
+        for row in t.rows:
+            for cell in row.cells:
+                text += "\n" + cell.text
+    assert "Session name" in text
     assert "Team Alpha" in text
     # The Session ID is still present too.
     assert session_id in text
