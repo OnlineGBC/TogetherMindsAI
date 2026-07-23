@@ -889,10 +889,30 @@ def _current_client_account_id():
 
 @app.context_processor
 def _inject_auth_state():
-    """Expose login state to every template (drives the navbar)."""
+    """Expose login state to every template (drives the navbar + account menu).
+
+    The clinician's email and the sign-in provider (google/microsoft) are looked
+    up here so the navbar can show an account menu. Only the logged-in owner ever
+    sees their own email; it is never placed in the cookie (kept encrypted at
+    rest, decrypted server-side per render). Client accounts store no email, so
+    only their provider is exposed."""
+    cid = session.get("clinician_id")
+    aid = session.get("client_account_id")
+    email = None
+    provider = None
+    if cid:
+        clin = db.session.get(Clinician, cid)
+        if clin:
+            email, provider = clin.email, clin.provider
+    elif aid:
+        acct = db.session.get(ClientAccount, aid)
+        if acct:
+            provider = acct.provider   # ClientAccount deliberately stores no email
     return {
-        "current_clinician_id": session.get("clinician_id"),
-        "current_client_account_id": session.get("client_account_id"),
+        "current_clinician_id": cid,
+        "current_client_account_id": aid,
+        "current_email": email,
+        "current_provider": provider,
         "current_year": datetime.now(timezone.utc).year,
     }
 

@@ -427,6 +427,27 @@ def test_my_sessions_lists_silent_attendee_session(client):
     assert b"SESS-SILENT" in rv.data
 
 
+def test_navbar_account_menu_shows_login_id_and_provider(client):
+    """A signed-in clinician sees their email + sign-in provider in the account
+    menu, and Sign out lives there now."""
+    db.session.add(Clinician(id="doc-nav", provider="google", provider_subject="g-nav",
+                             email="easton@example.com", created_at=datetime.now(timezone.utc)))
+    db.session.commit()
+    with client.session_transaction() as s:
+        s["clinician_id"] = "doc-nav"; s["user_id"] = "doc-nav"
+    html = client.get("/therapist").get_data(as_text=True)
+    assert "easton@example.com" in html            # login ID shown
+    assert "Signed in with Google" in html         # provider shown
+    assert "bi-google" in html                      # provider icon
+    assert "/logout" in html                         # sign out folded into the menu
+
+
+def test_navbar_no_account_menu_when_logged_out(client):
+    html = client.get("/welcome").get_data(as_text=True)
+    assert 'id="acctMenu"' not in html
+    assert "Clinician sign-in" in html
+
+
 def test_oauth_routes_extracted_to_module(client):
     """The login routes now live in routes_oauth.py but are attached with their
     ORIGINAL endpoint names, so url_for(...) and templates are unchanged."""
