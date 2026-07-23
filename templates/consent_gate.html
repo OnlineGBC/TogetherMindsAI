@@ -53,9 +53,25 @@
                             <option value="INTL">I'm outside the United States</option>
                         </select>
                         <div class="form-text">
-                            Pick the U.S. state you are physically in for this session — your current
+                            Pick where you are physically located for this session — your current
                             location, not your home address. This determines whether your clinician can
                             lawfully see you today.
+                        </div>
+                    </div>
+                    <!-- Revealed only when "outside the United States" is chosen. -->
+                    <div class="mb-3 d-none" id="countryWrap">
+                        <label for="countrySelect" class="form-label fw-semibold mb-1">
+                            Which country are you in?
+                        </label>
+                        <select id="countrySelect" name="country" class="form-select rounded-3">
+                            <option value="" selected disabled>Select your country…</option>
+                            {% for code, name in countries %}
+                            <option value="{{ code }}">{{ name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            Your clinician will be asked to confirm they can serve a client located
+                            here before you join.
                         </div>
                     </div>
                     <div class="form-check mb-3">
@@ -82,4 +98,24 @@
 
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var state = document.getElementById("stateSelect");
+    var wrap = document.getElementById("countryWrap");
+    var country = document.getElementById("countrySelect");
+    if (!state || !wrap || !country) return;
+    function sync() {
+        var intl = state.value === "INTL";
+        wrap.classList.toggle("d-none", !intl);
+        // Country is required only when the client is outside the U.S.
+        if (intl) { country.setAttribute("required", "required"); }
+        else { country.removeAttribute("required"); country.value = ""; }
+    }
+    state.addEventListener("change", sync);
+    sync();
+})();
+</script>
 {% endblock %}

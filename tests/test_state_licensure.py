@@ -81,9 +81,11 @@ def _actor(user_id):
     return c
 
 
-def _consent(actor_client, sid, state):
-    return actor_client.post(f"/session/{sid}/consent",
-                             data={"state": state, "location_attest": "1"})
+def _consent(actor_client, sid, state, country=None):
+    data = {"state": state, "location_attest": "1"}
+    if country:
+        data["country"] = country
+    return actor_client.post(f"/session/{sid}/consent", data=data)
 
 
 def _cert_row(sid, state):
@@ -128,19 +130,65 @@ def test_declined_state_is_turned_away(enc_client):
     assert b"isn't able to see clients" in rv.data
 
 
-def test_outside_us_is_blocked(enc_client):
+def test_outside_us_goes_to_certification_not_blocked(enc_client):
+    """International clients are NO LONGER blocked — they're held for the
+    clinician to certify their country, exactly like a U.S. state."""
     with app.app_context():
         sid = _seed_session()
-    rv = _consent(_actor("client-1"), sid, "INTL")
+    rv = _consent(_actor("client-1"), sid, "INTL", country="FR")
+    assert rv.status_code == 302
+    assert "/state-gate" in rv.headers["Location"]
+    assert session_pending_state.get(sid, {}).get("client-1") == "C:FR"
+    with app.app_context():
+        assert AuditLog.query.filter_by(event_type="client_location_attested", session_id=sid).count() == 1
+
+
+def test_intl_certified_country_is_admitted(enc_client):
+    with app.app_context():
+        sid = _seed_session()
+        db.session.add(SessionStateCert(session_id=sid, state="C:FR", therapist_id=THER,
+                                        decision="certified"))
+        db.session.commit()
+    rv = _consent(_actor("client-1"), sid, "INTL", country="FR")
+    assert rv.status_code == 302
+    assert f"/therapy/group/{sid}" in rv.headers["Location"]
+
+
+def test_intl_certify_flow_and_pending_label(enc_client):
+    with app.app_context():
+        sid = _seed_session()
+    c1 = _actor("client-1")
+    assert "/state-gate" in _consent(c1, sid, "INTL", country="FR").headers["Location"]
+    ther = _actor(THER)
+    pend = ther.post(f"/session/{sid}/heartbeat").get_json()["pending_states"]
+    assert pend == [{"code": "C:FR", "name": "France (FR)", "intl": True, "count": 1}]
+    rv = ther.post(f"/session/{sid}/certify-state", json={"state": "C:FR", "decision": "certify"})
+    assert rv.status_code == 200 and rv.get_json()["decision"] == "certified"
+    with app.app_context():
+        assert _cert_row(sid, "C:FR").decision == "certified"
+    assert c1.get(f"/therapy/group/{sid}").status_code == 200
+
+
+def test_declined_intl_shows_worldwide_crisis(enc_client):
+    with app.app_context():
+        sid = _seed_session()
+        db.session.add(SessionStateCert(session_id=sid, state="C:FR", therapist_id=THER,
+                                        decision="declined"))
+        db.session.commit()
+    rv = _consent(_actor("client-1"), sid, "INTL", country="FR")
     assert rv.status_code == 403
-    assert b"United States" in rv.data
+    assert b"France (FR)" in rv.data                     # location shown
+    assert b"isn't able to see clients" in rv.data       # declined (not blocked)
+    # worldwide crisis branch (unique phrase), not the US 988-first text
+    assert b"finds a line in your country" in rv.data
 
 
-def test_invalid_state_is_blocked(enc_client):
+def test_invalid_location_redirects_to_consent(enc_client):
     with app.app_context():
         sid = _seed_session()
     rv = _consent(_actor("client-1"), sid, "ZZ")
-    assert rv.status_code == 403
+    assert rv.status_code == 302
+    assert "/consent" in rv.headers["Location"]
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +254,7 @@ def test_heartbeat_reports_then_clears_pending(enc_client):
     ther = _actor(THER)
 
     pend = ther.post(f"/session/{sid}/heartbeat").get_json()["pending_states"]
-    assert pend == [{"code": "NJ", "name": "New Jersey", "count": 1}]
+    assert pend == [{"code": "NJ", "name": "New Jersey (NJ)", "intl": False, "count": 1}]
 
     ther.post(f"/session/{sid}/certify-state", json={"state": "NJ", "decision": "certify"})
     assert ther.post(f"/session/{sid}/heartbeat").get_json()["pending_states"] == []

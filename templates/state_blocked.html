@@ -11,26 +11,28 @@
                 {% if reason == 'declined' %}
                 <h4 class="fw-bold mt-2 mb-2">You can't join this session</h4>
                 <p class="text-muted">
-                    Your clinician isn't able to see clients located in <strong>{{ state }}</strong>
-                    for this session. This is a licensing requirement, not a reflection on you.
-                </p>
-                {% elif reason == 'intl' %}
-                <h4 class="fw-bold mt-2 mb-2">Available in the U.S. only</h4>
-                <p class="text-muted">
-                    TogetherMindsAI is available only to clients <strong>physically located in the
-                    United States</strong>, so you can't join this session.
+                    Your clinician isn't able to see clients located in <strong>{{ place }}</strong>
+                    for this session. This is a licensing / authorization requirement, not a
+                    reflection on you.
                 </p>
                 {% else %}
                 <h4 class="fw-bold mt-2 mb-2">We couldn't confirm your location</h4>
                 <p class="text-muted">
-                    Please go back and choose the U.S. state you're physically located in to join.
+                    Please go back and choose the location you're physically in to join.
                 </p>
                 {% endif %}
 
                 <p class="small text-muted mb-0">
+                    {% if intl %}
+                    If you're in crisis, help is available now —
+                    <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a>
+                    finds a line in your country, or
+                    <a href="https://www.befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a>.
+                    {% else %}
                     If you're in crisis, help is available now — call or text <strong>988</strong>, or text
                     <strong>HOME to 741741</strong>. Worldwide:
                     <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a>.
+                    {% endif %}
                 </p>
             </div>
         </div>

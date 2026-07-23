@@ -743,6 +743,17 @@ if not config.IS_TESTING:
         except Exception:
             db.session.rollback()  # column already exists
 
+    # Widen the licensure location code so it can hold a country ("C:FR"), not
+    # just a 2-letter U.S. state. Idempotent — a no-op on SQLite (no length
+    # enforcement) and where the column is already wide enough.
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text("ALTER TABLE session_state_certs ALTER COLUMN state TYPE VARCHAR(8)"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # SQLite (unsupported/unneeded), or already wide
+
     # Remove prompt/response columns from exercises — conversation text is now
     # stored only in chat_messages (encrypted). Metadata-only exercise records
     # are sufficient for the progress chart.
@@ -1262,6 +1273,95 @@ US_STATES = {
     "WI": "Wisconsin", "WY": "Wyoming",
 }
 
+# ISO 3166-1 alpha-2 country codes (excluding the U.S., whose clients pick a
+# state above). A client outside the U.S. selects their country; the clinician
+# then accepts (or declines) authorisation to serve a client located there —
+# the same per-session certification flow used for U.S. states.
+COUNTRIES = {
+    "AF": "Afghanistan", "AL": "Albania", "DZ": "Algeria", "AD": "Andorra",
+    "AO": "Angola", "AG": "Antigua and Barbuda", "AR": "Argentina", "AM": "Armenia",
+    "AU": "Australia", "AT": "Austria", "AZ": "Azerbaijan", "BS": "Bahamas",
+    "BH": "Bahrain", "BD": "Bangladesh", "BB": "Barbados", "BY": "Belarus",
+    "BE": "Belgium", "BZ": "Belize", "BJ": "Benin", "BT": "Bhutan", "BO": "Bolivia",
+    "BA": "Bosnia and Herzegovina", "BW": "Botswana", "BR": "Brazil", "BN": "Brunei",
+    "BG": "Bulgaria", "BF": "Burkina Faso", "BI": "Burundi", "CV": "Cabo Verde",
+    "KH": "Cambodia", "CM": "Cameroon", "CA": "Canada", "CF": "Central African Republic",
+    "TD": "Chad", "CL": "Chile", "CN": "China", "CO": "Colombia", "KM": "Comoros",
+    "CG": "Congo (Republic)", "CD": "Congo (DRC)", "CR": "Costa Rica",
+    "CI": "Cote d'Ivoire", "HR": "Croatia", "CU": "Cuba", "CY": "Cyprus",
+    "CZ": "Czechia", "DK": "Denmark", "DJ": "Djibouti", "DM": "Dominica",
+    "DO": "Dominican Republic", "EC": "Ecuador", "EG": "Egypt", "SV": "El Salvador",
+    "GQ": "Equatorial Guinea", "ER": "Eritrea", "EE": "Estonia", "SZ": "Eswatini",
+    "ET": "Ethiopia", "FJ": "Fiji", "FI": "Finland", "FR": "France", "GA": "Gabon",
+    "GM": "Gambia", "GE": "Georgia (country)", "DE": "Germany", "GH": "Ghana",
+    "GR": "Greece", "GD": "Grenada", "GT": "Guatemala", "GN": "Guinea",
+    "GW": "Guinea-Bissau", "GY": "Guyana", "HT": "Haiti", "HN": "Honduras",
+    "HU": "Hungary", "IS": "Iceland", "IN": "India", "ID": "Indonesia", "IR": "Iran",
+    "IQ": "Iraq", "IE": "Ireland", "IL": "Israel", "IT": "Italy", "JM": "Jamaica",
+    "JP": "Japan", "JO": "Jordan", "KZ": "Kazakhstan", "KE": "Kenya", "KI": "Kiribati",
+    "KW": "Kuwait", "KG": "Kyrgyzstan", "LA": "Laos", "LV": "Latvia", "LB": "Lebanon",
+    "LS": "Lesotho", "LR": "Liberia", "LY": "Libya", "LI": "Liechtenstein",
+    "LT": "Lithuania", "LU": "Luxembourg", "MG": "Madagascar", "MW": "Malawi",
+    "MY": "Malaysia", "MV": "Maldives", "ML": "Mali", "MT": "Malta",
+    "MH": "Marshall Islands", "MR": "Mauritania", "MU": "Mauritius", "MX": "Mexico",
+    "FM": "Micronesia", "MD": "Moldova", "MC": "Monaco", "MN": "Mongolia",
+    "ME": "Montenegro", "MA": "Morocco", "MZ": "Mozambique", "MM": "Myanmar",
+    "NA": "Namibia", "NR": "Nauru", "NP": "Nepal", "NL": "Netherlands",
+    "NZ": "New Zealand", "NI": "Nicaragua", "NE": "Niger", "NG": "Nigeria",
+    "KP": "North Korea", "MK": "North Macedonia", "NO": "Norway", "OM": "Oman",
+    "PK": "Pakistan", "PW": "Palau", "PS": "Palestine", "PA": "Panama",
+    "PG": "Papua New Guinea", "PY": "Paraguay", "PE": "Peru", "PH": "Philippines",
+    "PL": "Poland", "PT": "Portugal", "QA": "Qatar", "RO": "Romania", "RU": "Russia",
+    "RW": "Rwanda", "KN": "Saint Kitts and Nevis", "LC": "Saint Lucia",
+    "VC": "Saint Vincent and the Grenadines", "WS": "Samoa", "SM": "San Marino",
+    "ST": "Sao Tome and Principe", "SA": "Saudi Arabia", "SN": "Senegal",
+    "RS": "Serbia", "SC": "Seychelles", "SL": "Sierra Leone", "SG": "Singapore",
+    "SK": "Slovakia", "SI": "Slovenia", "SB": "Solomon Islands", "SO": "Somalia",
+    "ZA": "South Africa", "KR": "South Korea", "SS": "South Sudan", "ES": "Spain",
+    "LK": "Sri Lanka", "SD": "Sudan", "SR": "Suriname", "SE": "Sweden",
+    "CH": "Switzerland", "SY": "Syria", "TW": "Taiwan", "TJ": "Tajikistan",
+    "TZ": "Tanzania", "TH": "Thailand", "TL": "Timor-Leste", "TG": "Togo",
+    "TO": "Tonga", "TT": "Trinidad and Tobago", "TN": "Tunisia", "TR": "Turkey",
+    "TM": "Turkmenistan", "TV": "Tuvalu", "UG": "Uganda", "UA": "Ukraine",
+    "AE": "United Arab Emirates", "GB": "United Kingdom", "UY": "Uruguay",
+    "UZ": "Uzbekistan", "VU": "Vanuatu", "VA": "Vatican City", "VE": "Venezuela",
+    "VN": "Vietnam", "YE": "Yemen", "ZM": "Zambia", "ZW": "Zimbabwe",
+}
+
+# ---------------------------------------------------------------------------
+# Location = a U.S. state OR a country. Encoded as a code that never collides:
+#   U.S. state -> "CA"   (bare 2-letter, backward-compatible)
+#   country    -> "C:FR" (prefixed, so state "GA"/Georgia ≠ country "GA"/Gabon)
+# ---------------------------------------------------------------------------
+
+def _is_intl_loc(loc: str) -> bool:
+    return bool(loc) and loc.startswith("C:")
+
+
+def _loc_short(loc: str) -> str:
+    """The bare 2-letter code (state or ISO country), without the C: prefix."""
+    return loc[2:] if _is_intl_loc(loc) else (loc or "")
+
+
+def _loc_name(loc: str) -> str:
+    """Spelled-out place name for a location code."""
+    if _is_intl_loc(loc):
+        return COUNTRIES.get(_loc_short(loc), _loc_short(loc))
+    return US_STATES.get(loc, loc)
+
+
+def _loc_label(loc: str) -> str:
+    """Human label combining the name and its 2-letter code, e.g. 'France (FR)'."""
+    if not loc:
+        return ""
+    return f"{_loc_name(loc)} ({_loc_short(loc)})"
+
+
+def _is_valid_loc(loc: str) -> bool:
+    if _is_intl_loc(loc):
+        return _loc_short(loc) in COUNTRIES
+    return loc in US_STATES
+
 
 def _state_decision(session_id: str, state: str):
     """The clinician's decision for a (session, state): 'certified', 'declined',
@@ -1323,14 +1423,16 @@ def _resolve_pending_state(session_id: str, state: str) -> None:
 
 
 def _pending_states(session_id: str) -> list:
-    """Distinct U.S. states of clients currently waiting on a licensure decision
-    (excludes any state already certified/declined). Shown to the clinician."""
+    """Distinct locations (U.S. state or country) of clients waiting on a
+    licensure decision (excludes any already certified/declined). Shown to the
+    clinician; `code` is the location code they certify, `name` the label."""
     waiting = session_pending_state.get(session_id, {})
     counts: dict = {}
     for _uid, st in waiting.items():
         if _state_decision(session_id, st) is None:
             counts[st] = counts.get(st, 0) + 1
-    return [{"code": c, "name": US_STATES.get(c, c), "count": n} for c, n in counts.items()]
+    return [{"code": c, "name": _loc_label(c), "intl": _is_intl_loc(c), "count": n}
+            for c, n in counts.items()]
 
 
 def _record_consent(session_id, user_id):
@@ -1388,9 +1490,12 @@ def session_consent_get(session_id):
     is_therapist = bool(ts.therapist_id and ts.therapist_id == user_id)
     if is_therapist or session_id in session.get("consented_sessions", []):
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
-    # Sorted (name) list of states for the location selector.
+    # Sorted (by name) lists for the location selectors: U.S. states, plus
+    # countries for a client outside the U.S.
     states = sorted(US_STATES.items(), key=lambda kv: kv[1])
-    return render_template("consent_gate.html", session_id=session_id, mode=ts.mode, states=states)
+    countries = sorted(COUNTRIES.items(), key=lambda kv: kv[1])
+    return render_template("consent_gate.html", session_id=session_id, mode=ts.mode,
+                           states=states, countries=countries)
 
 
 @app.route("/session/<session_id>/consent", methods=["POST"])
@@ -1412,20 +1517,27 @@ def session_consent_post(session_id):
     if is_therapist:
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
 
-    state = (request.form.get("state") or "").strip().upper()
-    # U.S.-only: anything not a valid state code (incl. the "outside the U.S."
-    # option) cannot join.
-    if state not in US_STATES:
-        log_event("client_location_blocked", session_id=session_id, user_id=user_id,
-                  state=(state or "none"))
-        reason = "intl" if state == "INTL" else "invalid"
-        return render_template("state_blocked.html", reason=reason, mode=ts.mode), 403
+    # Resolve the client's location: a U.S. state, or (if they picked "outside
+    # the U.S.") a country. No hard block — an international client goes through
+    # the same clinician-certification flow.
+    state   = (request.form.get("state") or "").strip().upper()
+    country = (request.form.get("country") or "").strip().upper()
+    if state == "INTL":
+        loc = ("C:" + country) if country in COUNTRIES else ""
+    else:
+        loc = state if state in US_STATES else ""
+    if not _is_valid_loc(loc):
+        # No valid location chosen — send them back to pick one (fields are
+        # required, so this is a fallback, not the outside-U.S. path).
+        flash("Please select your location to continue.", "warning")
+        return redirect(url_for("session_consent_get", session_id=session_id))
 
-    # Remember the attested state (signed cookie — survives a restart) and audit it.
+    # Remember the attested location (signed cookie — survives a restart) + audit.
     states = session.get("session_states", {})
-    states[session_id] = state
+    states[session_id] = loc
     session["session_states"] = states
-    log_event("client_location_attested", session_id=session_id, user_id=user_id, state=state)
+    log_event("client_location_attested", session_id=session_id, user_id=user_id,
+              location=loc, place=_loc_label(loc))
 
     _record_consent(session_id, user_id)
     consented = session.get("consented_sessions", [])
@@ -1434,18 +1546,18 @@ def session_consent_post(session_id):
         session["consented_sessions"] = consented
 
     # Licensure applies only to therapist-led sessions (no clinician → no one to
-    # certify). US-only + attestation above still ran regardless.
+    # certify). The attestation above still ran regardless.
     if not ts.therapist_id:
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
 
-    decision = _state_decision(session_id, state)
+    decision = _state_decision(session_id, loc)
     if decision == "certified":
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
     if decision == "declined":
         return render_template("state_blocked.html", reason="declined",
-                               state=US_STATES.get(state), mode=ts.mode), 403
+                               place=_loc_label(loc), intl=_is_intl_loc(loc), mode=ts.mode), 403
     # Not yet decided — hold on the waiting page; the clinician sees it next heartbeat.
-    _register_pending_state(session_id, user_id, state)
+    _register_pending_state(session_id, user_id, loc)
     return redirect(url_for("session_state_gate", session_id=session_id))
 
 
@@ -1464,20 +1576,20 @@ def session_state_gate(session_id):
         # no clinician to certify, or this is the clinician → straight to the room
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
 
-    state = _client_declared_state(session_id)
-    if not state:                       # never attested a state → back to consent
+    loc = _client_declared_state(session_id)
+    if not loc:                         # never attested a location → back to consent
         return redirect(url_for("session_consent_get", session_id=session_id))
 
-    decision = _state_decision(session_id, state)
+    decision = _state_decision(session_id, loc)
     if decision == "certified":
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
     if decision == "declined":
         return render_template("state_blocked.html", reason="declined",
-                               state=US_STATES.get(state), mode=ts.mode), 403
+                               place=_loc_label(loc), intl=_is_intl_loc(loc), mode=ts.mode), 403
     # Still pending — keep this client registered so the heartbeat surfaces it.
-    _register_pending_state(session_id, user_id, state)
+    _register_pending_state(session_id, user_id, loc)
     return render_template("state_waiting.html", session_id=session_id,
-                           state=US_STATES.get(state), mode=ts.mode)
+                           place=_loc_label(loc), intl=_is_intl_loc(loc), mode=ts.mode)
 
 
 @app.route("/session/<session_id>/certify-state", methods=["POST"])
@@ -1489,24 +1601,25 @@ def certify_state(session_id):
     if ts is None:
         return jsonify({"error": "Forbidden"}), 403
     data = request.get_json(silent=True) or request.form
-    state = (data.get("state") or "").strip().upper()
+    loc = (data.get("state") or "").strip().upper()      # location code: "CA" or "C:FR"
     decision = (data.get("decision") or "").strip().lower()
-    if state not in US_STATES or decision not in ("certify", "decline"):
+    if not _is_valid_loc(loc) or decision not in ("certify", "decline"):
         return jsonify({"error": "bad_request"}), 400
 
     stored = "certified" if decision == "certify" else "declined"
-    row = SessionStateCert.query.filter_by(session_id=session_id, state=state).first()
+    row = SessionStateCert.query.filter_by(session_id=session_id, state=loc).first()
     if row is None:
-        row = SessionStateCert(session_id=session_id, state=state)
+        row = SessionStateCert(session_id=session_id, state=loc)
         db.session.add(row)
     row.decision = stored
     row.therapist_id = ts.therapist_id
     row.attested_at = datetime.now(timezone.utc)
     db.session.commit()
 
-    log_event("state_" + stored, session_id=session_id, user_id=ts.therapist_id, state=state)
-    _resolve_pending_state(session_id, state)
-    return jsonify({"ok": True, "state": state, "decision": stored})
+    log_event("state_" + stored, session_id=session_id, user_id=ts.therapist_id,
+              location=loc, place=_loc_label(loc))
+    _resolve_pending_state(session_id, loc)
+    return jsonify({"ok": True, "location": loc, "place": _loc_label(loc), "decision": stored})
 
 
 # ---------------------------------------------------------------------------

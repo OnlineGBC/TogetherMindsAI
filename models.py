@@ -237,7 +237,8 @@ class SessionStateCert(db.Model):
 
     id           = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id   = db.Column(db.String(36), index=True, nullable=False)
-    state        = db.Column(db.String(2), nullable=False)      # USPS code, e.g. "NJ"
+    # Location code: a U.S. state (e.g. "NJ") or a country (prefixed, "C:FR").
+    state        = db.Column(db.String(8), nullable=False)
     therapist_id = db.Column(db.String(36), nullable=False)
     decision     = db.Column(db.String(10), nullable=False)     # certified | declined
     attested_at  = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

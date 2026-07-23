@@ -309,7 +309,8 @@
 
 {% if is_therapist %}
 <!-- Licensure certification — surfaced by the presence heartbeat when a client
-     is waiting from a U.S. state the clinician hasn't yet certified this session. -->
+     is waiting from a location (U.S. state or country) the clinician hasn't yet
+     certified this session. -->
 <div class="modal fade" id="stateCertModal" tabindex="-1"
      data-bs-backdrop="static" data-bs-keyboard="false"
      aria-labelledby="stateCertLabel" aria-modal="true" role="dialog">
@@ -325,11 +326,11 @@
                     <strong id="stateCertName"></strong>.</p>
                 <p class="small text-muted mb-0">
                     I certify that I am <strong>legally authorized to provide the services in this
-                    session to a client physically located there</strong> — through a license issued by
-                    that state, an applicable interstate compact (e.g., PSYPACT or the Counseling
-                    Compact), or other lawful authority — and I accept professional responsibility for
-                    this session. I understand TogetherMindsAI does not verify my licensure and relies
-                    on this certification.
+                    session to a client physically located there</strong> — through a license, an
+                    applicable interstate compact (e.g., PSYPACT or the Counseling Compact) or
+                    cross-border authorization, or other lawful authority — and I accept professional
+                    responsibility for this session. I understand TogetherMindsAI does not verify my
+                    authorization and relies on this certification.
                 </p>
             </div>
             <div class="modal-footer border-0 pt-2 flex-wrap gap-2">
