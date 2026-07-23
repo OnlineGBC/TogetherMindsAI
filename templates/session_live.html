@@ -368,6 +368,23 @@
         </div>
     </div>
 </div>
+
+<!-- Content overlay (C): My sessions / About the AI / Privacy / Terms open here
+     in an embedded iframe (?embed=1) instead of navigating away — mirrors the
+     Progress modal, so the live session keeps running behind it. -->
+<div class="modal fade" id="contentModal" tabindex="-1" aria-labelledby="contentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold" id="contentModalLabel"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <iframe id="contentFrame" title="" style="width:100%; height:72vh; border:0; border-radius:0 0 .5rem .5rem;"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -394,6 +411,41 @@
             window.location.href = pending || "/";
         });
     }
+})();
+
+// Content overlay (C): open My sessions / About the AI / Privacy / Terms in a
+// modal iframe instead of navigating away, so the live session keeps running.
+(function () {
+    var modalEl = document.getElementById("contentModal");
+    if (!modalEl || !window.bootstrap) return;
+    var modal = new bootstrap.Modal(modalEl);
+    var frame = document.getElementById("contentFrame");
+    var label = document.getElementById("contentModalLabel");
+    // link href -> modal title
+    var TITLES = {
+        "/therapist": "My sessions",
+        "/me/sessions": "Your sessions",
+        "/privacy#about-the-ai": "About the AI",
+        "/privacy": "Privacy",
+        "/tos": "Terms"
+    };
+    Object.keys(TITLES).forEach(function (href) {
+        document.querySelectorAll('a[href="' + href + '"]').forEach(function (a) {
+            a.addEventListener("click", function (e) {
+                e.preventDefault();
+                var h = a.getAttribute("href");
+                var hash = "";
+                var hi = h.indexOf("#");
+                if (hi !== -1) { hash = h.slice(hi); h = h.slice(0, hi); }
+                var sep = h.indexOf("?") === -1 ? "?" : "&";
+                frame.src = h + sep + "embed=1" + hash;
+                label.textContent = TITLES[a.getAttribute("href")] || "";
+                modal.show();
+            });
+        });
+    });
+    // Stop the iframe when closed so it isn't running in the background.
+    modalEl.addEventListener("hidden.bs.modal", function () { frame.src = "about:blank"; });
 })();
 </script>
 {% if recording_enabled %}

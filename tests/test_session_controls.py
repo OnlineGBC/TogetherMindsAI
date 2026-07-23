@@ -472,9 +472,9 @@ def test_session_room_has_leave_modal_and_newtab_links(enc_client):
     with enc_client.session_transaction() as s:
         s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
     html = enc_client.get(f"/therapy/solo/{sid}").get_data(as_text=True)
-    assert 'id="leaveSessionModal"' in html
-    assert 'href="/therapist" target="_blank"' in html          # My sessions → new tab
-    assert 'href="/tos" class="text-reset" target="_blank"' in html   # Terms → new tab
+    assert 'id="leaveSessionModal"' in html          # A: Home/Sign out confirm
+    assert 'id="contentModal"' in html               # C: My sessions/legal open in a modal
+    assert 'id="contentFrame"' in html               # the modal's embed iframe
 
 
 def test_non_session_page_has_no_leave_ux(enc_client):
@@ -482,4 +482,13 @@ def test_non_session_page_has_no_leave_ux(enc_client):
         s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
     html = enc_client.get("/therapist").get_data(as_text=True)
     assert 'id="leaveSessionModal"' not in html
-    assert 'href="/therapist" target="_blank"' not in html      # normal nav elsewhere
+    assert 'id="contentModal"' not in html
+
+
+def test_embed_pages_strip_chrome(enc_client):
+    """?embed=1 renders the page for the modal iframe: no navbar, but full content."""
+    full = enc_client.get("/privacy").get_data(as_text=True)
+    embed = enc_client.get("/privacy?embed=1").get_data(as_text=True)
+    assert "<nav " in full and "<nav " not in embed        # chrome stripped in embed
+    assert "Privacy" in embed                               # content still rendered
+    assert "<nav " not in enc_client.get("/tos?embed=1").get_data(as_text=True)

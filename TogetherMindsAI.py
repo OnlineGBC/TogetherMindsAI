@@ -1018,6 +1018,14 @@ def _session_clinician(session_id):
 # the bottom of this module). The shared plumbing above stays here.
 
 
+def _embed_layout():
+    """(embed_bool, layout_template) for pages that can render inside a live-
+    session modal iframe (?embed=1) — stripped of nav/footer via base_embed,
+    the same pattern the Progress modal uses."""
+    embed = request.args.get("embed") == "1"
+    return embed, ("base_embed.html" if embed else "base.html")
+
+
 @app.route("/me/sessions")
 def my_sessions():
     """A logged-in client's list of therapist-led sessions they took part in."""
@@ -1047,7 +1055,9 @@ def my_sessions():
             .order_by(TherapySession.created_at.desc())
             .all()
         )
-    return render_template("my_sessions.html", my_sessions=sessions)
+    _embed, _layout = _embed_layout()
+    return render_template("my_sessions.html", my_sessions=sessions,
+                           embed=_embed, layout=_layout)
 
 
 @app.route("/therapist")
@@ -1063,7 +1073,9 @@ def therapist_start():
         .limit(20)
         .all()
     )
-    return render_template("therapist.html", my_sessions=my_sessions)
+    _embed, _layout = _embed_layout()
+    return render_template("therapist.html", my_sessions=my_sessions,
+                           embed=_embed, layout=_layout)
 
 
 @app.route("/therapist/start/<mode>", methods=["POST"])
@@ -1092,12 +1104,12 @@ def therapist_start_session(mode):
 
 @app.route("/privacy")
 def privacy():
-    return render_template("privacy.html")
+    return render_template("privacy.html", layout=_embed_layout()[1])
 
 
 @app.route("/tos")
 def tos():
-    return render_template("tos.html")
+    return render_template("tos.html", layout=_embed_layout()[1])
 
 
 @app.route("/auth/<therapy_mode>", methods=["GET"])
