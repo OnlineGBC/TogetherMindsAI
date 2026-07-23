@@ -129,7 +129,7 @@ steps:
       # Plain env vars (not secrets): flip BILLING_ENABLED=false to restore full
       # access; RECORDING_ENABLED gates the Premium recording feature.
       - --set-env-vars
-      - BILLING_ENABLED=true,RECORDING_ENABLED=true
+      - BILLING_ENABLED=false,RECORDING_ENABLED=true
       # Stripe secrets PINNED to :1 = TEST keys, so deploys stay in Stripe test
       # mode. AT GO-LIVE: change these four to :2 (the live versions) — or :latest —
       # and redeploy to switch to live keys.
