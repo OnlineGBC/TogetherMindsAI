@@ -460,3 +460,26 @@ def test_consent_from_therapist_is_ignored(enc_client):
     enc_client.post(f"/session/{sid}/consent")
     with app.app_context():
         assert ChatMessage.query.filter_by(session_id=sid).count() == 0
+
+
+# ---- Graceful leave: session page (A + C) ----
+
+def test_session_room_has_leave_modal_and_newtab_links(enc_client):
+    """In a live session: Home/Sign out get a confirm modal (A); My sessions +
+    footer legal links open in a new tab (C)."""
+    with app.app_context():
+        sid = _seed("ther-1", mode="solo")
+    with enc_client.session_transaction() as s:
+        s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
+    html = enc_client.get(f"/therapy/solo/{sid}").get_data(as_text=True)
+    assert 'id="leaveSessionModal"' in html
+    assert 'href="/therapist" target="_blank"' in html          # My sessions → new tab
+    assert 'href="/tos" class="text-reset" target="_blank"' in html   # Terms → new tab
+
+
+def test_non_session_page_has_no_leave_ux(enc_client):
+    with enc_client.session_transaction() as s:
+        s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
+    html = enc_client.get("/therapist").get_data(as_text=True)
+    assert 'id="leaveSessionModal"' not in html
+    assert 'href="/therapist" target="_blank"' not in html      # normal nav elsewhere

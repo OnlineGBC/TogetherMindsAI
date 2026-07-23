@@ -1204,6 +1204,8 @@ def _render_session_room(session_id, mode):
         is_therapist_led=bool(ts and ts.therapist_id),
         rtc_enabled=config.RTC_ENABLED,
         recording_enabled=config.RECORDING_ENABLED,
+        in_live_session=True,   # navbar/footer: open other links in a new tab (C),
+                                # and Home/Sign out get a leave-confirm modal (A)
     )
 
 

@@ -624,6 +624,10 @@ function initEndSessionGuard(sessionId, userId, redirectUrl) {
     });
 }
 
+// Let an intentional in-app navigation (the leave-confirm modal on Home / Sign
+// out) suppress the generic beforeunload dialog — the user already confirmed.
+window.tmSuppressLeaveWarning = function () { _sessionEnded = true; };
+
 // ---------------------------------------------------------------------------
 // Session controls — client Leave, therapist-set friendly name, end-session
 // notification. (End-session emit itself lives in initEndSessionGuard above.)

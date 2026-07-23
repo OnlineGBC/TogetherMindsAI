@@ -78,11 +78,11 @@
                 </li>
                 {% if current_clinician_id %}
                 <li class="nav-item">
-                    <a class="nav-link" href="/therapist"><i class="bi bi-clipboard2-pulse me-1"></i>My sessions</a>
+                    <a class="nav-link" href="/therapist"{% if in_live_session|default(false) %} target="_blank" rel="noopener"{% endif %}><i class="bi bi-clipboard2-pulse me-1"></i>My sessions</a>
                 </li>
                 {% elif current_client_account_id %}
                 <li class="nav-item">
-                    <a class="nav-link" href="/me/sessions"><i class="bi bi-clock-history me-1"></i>Your sessions</a>
+                    <a class="nav-link" href="/me/sessions"{% if in_live_session|default(false) %} target="_blank" rel="noopener"{% endif %}><i class="bi bi-clock-history me-1"></i>Your sessions</a>
                 </li>
                 {% else %}
                 <li class="nav-item">
@@ -155,10 +155,11 @@
 <!-- Footer -->
 <footer class="footer-bar text-center py-3 mt-auto">
     <small class="text-muted">
+        {%- set _newtab = ' target="_blank" rel="noopener"' if in_live_session|default(false) else '' %}
         &copy; {{ current_year }} TogetherMindsAI &mdash; AI co-pilot for clinician-led sessions
-        &middot; <a href="/privacy#about-the-ai" class="text-reset">About the AI</a>
-        &middot; <a href="/privacy" class="text-reset">Privacy</a>
-        &middot; <a href="/tos" class="text-reset">Terms</a>
+        &middot; <a href="/privacy#about-the-ai" class="text-reset"{{ _newtab|safe }}>About the AI</a>
+        &middot; <a href="/privacy" class="text-reset"{{ _newtab|safe }}>Privacy</a>
+        &middot; <a href="/tos" class="text-reset"{{ _newtab|safe }}>Terms</a>
     </small>
 </footer>
 
