@@ -1264,3 +1264,15 @@ div.alert.alert-share i.bi { color: #eaf5f2 !important; }
 }
 .tc-cad-btn:hover { border-color: var(--teal-primary); }
 .tc-cad-btn.active { background: var(--teal-primary); color: #fff; border-color: var(--teal-primary); }
+
+/* Co-pilot card ↔ source chat message link.
+   A linked card is clickable; clicking it flashes the triggering chat bubble. */
+.tc-card-linked { cursor: pointer; }
+.tc-card-linked:hover { box-shadow: inset 0 0 0 1px rgba(0, 150, 136, 0.55); }
+.chat-msg-highlight .bubble,
+.chat-msg-highlight .bubble-partner,
+.chat-msg-highlight .bubble-ai {
+    outline: 2px solid #ffb300;
+    box-shadow: 0 0 0 4px rgba(255, 179, 0, 0.28);
+    transition: outline 0.2s ease, box-shadow 0.2s ease;
+}

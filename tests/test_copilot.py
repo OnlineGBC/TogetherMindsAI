@@ -753,3 +753,28 @@ def test_ai_context_window_is_last_100_messages(enc_client):
     assert len(lines) == 100              # last 100 of 105
     assert lines[0] == "Client: m5"       # oldest kept
     assert lines[-1] == "Client: m104"    # newest included
+
+
+def test_crisis_risk_card_has_suggested_icd_code():
+    """#2 — the crisis risk card now carries a SUGGESTED ICD code, clearly not
+    a diagnosis."""
+    cards = copilot.build_risk_cards("I want to kill myself")
+    assert cards and cards[0]["type"] == "risk"
+    assert cards[0]["code"] == "R45.851 — Suicidal ideation"
+    assert "not a diagnosis" in cards[0]["source"].lower()
+
+
+def test_risk_card_links_to_source_message(enc_client):
+    """#1 — a co-pilot card carries the id of the chat message that triggered it,
+    so the console can highlight that source bubble."""
+    from models import ChatMessage
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+    with patch("copilot.generate_suggestions", return_value=[]):
+        c_sio.emit("send_message", {"session_id": sid, "text": "I want to kill myself",
+                                    "mode": "couple"})
+    msg = (ChatMessage.query.filter_by(session_id=sid, user_id=client_user)
+           .order_by(ChatMessage.id.desc()).first())
+    t_cards = _args_of(t_sio.get_received(), "suggestion_cards")
+    assert t_cards
+    risk = [c for c in t_cards[0]["cards"] if c["type"] == "risk"]
+    assert risk and risk[0].get("trigger_msg_id") == msg.id

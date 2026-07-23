@@ -173,7 +173,7 @@ function joinRoom(sessionId, userId, mode, soloMode) {
             chatBox.innerHTML = "";
             messages.forEach(function (msg) {
                 appendMessage(chatBox, msg.user_id, msg.text, msg.timestamp,
-                              userId, msg.display_name, sessionId);
+                              userId, msg.display_name, sessionId, msg.id);
             });
             // Opening message has arrived — allow participants to send messages.
             // The send button starts disabled in the HTML so no one can speak
@@ -200,7 +200,7 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         }
 
         appendMessage(chatBox, data.user_id, data.text, data.timestamp,
-                      _currentUserId, data.display_name, sessionId);
+                      _currentUserId, data.display_name, sessionId, data.id);
         scrollToBottom(chatBox);
 
         // Restore send button:
@@ -513,7 +513,7 @@ function _hideSendSpinner() {
  * @param {string|null} displayName  - Participant display name (e.g. "Michael"); null for AI
  * @param {string}      sessionId    - Session ID prefix for the label
  */
-function appendMessage(chatBox, senderId, text, timestamp, myUserId, displayName, sessionId) {
+function appendMessage(chatBox, senderId, text, timestamp, myUserId, displayName, sessionId, msgId) {
     var isAI = senderId === "AI";
     var isMe = !isAI && senderId === myUserId;
 
@@ -521,6 +521,11 @@ function appendMessage(chatBox, senderId, text, timestamp, myUserId, displayName
     wrapper.className = "d-flex mb-3 align-items-end" + (isMe ? " justify-content-end" : "");
     if (!isAI && senderId) {
         wrapper.setAttribute("data-user-id", senderId);
+    }
+    // Stable per-message id so the therapist console can highlight the chat
+    // message a co-pilot card was triggered by.
+    if (msgId !== undefined && msgId !== null && msgId !== "") {
+        wrapper.setAttribute("data-msg-id", String(msgId));
     }
 
     var senderLabel;

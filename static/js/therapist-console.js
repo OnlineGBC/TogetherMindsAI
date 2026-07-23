@@ -254,7 +254,18 @@ function _tcRenderCard(card) {
     dismiss.className = "tc-dismiss";
     dismiss.title = "Dismiss";
     dismiss.innerHTML = '<i class="bi bi-x"></i>';
-    dismiss.addEventListener("click", function () { el.remove(); });
+    dismiss.addEventListener("click", function (e) { e.stopPropagation(); el.remove(); });
+
+    // Link the card to the chat message that triggered it: clicking the card
+    // highlights that source bubble in the transcript.
+    if (card.trigger_msg_id !== undefined && card.trigger_msg_id !== null && card.trigger_msg_id !== "") {
+        el.setAttribute("data-trigger-msg-id", String(card.trigger_msg_id));
+        el.classList.add("tc-card-linked");
+        el.title = "Click to highlight the chat message this refers to";
+        el.addEventListener("click", function () {
+            _tcHighlightSource(el.getAttribute("data-trigger-msg-id"));
+        });
+    }
 
     var head = document.createElement("div");
     head.className = "tc-card-label";
@@ -319,6 +330,18 @@ function _tcRenderCard(card) {
         var firstNonUrgent = container.querySelector(".tc-card:not(.tc-card-urgent)");
         container.insertBefore(el, firstNonUrgent);
     }
+}
+
+function _tcHighlightSource(msgId) {
+    if (!msgId) { return; }
+    var target = document.querySelector('[data-msg-id="' + msgId + '"]');
+    if (!target) { return; }   // message may have scrolled out of the DOM
+    document.querySelectorAll(".chat-msg-highlight").forEach(function (n) {
+        n.classList.remove("chat-msg-highlight");
+    });
+    target.classList.add("chat-msg-highlight");
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(function () { target.classList.remove("chat-msg-highlight"); }, 4000);
 }
 
 function _tcTrim() {

@@ -328,7 +328,7 @@ def _build_transcript(session_id: str, limit: int = 100) -> str:
 
 
 def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
-                 trigger_user_id: str = None) -> None:
+                 trigger_user_id: str = None, trigger_msg_id: int = None) -> None:
     """Generate co-pilot cards and emit them to the therapist-only room.
 
     `trigger_text`, when given, is the latest client utterance — used for the
@@ -354,6 +354,10 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
             return
         for c in cards:
             recent.append(c["text"])
+            # Link each card to the message that triggered it, so the console can
+            # highlight the source chat bubble when the card is clicked.
+            if trigger_msg_id is not None:
+                c["trigger_msg_id"] = trigger_msg_id
         del recent[:-30]   # cap dedup memory
 
         # Cards (incl. safety/risk alerts) are ALWAYS saved to the record so the
@@ -3340,8 +3344,11 @@ def on_send_message(data):
             db.session.commit()
 
             # The conversation itself is shared with everyone in the room.
+            # `id` lets the therapist console highlight the source message a
+            # co-pilot card was triggered by.
             emit("new_message",
-                 {"user_id": user_id, "text": text, "display_name": display_name,
+                 {"id": user_msg.id, "user_id": user_id, "text": text,
+                  "display_name": display_name,
                   "timestamp": now.strftime("%Y-%m-%d %H:%M:%S")},
                  to=session_id)
             log_event("message_sent", session_id=session_id, user_id=user_id,
@@ -3358,11 +3365,13 @@ def on_send_message(data):
                 if detect_crisis(text):
                     log_event("crisis_detected", session_id=session_id, user_id=user_id,
                               layer="keyword", recipient="therapist")
-                _run_copilot(session_id, mode, trigger_text=text, trigger_user_id=user_id)
+                _run_copilot(session_id, mode, trigger_text=text, trigger_user_id=user_id,
+                             trigger_msg_id=user_msg.id)
             else:
                 # THERAPIST spoke. Reflect on the intervention too. No client crisis
                 # net and no keyword risk card from the therapist's own words.
-                _run_copilot(session_id, mode, trigger_text=None, trigger_user_id=user_id)
+                _run_copilot(session_id, mode, trigger_text=None, trigger_user_id=user_id,
+                             trigger_msg_id=user_msg.id)
             return
     except Exception as e:
         app.logger.error("on_send_message error: %s", type(e).__name__)

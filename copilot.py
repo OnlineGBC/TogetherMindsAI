@@ -199,6 +199,8 @@ def build_risk_cards(text: str) -> list:
                 "⚠ Crisis language detected — possible self-harm or suicidal ideation. "
                 "Consider a direct safety assessment now."
             ),
+            "code": "R45.851 — Suicidal ideation",
+            "source": "Suggested reference code (ICD-10-CM) — a keyword flag, not a diagnosis.",
         }]
     if detect_escalation(text):
         return [{
