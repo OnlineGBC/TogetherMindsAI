@@ -736,3 +736,20 @@ def test_card_history_not_sent_to_clients(enc_client):
     c_sio = authed_socket(app, socketio, str(uuid.uuid4()), session_id=sid, state="CA")
     c_sio.emit("join", {"session_id": sid, "mode": "couple"})
     assert "card_history" not in _names(c_sio.get_received())
+
+
+def test_ai_context_window_is_last_100_messages(enc_client):
+    """The co-pilot's live AI context is capped at the last 100 messages. (The
+    downloaded transcript/cards are the full record and are never capped.)"""
+    from TogetherMindsAI import _build_transcript
+    from models import ChatMessage
+    sid = _insert_session(mode="solo", therapist_id="t", created_by="t")
+    now = datetime.now(timezone.utc)
+    for i in range(105):
+        db.session.add(ChatMessage(session_id=sid, user_id="u", text=f"m{i}",
+                                   timestamp=now + timedelta(seconds=i)))
+    db.session.commit()
+    lines = _build_transcript(sid).split("\n")
+    assert len(lines) == 100              # last 100 of 105
+    assert lines[0] == "Client: m5"       # oldest kept
+    assert lines[-1] == "Client: m104"    # newest included

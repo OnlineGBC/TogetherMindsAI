@@ -304,8 +304,10 @@ def _therapist_room(session_id: str) -> str:
     return f"{session_id}::therapist"
 
 
-def _build_transcript(session_id: str, limit: int = 20) -> str:
-    """Build a speaker-labelled transcript of the last `limit` messages for the co-pilot."""
+def _build_transcript(session_id: str, limit: int = 100) -> str:
+    """Build a speaker-labelled transcript of the last `limit` messages for the
+    co-pilot's live AI context. (The downloaded transcript/cards are always the
+    FULL record — see _transcript_data / _session_copilot_cards — never capped.)"""
     msgs = (
         ChatMessage.query
         .filter_by(session_id=session_id)

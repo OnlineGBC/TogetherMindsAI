@@ -12,7 +12,9 @@
  */
 
 var _tcMuted = false;
-var _TC_MAX_CARDS = 15;
+// Unlimited — every card stays in the panel (it scrolls); older cards are not
+// removed from view. The full history is also always saved to the record.
+var _TC_MAX_CARDS = Infinity;
 
 function initTherapistConsole(sessionId, userId) {
     var panel = _tcBuildPanel();
