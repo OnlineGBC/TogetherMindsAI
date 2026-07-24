@@ -778,3 +778,23 @@ def test_risk_card_links_to_source_message(enc_client):
     assert t_cards
     risk = [c for c in t_cards[0]["cards"] if c["type"] == "risk"]
     assert risk and risk[0].get("trigger_msg_id") == msg.id
+
+
+def test_reply_prompt_has_safety_standdown_rule():
+    """The co-pilot reply prompt must instruct: flag once, then stand down when
+    the therapist attests they handled a safety concern (no nagging)."""
+    p = copilot.ADVISOR_REPLY_SYSTEM_PROMPT.lower()
+    assert "stand down" in p
+    assert "alarm fatigue" in p
+    assert "only if new crisis language appears" in p
+
+
+def test_answer_therapist_sends_rule_and_attestation_to_model():
+    cl = _claude_returning("ok")
+    with patch("copilot._get_claude_client", return_value=cl):
+        copilot.answer_therapist("please don't raise GroupMember2 again",
+                                 transcript="Client: hi",
+                                 notes="i took care of GroupMember2 directly")
+    kw = cl.messages.create.call_args.kwargs
+    assert "stand down" in kw["system"].lower()                     # rule reaches the model
+    assert "took care of GroupMember2" in kw["messages"][0]["content"]  # attestation reaches it
