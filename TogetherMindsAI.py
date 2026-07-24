@@ -219,6 +219,11 @@ session_friendly_name: dict   = {}  # session_id → therapist-set shared sessio
 session_pending_state: dict   = {}  # session_id → {user_id: USPS state} for clients awaiting licensure cert
 session_copilot_cadence: dict = {}  # session_id → "more"|"less"|"stop" live-display setting (default "more")
 session_copilot_emit_counter: dict = {}  # session_id → throttle counter used by the "less" cadence
+# Deterministic crisis stand-down: once the therapist acknowledges a flagged
+# safety concern, the co-pilot stops re-raising it (cards filtered, replies
+# scrubbed) until NEW crisis language appears.
+session_crisis_seen: set = set()   # session_ids where a crisis was ever detected
+session_crisis_ack: set  = set()   # session_ids the therapist marked "handled — stand down"
 
 # Phase 4 recording consent state — ephemeral, reset on restart.
 session_recording_requested: dict = {}                  # session_id → bool (therapist wants to record)
@@ -350,6 +355,11 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
 
         recent = session_recent_cards.setdefault(session_id, [])
         cards = copilot.dedupe_cards(cards, recent)
+        # Deterministic stand-down: once the therapist has acknowledged a flagged
+        # safety concern, drop any card that re-surfaces crisis language (until a
+        # new crisis message re-arms flagging).
+        if session_id in session_crisis_ack:
+            cards = [c for c in cards if not detect_crisis(c.get("text", ""))]
         if not cards:
             return
         for c in cards:
@@ -388,6 +398,13 @@ def _answer_therapist_note(session_id: str, user_id: str, question: str) -> None
         notes = "\n".join(session_therapist_notes.get(session_id, []))
         answer = copilot.answer_therapist(
             question, transcript, notes, mode=room_mode.get(session_id, "solo"))
+        # Deterministic stand-down: once the therapist has acknowledged a flagged
+        # safety concern, strip any sentence that re-raises crisis language from
+        # the reply, so the co-pilot cannot keep bringing it up.
+        if answer and session_id in session_crisis_ack:
+            answer = copilot.scrub_crisis_sentences(answer)
+            if not answer:
+                answer = "Noted — continuing with regular feedback."
         if not answer:
             return
         card = {"type": "reply", "text": answer, "question": question}
@@ -3363,6 +3380,8 @@ def on_send_message(data):
                 # trigger_text below). We do NOT post a message to the transcript —
                 # the client does not see the transcript, so it would reach no one.
                 if detect_crisis(text):
+                    session_crisis_seen.add(session_id)
+                    session_crisis_ack.discard(session_id)   # NEW crisis re-arms flagging
                     log_event("crisis_detected", session_id=session_id, user_id=user_id,
                               layer="keyword", recipient="therapist")
                 _run_copilot(session_id, mode, trigger_text=text, trigger_user_id=user_id,
@@ -3401,6 +3420,12 @@ def on_therapist_note(data):
     notes = session_therapist_notes.setdefault(session_id, [])
     notes.append(text)
     del notes[:-20]   # keep the most recent notes only
+    # Deterministic crisis stand-down: if a safety concern was flagged this
+    # session and the therapist now says they handled it / to stop raising it,
+    # mark the session acknowledged so the co-pilot stops re-surfacing it.
+    if session_id in session_crisis_seen and copilot.detect_crisis_ack(text):
+        session_crisis_ack.add(session_id)
+        log_event("crisis_acknowledged_by_therapist", session_id=session_id, user_id=user_id)
     # The note still steers the suggestion cards (existing behaviour)...
     _run_copilot(session_id, room_mode.get(session_id, "solo"), trigger_text=None,
                  trigger_user_id=user_id)

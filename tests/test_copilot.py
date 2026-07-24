@@ -36,7 +36,7 @@ os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 from datetime import datetime, timezone, timedelta
 
 import copilot
-from TogetherMindsAI import app, socketio, session_therapist_id
+from TogetherMindsAI import app, socketio, session_therapist_id, session_crisis_ack, session_crisis_seen
 from models import db, init_encryption, TherapySession, SessionStateCert
 from ai_therapist import CRISIS_RESPONSE
 from session_id import generate_session_id
@@ -780,21 +780,61 @@ def test_risk_card_links_to_source_message(enc_client):
     assert risk and risk[0].get("trigger_msg_id") == msg.id
 
 
-def test_reply_prompt_has_safety_standdown_rule():
-    """The co-pilot reply prompt must instruct: flag once, then stand down when
-    the therapist attests they handled a safety concern (no nagging)."""
-    p = copilot.ADVISOR_REPLY_SYSTEM_PROMPT.lower()
-    assert "stand down" in p
-    assert "alarm fatigue" in p
-    assert "only if new crisis language appears" in p
 
 
-def test_answer_therapist_sends_rule_and_attestation_to_model():
-    cl = _claude_returning("ok")
-    with patch("copilot._get_claude_client", return_value=cl):
-        copilot.answer_therapist("please don't raise GroupMember2 again",
-                                 transcript="Client: hi",
-                                 notes="i took care of GroupMember2 directly")
-    kw = cl.messages.create.call_args.kwargs
-    assert "stand down" in kw["system"].lower()                     # rule reaches the model
-    assert "took care of GroupMember2" in kw["messages"][0]["content"]  # attestation reaches it
+# ---------------------------------------------------------------------------
+# Deterministic crisis stand-down
+# ---------------------------------------------------------------------------
+
+def test_detect_crisis_ack():
+    assert copilot.detect_crisis_ack("i took care of it directly")
+    assert copilot.detect_crisis_ack("please don't raise this again")
+    assert copilot.detect_crisis_ack("I handled it")
+    assert not copilot.detect_crisis_ack("the client mentioned poor sleep")
+
+
+def test_scrub_crisis_sentences_drops_crisis_lines():
+    txt = "Earlier the client said I am ready to kill myself. Now let's watch stress signals though."
+    out = copilot.scrub_crisis_sentences(txt)
+    assert "kill" not in out.lower()          # crisis sentence removed
+    assert "stress signals" in out            # the rest kept
+
+
+def test_copilot_stands_down_after_therapist_ack(enc_client):
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+    session_crisis_ack.discard(sid); session_crisis_seen.discard(sid)
+    # 1) client crisis -> risk card fires
+    with patch("copilot.generate_suggestions", return_value=[]):
+        c_sio.emit("send_message", {"session_id": sid, "text": "I want to kill myself", "mode": "couple"})
+    first = _args_of(t_sio.get_received(), "suggestion_cards")
+    assert first and any(c["type"] == "risk" for c in first[0]["cards"])
+    assert sid in session_crisis_seen
+
+    # 2) therapist acknowledges -> stand-down armed
+    t_sio.emit("therapist_note", {"session_id": sid, "text": "i took care of it directly, don't raise again"})
+    t_sio.get_received()
+    assert sid in session_crisis_ack
+
+    # 3) later, the suggestion layer tries to re-surface the crisis -> filtered out
+    with patch("copilot.generate_suggestions", return_value=[
+        {"type": "observation", "text": "GroupMember2 said they are ready to kill myself — unaddressed.",
+         "confidence": 0.9}]):
+        c_sio.emit("send_message", {"session_id": sid, "text": "we moved on to the budget", "mode": "couple"})
+    for evt in _args_of(t_sio.get_received(), "suggestion_cards"):
+        for card in evt["cards"]:
+            assert "kill" not in card["text"].lower()   # no crisis re-raise reaches the therapist
+
+
+def test_new_crisis_rearms_standdown(enc_client):
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+    session_crisis_ack.discard(sid); session_crisis_seen.discard(sid)
+    with patch("copilot.generate_suggestions", return_value=[]):
+        c_sio.emit("send_message", {"session_id": sid, "text": "I want to kill myself", "mode": "couple"})
+    t_sio.get_received()
+    t_sio.emit("therapist_note", {"session_id": sid, "text": "handled it, don't raise again"})
+    t_sio.get_received()
+    assert sid in session_crisis_ack
+    # A NEW crisis clears the acknowledgment (re-arms flagging).
+    with patch("copilot.generate_suggestions", return_value=[]):
+        c_sio.emit("send_message", {"session_id": sid, "text": "I want to kill myself right now", "mode": "couple"})
+    assert sid not in session_crisis_ack

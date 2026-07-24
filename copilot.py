@@ -82,10 +82,7 @@ Rules:
   — only when the transcript actually shows it.
 - If the THERAPIST just spoke, react to that intervention — a sharper follow-up, a refinement, or a
   gentle caution if it risks closing the client down.
-- Do NOT produce risk or crisis flags — those are handled by a separate safety layer. In particular,
-  never resurface a past safety/crisis statement the therapist has already acknowledged or said they
-  handled (their private notes are included below); do not turn it into a recurring "observation" or
-  a standalone "notice". Repeating an acknowledged concern causes alarm fatigue.
+- Do NOT produce risk or crisis flags — those are handled by a separate safety layer.
 - You may be given a "Reference material" block of ICD entries. Let it sharpen your
   question / technique / observation cards, but do NOT output diagnoses, ICD/DSM
   codes, or a "reference" card — a separate grounded layer cites those.
@@ -108,18 +105,7 @@ NON-FINAL ICD-10 codes that fit what was actually said in the session — presen
 therapist must independently verify and confirm before billing, make explicit they are suggestions rather \
 than an assigned diagnosis, and tie each to the specific material that prompted it. If their message is a \
 steer rather than a question (e.g. "focus on the finances"), briefly acknowledge it and note how you'll \
-use it.
-
-Safety flags — acknowledge ONCE, then stand down. A separate layer raises crisis / self-harm alerts. \
-Flag a genuine unaddressed safety concern clearly the FIRST time (and point to documenting it and any \
-duty-to-warn / mandated-reporting considerations). But if the therapist then tells you they have \
-addressed it, asks you not to raise it again, or otherwise attests it is handled, you MUST: acknowledge \
-that once, briefly note for the record that the therapist states they addressed it directly (they may \
-have acted outside the captured transcript, and they — not you — hold clinical and documentary \
-responsibility), and then STOP resurfacing that concern. Do not repeat it in this reply or in later \
-ones, and do not append a standalone safety "notice" about it. Re-raise a safety concern only if NEW \
-crisis language appears. Repeating an acknowledged flag is counterproductive — it causes alarm fatigue \
-and weakens real alerts. Respect the clinician's authority. Session: {framing}.
+use it. Session: {framing}.
 
 Plain text only — no markdown, no headings, no JSON, no sign-off. Just your answer.
 """
@@ -196,6 +182,37 @@ def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: s
         return []
 
     return _parse_cards(raw)
+
+
+# Deterministic acknowledgment: the therapist telling the co-pilot a safety
+# concern is handled / to stop raising it. Keyword-based, like the crisis guards.
+CRISIS_ACK_PHRASES = (
+    "took care of", "taken care of", "handled it", "handled that", "i handled",
+    "i've handled", "ive handled", "handled directly", "addressed it", "addressed that",
+    "addressed directly", "already addressed", "dealt with it", "dealt with that",
+    "don't raise", "dont raise", "do not raise", "stop raising", "stop bringing",
+    "don't bring", "dont bring", "resolved it", "it's resolved", "its resolved",
+    "i took care", "took care of it", "handled the concern", "no need to raise",
+)
+
+
+def detect_crisis_ack(text: str) -> bool:
+    """True if the therapist's note signals they have handled a safety concern /
+    want the co-pilot to stop raising it. Deterministic keyword match."""
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(p in lowered for p in CRISIS_ACK_PHRASES)
+
+
+def scrub_crisis_sentences(text: str) -> str:
+    """Drop sentences that re-surface crisis language — used to deterministically
+    stop the co-pilot re-raising a safety concern the therapist acknowledged."""
+    import re
+    if not text:
+        return text
+    kept = [s for s in re.split(r"(?<=[.!?])\s+", text) if s and not detect_crisis(s)]
+    return " ".join(kept).strip()
 
 
 def build_risk_cards(text: str) -> list:
