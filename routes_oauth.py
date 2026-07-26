@@ -82,13 +82,17 @@ def register_oauth_routes(app):
                 clinician.email = email   # backfill / keep current for existing accounts
         _tm.db.session.commit()
 
-        # The clinician's account id is their identity everywhere (session owner).
+        # Regenerate the session on this privilege change to defeat session
+        # fixation: preserve only the post-login redirect, drop anything an
+        # attacker could have pre-seeded, then establish the authenticated
+        # identity. The clinician's account id is their identity everywhere.
+        nxt = _tm._safe_next(session.pop("post_login_next", None))
+        session.clear()
         session["user_id"]      = clinician.id
         session["clinician_id"] = clinician.id
         session.permanent = True
         _tm.log_event("clinician_login", user_id=clinician.id, provider=provider)
         # Return to where they came from (e.g. a download link), else the dashboard.
-        nxt = _tm._safe_next(session.pop("post_login_next", None))
         return redirect(nxt or url_for("therapist_start"))
 
     @app.route("/logout")
@@ -145,12 +149,14 @@ def register_oauth_routes(app):
             account.last_login_at = now
         _tm.db.session.commit()
 
-        # The account id becomes the client's stable user_id, so their messages
-        # link across devices and "my sessions" can find their sessions.
+        # Regenerate the session on login to defeat session fixation: preserve
+        # only the post-login redirect, then establish the identity. The account
+        # id becomes the client's stable user_id, so their messages link across
+        # devices and "my sessions" can find their sessions.
+        nxt = _tm._safe_next(session.pop("client_login_next", None))
+        session.clear()
         session["user_id"]           = account.id
         session["client_account_id"] = account.id
         session.permanent = True
         _tm.log_event("client_login", user_id=account.id, provider=provider)
-
-        nxt = _tm._safe_next(session.pop("client_login_next", None))
         return redirect(nxt or url_for("my_sessions"))

@@ -28,7 +28,7 @@ import logging
 # The value capture group is non-greedy so it stops at the first closing quote.
 _JSON_RE = re.compile(
     r'(?i)'                                         # case-insensitive field names
-    r'("(?:text|content|body|prompt|response)"'     # JSON key (double-quoted)
+    r'("(?:text|content|message|transcript|body|prompt|response)"'     # JSON key (double-quoted)
     r'\s*:\s*")'                                    # colon + opening quote
     r'([^"]{9,})'                                   # value — 9+ chars (skip short metadata)
     r'"',                                           # closing quote
@@ -37,7 +37,7 @@ _JSON_RE = re.compile(
 
 _REPR_RE = re.compile(
     r'(?i)'
-    r'\b((?:text|content|body|prompt|response)\s*=\s*[\'"])'   # key='  or  key="
+    r'\b((?:text|content|message|transcript|body|prompt|response)\s*=\s*[\'"])'   # key='  or  key="
     r'([^\'"]{9,})'                                             # value — 9+ non-quote chars
     r'([\'"])',                                                  # closing quote
 )

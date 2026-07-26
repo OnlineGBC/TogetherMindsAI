@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, init_encryption
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, init_encryption, friendly_name_key
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis
 import copilot
@@ -121,6 +121,47 @@ def _csrf_protect():
     expected = session.get("_csrf_token") or ""
     if not expected or not secrets.compare_digest(submitted, expected):
         return jsonify({"error": "csrf_invalid"}), 400
+
+
+@app.before_request
+def _idle_logout():
+    """Automatic logoff after inactivity (HIPAA § 164.312(a)(2)(iii)).
+
+    Any request from a logged-in user refreshes the clock; once the gap exceeds
+    IDLE_TIMEOUT_SECONDS the session is cleared. The live-session console sends a
+    presence heartbeat, so an open session never times out mid-session. Existing
+    sessions carry no `_last_seen` yet — the first request just stamps it, so a
+    deploy never mass-logs-out anyone."""
+    if not session.get("user_id"):
+        return
+    now = int(time.time())
+    last = session.get("_last_seen")
+    if last is not None and (now - last) > config.IDLE_TIMEOUT_SECONDS:
+        was_client = bool(session.get("client_account_id"))
+        session.clear()
+        p = request.path or ""
+        if p.startswith("/api/") or p.startswith("/rtc/"):
+            return jsonify({"error": "session_expired"}), 401
+        return redirect(url_for("client_login" if was_client else "login"))
+    session["_last_seen"] = now
+
+
+@app.after_request
+def _security_headers(resp):
+    """Baseline security headers on every response (defense in depth).
+
+    HSTS is production-only (Cloud Run serves HTTPS; localhost/tests are HTTP)
+    and deliberately omits includeSubDomains — not every subdomain is guaranteed
+    HTTPS. X-Frame-Options is SAMEORIGIN so the app's own same-origin iframes
+    (the Progress / content floating windows) keep working while cross-site
+    framing (clickjacking) is blocked."""
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if config.IS_PRODUCTION:
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return resp
+
 
 db.init_app(app)
 
@@ -790,6 +831,94 @@ if not config.IS_TESTING:
                     db.session.commit()
                 except Exception:
                     pass
+
+    # Encrypt the previously-plaintext PHI-adjacent name columns: display_name on
+    # chat_messages + session_participants, friendly_name on therapy_sessions,
+    # plus the deterministic friendly_name_key lookup. Columns are widened to TEXT
+    # (ciphertext is longer than the old VARCHAR(60)); a backfill re-encrypts
+    # existing plaintext rows in place. The model's _GracefulEncryptedType reads
+    # any not-yet-migrated plaintext transparently, so reads never break — even
+    # mid-backfill. Idempotent: already-ciphertext rows are skipped, so repeat
+    # startups are a no-op.
+    with app.app_context():
+        from sqlalchemy import text
+        from sqlalchemy_utils import StringEncryptedType
+        from sqlalchemy_utils.types.encrypted.encrypted_type import FernetEngine
+        from models import _encryption_key as _enc_key
+
+        # Widen to hold ciphertext + add the lookup-key column (no-op on SQLite,
+        # which ignores VARCHAR length and rejects ALTER COLUMN TYPE).
+        for ddl in (
+            "ALTER TABLE chat_messages ALTER COLUMN display_name TYPE TEXT",
+            "ALTER TABLE session_participants ALTER COLUMN display_name TYPE TEXT",
+            "ALTER TABLE therapy_sessions ALTER COLUMN friendly_name TYPE TEXT",
+            "ALTER TABLE therapy_sessions ADD COLUMN friendly_name_key VARCHAR(64)",
+        ):
+            try:
+                db.session.execute(text(ddl))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()   # unsupported on SQLite / column already correct
+        try:
+            db.session.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_therapy_sessions_friendly_name_key "
+                "ON therapy_sessions (friendly_name_key)"
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        # A strict (non-graceful) encrypted type: decrypt succeeds only on real
+        # ciphertext, so it doubles as the "already encrypted?" test.
+        _strict = StringEncryptedType(db.Text, lambda: _enc_key[0], FernetEngine)
+        _dialect = db.engine.dialect
+
+        def _is_ciphertext(raw):
+            try:
+                _strict.process_result_value(raw, _dialect)
+                return True
+            except Exception:
+                return False   # legacy plaintext
+
+        def _encrypt(plaintext):
+            return _strict.process_bind_param(plaintext, _dialect)
+
+        def _backfill_plain(table, col):
+            try:
+                rows = db.session.execute(
+                    text(f"SELECT id, {col} FROM {table} WHERE {col} IS NOT NULL")
+                ).fetchall()
+                for rid, raw in rows:
+                    if raw in (None, "") or _is_ciphertext(raw):
+                        continue
+                    db.session.execute(
+                        text(f"UPDATE {table} SET {col} = :v WHERE id = :id"),
+                        {"v": _encrypt(raw), "id": rid},
+                    )
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        _backfill_plain("chat_messages", "display_name")
+        _backfill_plain("session_participants", "display_name")
+
+        # therapy_sessions.friendly_name: re-encrypt AND populate the lookup key.
+        # The key is derived from the plaintext, so it must be computed before the
+        # value is encrypted.
+        try:
+            rows = db.session.execute(text(
+                "SELECT id, friendly_name FROM therapy_sessions WHERE friendly_name IS NOT NULL"
+            )).fetchall()
+            for rid, raw in rows:
+                if raw in (None, "") or _is_ciphertext(raw):
+                    continue
+                db.session.execute(
+                    text("UPDATE therapy_sessions SET friendly_name = :v, friendly_name_key = :k WHERE id = :id"),
+                    {"v": _encrypt(raw), "k": friendly_name_key(raw), "id": rid},
+                )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     # Force-expire legacy sessions whose IDs aren't the current canonical
     # randomized-private-key format (session_id.SESSION_ID_LENGTH). The
@@ -2197,9 +2326,10 @@ def session_join_post():
             sa_func.upper(TherapySession.id) == raw[:SESSION_ID_LENGTH].upper()
         ).first()
     if not ts:
-        # Try the unique friendly name on its own.
+        # Try the unique friendly name on its own (matched via its deterministic
+        # HMAC key, since friendly_name itself is encrypted).
         ts = TherapySession.query.filter(
-            sa_func.upper(TherapySession.friendly_name) == raw.upper()
+            TherapySession.friendly_name_key == friendly_name_key(raw)
         ).first()
     if not ts:
         return _join_template(error="Session not found. Check the ID or name and try again.")
@@ -3683,9 +3813,8 @@ def _friendly_name_owner(name: str):
     """session_id that currently owns this friendly name (case-insensitive), or None."""
     if not name:
         return None
-    from sqlalchemy import func as _f
     row = (TherapySession.query
-           .filter(_f.upper(TherapySession.friendly_name) == name.upper())
+           .filter(TherapySession.friendly_name_key == friendly_name_key(name))
            .first())
     return row.id if row else None
 
@@ -3725,6 +3854,7 @@ def on_set_friendly_name(data):
             return
     try:
         ts.friendly_name = name or None
+        ts.friendly_name_key = friendly_name_key(name) if name else None
         db.session.commit()
     except Exception:
         db.session.rollback()

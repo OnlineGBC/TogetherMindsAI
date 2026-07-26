@@ -57,6 +57,18 @@ class TestScrub:
         assert "personal details" not in result
         assert "[REDACTED]" in result
 
+    def test_redacts_json_message_field(self):
+        msg = '{"message": "A confidential note that must be redacted from logs"}'
+        result = _scrub(msg)
+        assert "confidential note" not in result
+        assert "[REDACTED]" in result
+
+    def test_redacts_json_transcript_field(self):
+        msg = '{"transcript": "The client described a difficult week at length"}'
+        result = _scrub(msg)
+        assert "difficult week" not in result
+        assert "[REDACTED]" in result
+
     def test_short_values_not_redacted(self):
         # Values ≤ 8 chars are metadata (mode names, IDs) — must not be redacted
         msg = '{"text": "solo"}'

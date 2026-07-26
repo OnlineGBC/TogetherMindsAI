@@ -388,8 +388,11 @@ def test_friendly_name_persisted_unique_with_suggestion(enc_client):
 
 def test_join_by_friendly_name_or_combined(enc_client):
     with app.app_context():
+        from models import friendly_name_key
         sid = _seed("ther-1", mode="couple")
-        ts = db.session.get(TherapySession, sid); ts.friendly_name = "MyName"; db.session.commit()
+        ts = db.session.get(TherapySession, sid)
+        ts.friendly_name = "MyName"; ts.friendly_name_key = friendly_name_key("MyName")
+        db.session.commit()
     # by friendly name alone, by combined "ID-name", and a bad one
     assert enc_client.post("/session/join", data={"session_id": "MyName"}).status_code in (302, 303)
     assert enc_client.post("/session/join", data={"session_id": sid + "-MyName"}).status_code in (302, 303)

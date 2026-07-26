@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 from datetime import datetime, timezone
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy_utils import StringEncryptedType
@@ -20,6 +22,40 @@ def init_encryption(key: str) -> None:
     _encryption_key[0] = key
 
 
+class _GracefulEncryptedType(StringEncryptedType):
+    """Field encryption that tolerates legacy plaintext on read.
+
+    When a previously-plaintext column is switched to encrypted, existing rows
+    still hold plaintext that a normal EncryptedType can't decrypt (it raises).
+    This subclass returns the raw stored value unchanged when decryption fails,
+    so reads keep working while the one-time backfill re-encrypts rows in place.
+    New writes are always encrypted. Once the backfill has run, every row is
+    ciphertext and this fallback is never taken."""
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        try:
+            return super().process_result_value(value, dialect)
+        except Exception:
+            return value   # legacy plaintext not yet re-encrypted by the backfill
+
+
+def friendly_name_key(name):
+    """Deterministic lookup key for an (encrypted) session friendly name.
+
+    friendly_name is stored encrypted and non-deterministic, so it can't be
+    queried or uniqueness-checked in the database directly. This HMAC of the
+    normalised name is stored beside it: the same name always yields the same
+    key (so we can find it and enforce uniqueness) without revealing the name.
+    Case-insensitive, matching the historical friendly-name lookup."""
+    if not name:
+        return None
+    norm = name.strip().upper().encode("utf-8")
+    secret = (_encryption_key[0] or "").encode("utf-8")
+    return hmac.new(secret, norm, hashlib.sha256).hexdigest()
+
+
 class User(db.Model):
     __tablename__ = "users"
 
@@ -40,7 +76,8 @@ class ChatMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     session_id = db.Column(db.String(36), index=True, nullable=False)
     user_id = db.Column(db.String(36), nullable=False)
-    display_name = db.Column(db.String(60), nullable=True)   # e.g. "Michael"; null for AI and legacy rows
+    # e.g. "Michael" — often a real first name, so encrypted at rest. null for AI rows.
+    display_name = db.Column(_GracefulEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
     text = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
     timestamp = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
@@ -184,7 +221,14 @@ class TherapySession(db.Model):
     # Shared, therapist-set friendly name for the session. Unique across sessions
     # so a participant can rejoin by it (or by the Session ID). Persisted so it
     # survives restarts.
-    friendly_name = db.Column(db.String(60), nullable=True, unique=True, index=True)
+    # Encrypted at rest (may embed a client's real name, e.g. "Smith weekly").
+    # Because ciphertext is non-deterministic it can't be queried or made unique
+    # directly — friendly_name_key (below) carries the deterministic lookup +
+    # uniqueness instead.
+    friendly_name = db.Column(_GracefulEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    # HMAC of the normalised friendly name — deterministic, so it is queryable
+    # and unique. See models.friendly_name_key().
+    friendly_name_key = db.Column(db.String(64), nullable=True, unique=True, index=True)
     # Opaque token for tokenized transcript download links in the end-session email,
     # so the session id never appears in the URL (like SessionRecording.download_token).
     download_token = db.Column(db.String(64), nullable=True, index=True)
@@ -209,7 +253,8 @@ class SessionParticipant(db.Model):
     joined_at  = db.Column(db.DateTime, nullable=False)
     # The participant's self-chosen display name, persisted so it is restored when
     # the same user (same browser id, or signed-in account) leaves and rejoins.
-    display_name = db.Column(db.String(60), nullable=True)
+    # Often a real first name → encrypted at rest.
+    display_name = db.Column(_GracefulEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("session_id", "user_id", name="uq_session_participant"),

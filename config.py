@@ -41,6 +41,12 @@ IS_PRODUCTION: bool = not IS_SQLITE and not IS_TESTING
 SECRET_KEY: str = os.environ.get("SECRET_KEY", "")
 FLASK_DEBUG: bool = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 
+# Auto-logoff: a logged-in session is invalidated after this many seconds of
+# inactivity (HIPAA § 164.312(a)(2)(iii) automatic logoff). Each request from a
+# logged-in user refreshes the clock; the live-session heartbeat counts as
+# activity, so an open session console never times out mid-session.
+IDLE_TIMEOUT_SECONDS: int = int(os.environ.get("IDLE_TIMEOUT_SECONDS", str(30 * 60)))
+
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------

@@ -24,8 +24,11 @@
         No account is required to use the app.</p>
 
         <h5 class="fw-bold mt-4">3. How We Store It</h5>
-        <p>All session messages are encrypted at rest using AES-256 encryption. Data is stored in a
-        Google Cloud SQL database hosted in the United States.</p>
+        <p>Your data is encrypted at rest. It is stored in a Google Cloud SQL database in the
+        United States, where all data is encrypted at the storage layer with <strong>AES-256</strong>.
+        In addition, sensitive fields &mdash; message content, session summaries, display names, and
+        session labels &mdash; carry a second layer of application-level encryption before they are
+        written to the database.</p>
 
         <h5 class="fw-bold mt-4">4. How Long We Keep It</h5>
         <p>Clinician-led sessions are clinical records, retained for <strong>up to 6 years</strong>,
