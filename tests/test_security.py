@@ -212,6 +212,29 @@ class TestSecurityHeaders:
         assert resp.headers.get("X-Frame-Options") == "SAMEORIGIN"
         assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
 
+    def test_csp_report_only_header_present(self, enc_client):
+        """CSP ships in Report-Only mode (discovery); the enforcing header is
+        deliberately NOT set yet."""
+        resp = enc_client.get("/login")
+        csp = resp.headers.get("Content-Security-Policy-Report-Only", "")
+        assert "default-src 'self'" in csp
+        assert "'nonce-" in csp
+        assert "'wasm-unsafe-eval'" in csp          # MediaPipe blur
+        assert "https://streaming.assemblyai.com" in csp   # live transcription ws
+        assert resp.headers.get("Content-Security-Policy") is None   # not enforcing
+
+    def test_csp_nonce_matches_inline_scripts(self, enc_client):
+        """The nonce in the header equals the nonce stamped on inline scripts,
+        so those scripts would run under the policy."""
+        import re
+        resp = enc_client.get("/login")
+        csp = resp.headers.get("Content-Security-Policy-Report-Only", "")
+        m = re.search(r"'nonce-([A-Za-z0-9_-]+)'", csp)
+        assert m, "no nonce in CSP header"
+        nonce = m.group(1)
+        body = resp.get_data(as_text=True)
+        assert f'<script nonce="{nonce}">' in body
+
     def test_no_hsts_when_not_production(self, enc_client, monkeypatch):
         """HSTS is production-only (localhost + tests run over plain HTTP)."""
         monkeypatch.setattr(config, "IS_PRODUCTION", False)

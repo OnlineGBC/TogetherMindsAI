@@ -32,7 +32,7 @@
     <!-- CSRF: token + a global fetch wrapper that attaches it to every same-origin
          state-changing request, so no AJAX call can forget it. -->
     <meta name="csrf-token" content="{{ csrf_token }}" />
-    <script>
+    <script nonce="{{ csp_nonce }}">
     (function () {
       var token = "{{ csrf_token }}";
       var _fetch = window.fetch;
@@ -177,7 +177,7 @@
 <!-- Custom JS -->
 <script src="{{ url_for('static', filename='js/therapy.js') }}?v=2026-07-24-b"></script>
 <!-- Service Worker (PWA) -->
-<script>
+<script nonce="{{ csp_nonce }}">
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
@@ -365,7 +365,7 @@
 {% include "_feedback_modal.html" %}
 
 <script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce }}">
     (function () {
         var fab = document.getElementById("feedbackFab");
         if (fab && typeof bootstrap !== "undefined" && bootstrap.Tooltip) {
@@ -434,7 +434,7 @@
         <button type="button" id="iosInstallDismiss" class="iip-dismiss" aria-label="Dismiss">&times;</button>
     </div>
 </div>
-<script>
+<script nonce="{{ csp_nonce }}">
     (function () {
         // Only on the welcome/landing page — first-touch is enough; don't pop on every page.
         if (window.location.pathname !== "/welcome") return;

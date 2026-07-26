@@ -23,7 +23,7 @@
                 <i class="bi bi-hash text-primary-green"></i>
                 <small><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
             </div>
-            <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0 js-copy-sid" data-sid="{{ session_id }}" title="Copy Session ID">
                 <i class="bi bi-clipboard"></i>
             </button>
         </div>
@@ -156,7 +156,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
     function copySessionId(id) {
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(id);
@@ -166,6 +166,9 @@
             document.execCommand("copy"); document.body.removeChild(el);
         }
     }
+    document.querySelectorAll(".js-copy-sid").forEach(function (b) {
+        b.addEventListener("click", function () { copySessionId(b.dataset.sid); });
+    });
 
     document.getElementById("confirmDeleteBtn").addEventListener("click", function () {
         fetch("/user/{{ user_id }}", { method: "DELETE" })
@@ -242,7 +245,7 @@
     })();
 </script>
 {% if chart_data %}
-<script>
+<script nonce="{{ csp_nonce }}">
     var chartData = {{ chart_data | tojson }};
     var labels = chartData.map(function(d) { return d.week; });
     var counts = chartData.map(function(d) { return d.count; });

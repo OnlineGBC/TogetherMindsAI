@@ -72,7 +72,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
     document.getElementById("rejoinForm").addEventListener("submit", function () {
         var input = document.getElementById("session_id");
         var entered = input.value.trim();

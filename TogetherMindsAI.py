@@ -18,7 +18,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import smtplib
 from email.message import EmailMessage
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file, abort, Response, stream_with_context
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file, abort, Response, stream_with_context, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_socketio import SocketIO, join_room, emit
@@ -109,6 +109,25 @@ def _inject_csrf_token():
     return {"csrf_token": _csrf_token()}
 
 
+def _csp_nonce() -> str:
+    """Per-request nonce shared by the CSP header and every inline <script>.
+
+    Generated once per request and cached on flask.g so the value stamped into
+    the templates (via the csp_nonce context variable) exactly matches the one
+    allow-listed in the Content-Security-Policy header."""
+    nonce = getattr(g, "_csp_nonce", None)
+    if nonce is None:
+        nonce = secrets.token_urlsafe(16)
+        g._csp_nonce = nonce
+    return nonce
+
+
+@app.context_processor
+def _inject_csp_nonce():
+    """Expose csp_nonce to every template so inline scripts can carry it."""
+    return {"csp_nonce": _csp_nonce()}
+
+
 @app.before_request
 def _csrf_protect():
     if not _csrf_enabled():
@@ -160,6 +179,31 @@ def _security_headers(resp):
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     if config.IS_PRODUCTION:
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+
+    # Content-Security-Policy — REPORT-ONLY for now: the browser reports
+    # violations to the console but blocks nothing, so we can discover any
+    # missing source before enforcing. Allow-list reflects what the app loads:
+    #  - jsDelivr: Bootstrap, Chart.js, LiveKit, Bootstrap-icons (CSS + fonts)
+    #  - cdn.socket.io: Socket.IO client
+    #  - esm.sh: dynamic import of LiveKit track-processors (background blur)
+    #  - 'wasm-unsafe-eval' + worker-src blob:: MediaPipe WASM + workers for blur
+    #  - wss:: LiveKit server (env-configured host) + AssemblyAI live transcription
+    #  - style-src 'unsafe-inline': Bootstrap injects inline styles via JS
+    #  - inline <script> run via the per-request nonce (no 'unsafe-inline')
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'nonce-{n}' 'wasm-unsafe-eval' "
+        "https://cdn.jsdelivr.net https://cdn.socket.io https://esm.sh; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: blob:; "
+        "media-src 'self' blob:; "
+        "font-src 'self' https://cdn.jsdelivr.net; "
+        "connect-src 'self' https://esm.sh https://cdn.jsdelivr.net "
+        "https://streaming.assemblyai.com wss:; "
+        "worker-src 'self' blob:; "
+        "frame-ancestors 'self'; base-uri 'self'; object-src 'none'"
+    ).format(n=_csp_nonce())
+    resp.headers.setdefault("Content-Security-Policy-Report-Only", csp)
     return resp
 
 

@@ -100,7 +100,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/feedback.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce }}">
     document.addEventListener("DOMContentLoaded", function () {
         initFeedbackForm({ formId: "feedbackForm", mode: null, redirectOnSuccess: "/" });
     });

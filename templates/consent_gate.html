@@ -101,7 +101,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
     var state = document.getElementById("stateSelect");
     var wrap = document.getElementById("countryWrap");

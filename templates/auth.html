@@ -115,7 +115,7 @@
                         <input class="form-check-input flex-shrink-0 mt-1" type="checkbox" id="agreeAll" required>
                         <label class="form-check-label small text-muted mb-0" for="agreeAll">
                             By continuing, you agree to our
-                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-underline" data-bs-toggle="modal" data-bs-target="#tosModal" onclick="event.stopPropagation()">Terms of Service</button>
+                            <button type="button" class="btn btn-link btn-sm p-0 align-baseline text-decoration-underline js-stop-prop" data-bs-toggle="modal" data-bs-target="#tosModal">Terms of Service</button>
                             and all the points above.
                         </label>
                     </div>
@@ -223,8 +223,13 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
-<script>
+<script nonce="{{ csp_nonce }}">
     var THERAPY_MODE = "{{ therapy_mode }}";
+
+    // Stop the ToS button (inside the checkbox label) from toggling the checkbox.
+    document.querySelectorAll(".js-stop-prop").forEach(function (el) {
+        el.addEventListener("click", function (e) { e.stopPropagation(); });
+    });
 
     // Enable button only when the single acceptance checkbox is checked
     var agreeAll = document.getElementById("agreeAll");

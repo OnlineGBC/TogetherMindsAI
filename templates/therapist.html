@@ -272,7 +272,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
     var agree   = document.getElementById("agreeTherapist");
     var buttons = document.querySelectorAll(".therapist-start-btn");
     var ackHint = document.getElementById("ackHint");

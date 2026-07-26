@@ -73,7 +73,7 @@
             <small class="text-nowrap"><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
             <!-- Shared session friendly name (therapist-set) — appears right after the ID -->
             <span id="friendlyNameLabel" class="badge rounded-pill text-bg-success d-none"></span>
-            <button class="btn btn-outline-green btn-sm rounded-pill py-0" onclick="copySessionId('{{ session_id }}')" title="Copy Session ID">
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0 js-copy-sid" data-sid="{{ session_id }}" title="Copy Session ID">
                 <i class="bi bi-clipboard"></i>
             </button>
             {% if is_therapist %}
@@ -383,7 +383,7 @@
 <!-- Draggable + resizable floating windows (Progress + content links). -->
 <script src="{{ url_for('static', filename='js/floating-window.js') }}?v=2026-07-25-a"></script>
 <!-- Graceful leave (A): intercept Home / Sign out to confirm before leaving. -->
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
     var modalEl = document.getElementById("leaveSessionModal");
     if (!modalEl || !window.bootstrap) return;
@@ -447,7 +447,7 @@
 </style>
 {% endif %}
 {% if is_therapist %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}?v=2026-07-24-b"></script>{% endif %}
-<script>
+<script nonce="{{ csp_nonce }}">
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
     var SESSION_ID = "{{ session_id }}";
@@ -529,6 +529,9 @@
             document.execCommand("copy"); document.body.removeChild(el);
         }
     }
+    document.querySelectorAll(".js-copy-sid").forEach(function (b) {
+        b.addEventListener("click", function () { copySessionId(b.dataset.sid); });
+    });
 
     // Auto-grow input up to ~3 lines (CSS-capped); scrolls inside thereafter.
     initChatTextareaAutoGrow("messageInput");
@@ -674,7 +677,7 @@
 {% if rtc_enabled %}
 <!-- Realtime conferencing (Phase 1): LiveKit audio + AssemblyAI streaming STT -->
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
-<script>
+<script nonce="{{ csp_nonce }}">
 (function () {
     var joinBtn = document.getElementById("rtcJoinBtn");
     if (!joinBtn) return;
