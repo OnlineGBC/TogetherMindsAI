@@ -70,16 +70,16 @@ Assumes the venv (`TogetherMindsAI.venv/`) is already activated.
    pip install -r requirements.txt
    pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
    ```
-2. Create `.env` with at minimum:
-   ```
-   SECRET_KEY=<random-hex>
-   ANTHROPIC_API_KEY=<your-key>
-   FIELD_ENCRYPTION_KEY=<fernet-key>
-   ```
-   `DATABASE_URL` defaults to local SQLite if unset.
-3. Run the app:
+2. **Local secrets are encrypted at rest** with SOPS + Google Cloud KMS — see
+   [SECRETS.md](SECRETS.md). One-time setup: install SOPS
+   (`winget install --id SecretsOPerationS.SOPS -e`) and authorise it
+   (`gcloud auth application-default login`). Secrets live in the encrypted
+   `sops.env` vault — there is **no plaintext `.env`**. Minimum keys are
+   `SECRET_KEY`, `ANTHROPIC_API_KEY`, `FIELD_ENCRYPTION_KEY` (`DATABASE_URL`
+   defaults to local SQLite if unset). Edit a secret with `sops sops.env`.
+3. Run the app (secrets are decrypted into memory only, never written to disk):
    ```powershell
-   python TogetherMindsAI.py
+   sops exec-env sops.env 'python TogetherMindsAI.py'
    ```
 4. Open `http://127.0.0.1:5000`.
 
@@ -89,19 +89,13 @@ Assumes the venv (`TogetherMindsAI.venv/`) is already activated.
 python -m pytest tests/ -v
 ```
 
-Notable test files: `test_ai_therapist.py`, `test_security.py`, `test_crisis.py`, `test_input_validation.py`, `test_rate_limit.py`, `test_smoke.py`, `test_browser.py` (Playwright).
+Notable test files: `test_ai_therapist.py`, `test_security.py`, `test_crisis.py`, `test_input_validation.py`, `test_rate_limit.py`, `test_smoke.py`.
 
-### Chat simulations
-
-End-to-end scripted simulations against a running local server:
+The full pytest suite is the pre-deploy gate — run it (green) before every deploy:
 
 ```powershell
-python scripts/simulate_solo_chat.py
-python scripts/simulate_couple_chat.py
-python scripts/simulate_group_chat.py
+python -m pytest tests/
 ```
-
-These should be run before any production deploy.
 
 ---
 
@@ -135,11 +129,15 @@ The Android app is a Trusted Web Activity wrapper around the deployed web app �
 ## Security & Compliance Notes
 
 - Session cookies: `HttpOnly`, `SameSite=Lax`, `Secure` in production
-- Field-level encryption on stored chat messages (Fernet)
+- Automatic logoff after 30 min idle; session regenerated on login (anti session-fixation)
+- Field-level encryption (Fernet) on stored chat messages, session summaries, co-pilot cards, **display names, and session labels** (session labels use a deterministic HMAC lookup key so they stay unique/searchable while encrypted)
+- Content-Security-Policy **enforced** (per-request nonce on inline scripts; `unsafe-eval` scoped to the live-session page only, for the video background-blur library)
+- HSTS in production, plus `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`
 - Per-IP rate limits on chat endpoints
 - 30-day data retention enforced by `apscheduler`
-- PHI redaction in logs
-- Crisis / medical / off-topic safe responses defined in `ai_therapist.py`
+- PHI redaction in logs (covers `text` / `content` / `message` / `transcript` / `body` / `prompt` / `response`)
+- Local-dev secrets encrypted at rest with SOPS + GCP KMS (see [SECRETS.md](SECRETS.md))
+- Crisis / medical / off-topic safe responses
 - Risk audit: regenerate with `python generate_risk_audit.py`
 
 ---
