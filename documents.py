@@ -43,6 +43,52 @@ _PARTICIPANT_RGB = [
     (13, 110, 110), (180, 90, 9), (26, 92, 46),
 ]
 
+# Consecutive messages from one speaker are grouped under a single heading, with
+# a start–end time range — so a run of short messages reads as paragraphs, not a
+# heading per line. A gap longer than this starts a new block.
+_GROUP_GAP_SECONDS = 5 * 60
+
+
+def _group_messages(messages):
+    """Group consecutive messages from the same speaker into one block, starting
+    a new block when the speaker changes OR the gap since the previous message
+    exceeds _GROUP_GAP_SECONDS. Each group: {user_id, display_name, is_ai,
+    texts: [...], start, end}."""
+    groups = []
+    for m in messages:
+        prev = groups[-1] if groups else None
+        cont = False
+        if prev and prev["user_id"] == m.user_id:
+            try:
+                cont = (m.timestamp - prev["end"]).total_seconds() <= _GROUP_GAP_SECONDS
+            except Exception:
+                cont = True   # unorderable timestamps → keep them together
+        if cont:
+            prev["texts"].append(m.text)
+            prev["end"] = m.timestamp
+        else:
+            groups.append({
+                "user_id": m.user_id, "display_name": m.display_name,
+                "is_ai": m.user_id == "AI", "texts": [m.text],
+                "start": m.timestamp, "end": m.timestamp,
+            })
+    return groups
+
+
+def _group_time_label(g):
+    """'YYYY-MM-DD HH:MM' for a single-minute block, else '… HH:MM–HH:MM'."""
+    start = g["start"].strftime("%Y-%m-%d %H:%M")
+    end = g["end"].strftime("%H:%M")
+    return start if g["start"].strftime("%H:%M") == end else f"{start}–{end}"
+
+
+def _group_speaker(session_id, g):
+    if g["is_ai"]:
+        return "AI Co-Pilot"
+    if g["display_name"]:
+        return f"{session_id}-{g['display_name']}"
+    return "User"
+
 
 # ===========================================================================
 # PDF
@@ -226,23 +272,20 @@ def transcript_pdf_buf(session_id, messages, mode, generated_at,
         pdf.cell(0, 8, "No messages recorded for this session.",
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     else:
-        for msg in messages:
-            is_ai = msg.user_id == "AI"
-            if is_ai:
-                speaker, rgb = "AI Co-Pilot", _AI_GREEN
-            elif msg.display_name:
-                speaker, rgb = f"{session_id}-{msg.display_name}", color_by_user.get(msg.user_id, (30, 80, 160))
-            else:
-                speaker, rgb = "User", color_by_user.get(msg.user_id, (30, 80, 160))
-            ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
-
+        # One heading per speaker-block (see _group_messages), with a start–end
+        # time range; each message in the block is its own paragraph beneath it.
+        for g in _group_messages(messages):
+            rgb = _AI_GREEN if g["is_ai"] else color_by_user.get(g["user_id"], (30, 80, 160))
             pdf.set_font("DejaVu", "B", 10)
             pdf.set_text_color(*rgb)
-            pdf.cell(0, 6.5, f"{speaker}  ·  {ts}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.cell(0, 6.5, f"{_group_speaker(session_id, g)}  ·  {_group_time_label(g)}",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf.set_font("DejaVu", "", 10.5)
             pdf.set_text_color(*_INK)
-            pdf.multi_cell(0, 5.6, msg.text)
-            pdf.ln(3)
+            for text in g["texts"]:
+                pdf.multi_cell(0, 5.6, text)
+                pdf.ln(1)
+            pdf.ln(2)
 
     buf = io.BytesIO(pdf.output())
     buf.seek(0)
@@ -379,23 +422,17 @@ def transcript_docx_buf(session_id, messages, mode, generated_at,
         p = doc.add_paragraph("No messages recorded for this session.")
         p.runs[0].italic = True
     else:
-        for msg in messages:
-            is_ai = msg.user_id == "AI"
-            if is_ai:
-                speaker, rgb = "AI Co-Pilot", RGBColor(*_AI_GREEN)
-            elif msg.display_name:
-                speaker = f"{session_id}-{msg.display_name}"
-                rgb = color_by_user.get(msg.user_id, RGBColor(30, 80, 160))
-            else:
-                speaker, rgb = "User", color_by_user.get(msg.user_id, RGBColor(30, 80, 160))
-            ts = msg.timestamp.strftime("%Y-%m-%d %H:%M")
-
+        # One heading per speaker-block (see _group_messages), with a start–end
+        # time range; each message in the block is its own paragraph beneath it.
+        for g in _group_messages(messages):
+            rgb = RGBColor(*_AI_GREEN) if g["is_ai"] else color_by_user.get(g["user_id"], RGBColor(30, 80, 160))
             p = doc.add_paragraph()
-            run = p.add_run(f"{speaker}  ·  {ts}")
+            run = p.add_run(f"{_group_speaker(session_id, g)}  ·  {_group_time_label(g)}")
             run.bold = True
             run.font.size = Pt(10)
             run.font.color.rgb = rgb
-            doc.add_paragraph(msg.text)
+            for text in g["texts"]:
+                doc.add_paragraph(text)
 
     # ---- Footer: confidentiality + page number -----------------------------
     footer = doc.sections[0].footer

@@ -131,3 +131,40 @@ def test_transcript_docx_buf_renders_speakers():
     assert "SESS-3-Alex" in text          # human speaker labelled with session prefix
     assert "AI Co-Pilot" in text           # AI speaker labelled
     assert "I felt anxious this week." in text
+
+
+def _M(u, d, t, ts):
+    return _Msg(u, d, t, ts)
+
+
+def test_group_messages_groups_and_breaks_on_gap():
+    from datetime import datetime, timedelta
+    base = datetime(2026, 7, 1, 20, 0)
+    msgs = [
+        _M("u1", "Alex", "one", base),
+        _M("u1", "Alex", "two", base + timedelta(minutes=1)),     # same speaker, small gap -> grouped
+        _M("u2", "Sam", "hi", base + timedelta(minutes=2)),       # speaker change -> new block
+        _M("u1", "Alex", "later", base + timedelta(minutes=30)),  # same speaker, >5min gap -> new block
+    ]
+    groups = documents._group_messages(msgs)
+    assert len(groups) == 3
+    assert groups[0]["texts"] == ["one", "two"]
+    assert groups[0]["end"] == base + timedelta(minutes=1)
+    assert groups[1]["texts"] == ["hi"]
+    assert groups[2]["texts"] == ["later"]                        # gap-break
+
+
+def test_transcript_docx_groups_consecutive_same_speaker():
+    from docx import Document
+    from datetime import datetime, timedelta
+    base = datetime(2026, 7, 1, 20, 0)
+    msgs = [
+        _M("u1", "Alex", "first sentence.", base),
+        _M("u1", "Alex", "second sentence.", base + timedelta(minutes=1)),
+        _M("u1", "Alex", "third sentence.", base + timedelta(minutes=2)),
+    ]
+    doc = Document(documents.transcript_docx_buf("SESS-G", msgs, "solo", "2026-07-01 20:10 UTC"))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert text.count("SESS-G-Alex") == 1          # ONE heading, not three
+    assert "20:00–20:02" in text                    # start–end range
+    assert "first sentence." in text and "third sentence." in text
