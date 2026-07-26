@@ -201,12 +201,14 @@ def _security_headers(resp):
         "img-src 'self' data: blob:; "
         "media-src 'self' blob:; "
         "font-src 'self' https://cdn.jsdelivr.net; "
+        # storage.googleapis.com: the LiveKit/MediaPipe blur pipeline fetches its
+        # selfie-segmentation model (.tflite) from Google Cloud Storage.
         # wss: kept as a scheme (not a fixed host) on purpose: LiveKit's signaling
         # host is env-configured and TURN/relay fallback can use other wss hosts on
         # restrictive client networks. The strict, nonce-based script-src is the
         # real XSS control; a broad wss: is a deliberate, stated trade-off.
         "connect-src 'self' https://esm.sh https://cdn.jsdelivr.net "
-        "https://streaming.assemblyai.com wss:; "
+        "https://storage.googleapis.com https://streaming.assemblyai.com wss:; "
         "worker-src 'self' blob:; "
         "frame-ancestors 'self'; base-uri 'self'; object-src 'none'"
     ).format(n=_csp_nonce(), ue=unsafe_eval)

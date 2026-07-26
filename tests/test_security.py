@@ -220,6 +220,7 @@ class TestSecurityHeaders:
         assert "'nonce-" in csp
         assert "'wasm-unsafe-eval'" in csp          # MediaPipe blur
         assert "https://streaming.assemblyai.com" in csp   # live transcription ws
+        assert "https://storage.googleapis.com" in csp     # MediaPipe blur model (.tflite)
         assert "object-src 'none'" in csp
         # No lingering Report-Only header once enforcing.
         assert resp.headers.get("Content-Security-Policy-Report-Only") is None
