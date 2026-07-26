@@ -180,9 +180,9 @@ def _security_headers(resp):
     if config.IS_PRODUCTION:
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
 
-    # Content-Security-Policy — REPORT-ONLY for now: the browser reports
-    # violations to the console but blocks nothing, so we can discover any
-    # missing source before enforcing. Allow-list reflects what the app loads:
+    # Content-Security-Policy — ENFORCING (verified clean in Report-Only across a
+    # full live session: camera, background blur / MediaPipe WASM, virtual
+    # background, chat, transcript download). Allow-list reflects what the app loads:
     #  - jsDelivr: Bootstrap, Chart.js, LiveKit, Bootstrap-icons (CSS + fonts)
     #  - cdn.socket.io: Socket.IO client
     #  - esm.sh: dynamic import of LiveKit track-processors (background blur)
@@ -190,20 +190,27 @@ def _security_headers(resp):
     #  - wss:: LiveKit server (env-configured host) + AssemblyAI live transcription
     #  - style-src 'unsafe-inline': Bootstrap injects inline styles via JS
     #  - inline <script> run via the per-request nonce (no 'unsafe-inline')
+    # 'unsafe-eval' is added ONLY on the live-session page (g.csp_allow_eval),
+    # whose blur library needs JS eval; every other page is strict/no-eval.
+    unsafe_eval = " 'unsafe-eval'" if getattr(g, "csp_allow_eval", False) else ""
     csp = (
         "default-src 'self'; "
-        "script-src 'self' 'nonce-{n}' 'wasm-unsafe-eval' "
+        "script-src 'self' 'nonce-{n}' 'wasm-unsafe-eval'{ue} "
         "https://cdn.jsdelivr.net https://cdn.socket.io https://esm.sh; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "img-src 'self' data: blob:; "
         "media-src 'self' blob:; "
         "font-src 'self' https://cdn.jsdelivr.net; "
+        # wss: kept as a scheme (not a fixed host) on purpose: LiveKit's signaling
+        # host is env-configured and TURN/relay fallback can use other wss hosts on
+        # restrictive client networks. The strict, nonce-based script-src is the
+        # real XSS control; a broad wss: is a deliberate, stated trade-off.
         "connect-src 'self' https://esm.sh https://cdn.jsdelivr.net "
         "https://streaming.assemblyai.com wss:; "
         "worker-src 'self' blob:; "
         "frame-ancestors 'self'; base-uri 'self'; object-src 'none'"
-    ).format(n=_csp_nonce())
-    resp.headers.setdefault("Content-Security-Policy-Report-Only", csp)
+    ).format(n=_csp_nonce(), ue=unsafe_eval)
+    resp.headers.setdefault("Content-Security-Policy", csp)
     return resp
 
 
@@ -1415,6 +1422,10 @@ def _render_session_room(session_id, mode):
         return redirect(url_for("session_state_gate", session_id=session_id))
 
     cfg = MODE_CONFIG.get(mode, MODE_CONFIG["solo"])
+    # Only this page loads the background-blur pipeline (LiveKit track-processors /
+    # MediaPipe), whose compiled glue uses JS eval. Signal the CSP hook to allow
+    # 'unsafe-eval' for THIS response only; every other page stays strict/no-eval.
+    g.csp_allow_eval = True
     return render_template(
         "session_live.html",
         user_id=user_id, session_id=session_id, mode=mode,

@@ -212,28 +212,50 @@ class TestSecurityHeaders:
         assert resp.headers.get("X-Frame-Options") == "SAMEORIGIN"
         assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
 
-    def test_csp_report_only_header_present(self, enc_client):
-        """CSP ships in Report-Only mode (discovery); the enforcing header is
-        deliberately NOT set yet."""
+    def test_csp_enforcing_header_present(self, enc_client):
+        """CSP is now enforced (verified clean in Report-Only first)."""
         resp = enc_client.get("/login")
-        csp = resp.headers.get("Content-Security-Policy-Report-Only", "")
+        csp = resp.headers.get("Content-Security-Policy", "")
         assert "default-src 'self'" in csp
         assert "'nonce-" in csp
         assert "'wasm-unsafe-eval'" in csp          # MediaPipe blur
         assert "https://streaming.assemblyai.com" in csp   # live transcription ws
-        assert resp.headers.get("Content-Security-Policy") is None   # not enforcing
+        assert "object-src 'none'" in csp
+        # No lingering Report-Only header once enforcing.
+        assert resp.headers.get("Content-Security-Policy-Report-Only") is None
 
     def test_csp_nonce_matches_inline_scripts(self, enc_client):
-        """The nonce in the header equals the nonce stamped on inline scripts,
-        so those scripts would run under the policy."""
+        """The nonce in the enforced header equals the nonce stamped on inline
+        scripts, so those scripts are actually allowed to run."""
         import re
         resp = enc_client.get("/login")
-        csp = resp.headers.get("Content-Security-Policy-Report-Only", "")
+        csp = resp.headers.get("Content-Security-Policy", "")
         m = re.search(r"'nonce-([A-Za-z0-9_-]+)'", csp)
         assert m, "no nonce in CSP header"
         nonce = m.group(1)
         body = resp.get_data(as_text=True)
         assert f'<script nonce="{nonce}">' in body
+
+    def test_ordinary_page_has_no_unsafe_eval(self, enc_client):
+        """Ordinary pages allow WASM eval but NOT general JS eval."""
+        csp = enc_client.get("/login").headers.get("Content-Security-Policy", "")
+        assert "'wasm-unsafe-eval'" in csp     # WebAssembly compile — always allowed
+        assert "'unsafe-eval'" not in csp      # general JS eval — blocked here
+
+    def test_live_session_page_allows_unsafe_eval(self, enc_client):
+        """Only the live-session page gets 'unsafe-eval' (its blur library needs
+        JS eval); the exception is scoped to that one response."""
+        sid = generate_session_id()
+        with app.app_context():
+            db.session.add(TherapySession(
+                id=sid, mode="solo", created_by="ther-live", therapist_id="ther-live",
+                created_at=datetime.now(timezone.utc)))
+            db.session.commit()
+        with enc_client.session_transaction() as s:
+            s["user_id"] = "ther-live"
+        resp = enc_client.get(f"/therapy/solo/{sid}")
+        assert resp.status_code == 200
+        assert "'unsafe-eval'" in resp.headers.get("Content-Security-Policy", "")
 
     def test_no_hsts_when_not_production(self, enc_client, monkeypatch):
         """HSTS is production-only (localhost + tests run over plain HTTP)."""
