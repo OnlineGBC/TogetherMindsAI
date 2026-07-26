@@ -493,3 +493,18 @@ def test_embed_pages_strip_chrome(enc_client):
     assert "<nav " in full and "<nav " not in embed        # chrome stripped in embed
     assert "Privacy" in embed                               # content still rendered
     assert "<nav " not in enc_client.get("/tos?embed=1").get_data(as_text=True)
+
+
+def test_in_session_nav_hides_home_and_my_sessions(enc_client):
+    """In a live session the nav is focused: Home + My/Your sessions are hidden;
+    the account menu (Sign out) stays. The dashboard still shows them."""
+    with app.app_context():
+        sid = _seed("ther-1", mode="solo")
+    with enc_client.session_transaction() as s:
+        s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
+    html = enc_client.get(f"/therapy/solo/{sid}").get_data(as_text=True)
+    assert "bi-house-fill" not in html           # Home nav hidden in-session
+    assert "bi-clipboard2-pulse" not in html     # My sessions nav hidden in-session
+    assert "/logout" in html                      # account menu / Sign out remains
+    # The dashboard (not in-session) still shows the sessions nav.
+    assert "bi-clipboard2-pulse" in enc_client.get("/therapist").get_data(as_text=True)

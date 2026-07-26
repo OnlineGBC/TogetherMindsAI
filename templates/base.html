@@ -73,16 +73,20 @@
         </button>
         <div class="collapse navbar-collapse" id="navbarMain">
             <ul class="navbar-nav ms-auto align-items-lg-center">
+                {# In a live session the nav is kept focused: Home and the sessions
+                   list are hidden so nobody wanders into another session mid-call.
+                   The session's own toolbar + the account menu remain. #}
+                {% if not in_live_session|default(false) %}
                 <li class="nav-item">
                     <a class="nav-link" href="/"><i class="bi bi-house-fill me-1"></i>Home</a>
                 </li>
                 {% if current_clinician_id %}
                 <li class="nav-item">
-                    <a class="nav-link" href="/therapist"{% if in_live_session|default(false) %} target="_blank" rel="noopener"{% endif %}><i class="bi bi-clipboard2-pulse me-1"></i>My sessions</a>
+                    <a class="nav-link" href="/therapist"><i class="bi bi-clipboard2-pulse me-1"></i>My sessions</a>
                 </li>
                 {% elif current_client_account_id %}
                 <li class="nav-item">
-                    <a class="nav-link" href="/me/sessions"{% if in_live_session|default(false) %} target="_blank" rel="noopener"{% endif %}><i class="bi bi-clock-history me-1"></i>Your sessions</a>
+                    <a class="nav-link" href="/me/sessions"><i class="bi bi-clock-history me-1"></i>Your sessions</a>
                 </li>
                 {% else %}
                 <li class="nav-item">
@@ -91,6 +95,7 @@
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('client_login') }}"><i class="bi bi-person-circle me-1"></i>Client sign-in</a>
                 </li>
+                {% endif %}
                 {% endif %}
                 {% if current_clinician_id or current_client_account_id %}
                 <li class="nav-item dropdown">
