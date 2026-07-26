@@ -1,0 +1,12 @@
+# SOPS configuration — encrypts the local secrets vault with a GCP KMS key so no
+# plaintext secret sits at rest on the laptop. Safe to commit: this file names
+# the KMS key resource (access is controlled by IAM), not any secret value.
+#
+# The encrypted vault is  sops.env  (ciphertext; there is NO plaintext .env).
+# Local workflow:
+#   Run the app:   sops exec-env sops.env 'python TogetherMindsAI.py'
+#   Edit a secret: sops sops.env            (opens decrypted, re-encrypts on save)
+# Production is unaffected (Cloud Run uses Secret Manager, not .env).
+creation_rules:
+  - path_regex: (^|/)[^/]*\.env$
+    gcp_kms: projects/togethermindsai-python/locations/us-central1/keyRings/sops/cryptoKeys/env
