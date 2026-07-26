@@ -473,8 +473,9 @@ def test_session_room_has_leave_modal_and_newtab_links(enc_client):
         s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
     html = enc_client.get(f"/therapy/solo/{sid}").get_data(as_text=True)
     assert 'id="leaveSessionModal"' in html          # A: Home/Sign out confirm
-    assert 'id="contentModal"' in html               # C: My sessions/legal open in a modal
-    assert 'id="contentFrame"' in html               # the modal's embed iframe
+    assert 'id="contentWindow"' in html              # C: My sessions/legal open in a floating window
+    assert 'id="contentFrame"' in html               # the window's embed iframe
+    assert 'floating-window.js' in html              # drag/resize controller loaded
 
 
 def test_non_session_page_has_no_leave_ux(enc_client):
@@ -482,7 +483,7 @@ def test_non_session_page_has_no_leave_ux(enc_client):
         s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
     html = enc_client.get("/therapist").get_data(as_text=True)
     assert 'id="leaveSessionModal"' not in html
-    assert 'id="contentModal"' not in html
+    assert 'id="contentWindow"' not in html
 
 
 def test_embed_pages_strip_chrome(enc_client):

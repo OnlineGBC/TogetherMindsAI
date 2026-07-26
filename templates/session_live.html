@@ -48,8 +48,7 @@
                 </button>
                 {% endif %}
                 <button type="button" id="progressBtn"
-                        class="btn btn-outline-green btn-sm rounded-pill"
-                        data-bs-toggle="modal" data-bs-target="#progressModal" title="Progress">
+                        class="btn btn-outline-green btn-sm rounded-pill" title="Progress">
                     <i class="bi bi-bar-chart-fill"></i><span class="d-none d-md-inline ms-1">Progress</span>
                 </button>
                 {% if is_therapist %}
@@ -287,24 +286,18 @@
 </div>
 {% endif %}
 
-<!-- Progress overlay — loads the Progress page in an iframe so the therapist
-     never navigates away from the live session (avoids the beforeunload popup). -->
-<div class="modal fade" id="progressModal" tabindex="-1"
-     aria-labelledby="progressModalLabel" aria-modal="true" role="dialog">
-    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content rounded-4 border-0 shadow">
-            <div class="modal-header border-0 pb-0">
-                <h5 class="modal-title fw-bold" id="progressModalLabel">
-                    <i class="bi bi-bar-chart-fill text-primary-green me-2"></i>Progress
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body pt-2">
-                <iframe id="progressFrame" title="Progress"
-                        style="width:100%; height:70vh; border:0; border-radius:0.5rem;"></iframe>
-            </div>
-        </div>
+<!-- Progress — a floating, non-modal window (draggable + resizable) so the live
+     session stays usable behind it. Loads the Progress page in an iframe. -->
+<div class="floating-window" id="progressWindow" hidden role="dialog" aria-label="Progress">
+    <div class="fw-header">
+        <span class="fw-title"><i class="bi bi-bar-chart-fill text-primary-green me-2"></i>Progress</span>
+        <button type="button" class="fw-close" data-fw-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
     </div>
+    <div class="fw-body"><iframe id="progressFrame" title="Progress"></iframe></div>
+    <div class="fw-rs fw-n" data-dir="n"></div><div class="fw-rs fw-s" data-dir="s"></div>
+    <div class="fw-rs fw-e" data-dir="e"></div><div class="fw-rs fw-w" data-dir="w"></div>
+    <div class="fw-rs fw-ne" data-dir="ne"></div><div class="fw-rs fw-nw" data-dir="nw"></div>
+    <div class="fw-rs fw-se" data-dir="se"></div><div class="fw-rs fw-sw" data-dir="sw"></div>
 </div>
 
 {% if is_therapist %}
@@ -373,22 +366,22 @@
 <!-- Content overlay (C): My sessions / About the AI / Privacy / Terms open here
      in an embedded iframe (?embed=1) instead of navigating away — mirrors the
      Progress modal, so the live session keeps running behind it. -->
-<div class="modal fade" id="contentModal" tabindex="-1" aria-labelledby="contentModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title fw-bold" id="contentModalLabel"></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-0">
-                <iframe id="contentFrame" title="" style="width:100%; height:72vh; border:0; border-radius:0 0 .5rem .5rem;"></iframe>
-            </div>
-        </div>
+<div class="floating-window" id="contentWindow" hidden role="dialog" aria-labelledby="contentWindowTitle">
+    <div class="fw-header">
+        <span class="fw-title" id="contentWindowTitle"></span>
+        <button type="button" class="fw-close" data-fw-close aria-label="Close"><i class="bi bi-x-lg"></i></button>
     </div>
+    <div class="fw-body"><iframe id="contentFrame" title=""></iframe></div>
+    <div class="fw-rs fw-n" data-dir="n"></div><div class="fw-rs fw-s" data-dir="s"></div>
+    <div class="fw-rs fw-e" data-dir="e"></div><div class="fw-rs fw-w" data-dir="w"></div>
+    <div class="fw-rs fw-ne" data-dir="ne"></div><div class="fw-rs fw-nw" data-dir="nw"></div>
+    <div class="fw-rs fw-se" data-dir="se"></div><div class="fw-rs fw-sw" data-dir="sw"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<!-- Draggable + resizable floating windows (Progress + content links). -->
+<script src="{{ url_for('static', filename='js/floating-window.js') }}?v=2026-07-25-a"></script>
 <!-- Graceful leave (A): intercept Home / Sign out to confirm before leaving. -->
 <script>
 (function () {
@@ -414,15 +407,14 @@
     }
 })();
 
-// Content overlay (C): open My sessions / About the AI / Privacy / Terms in a
-// modal iframe instead of navigating away, so the live session keeps running.
+// Content window (C): open My sessions / About the AI / Privacy / Terms in a
+// floating, draggable + resizable window instead of navigating away, so the
+// live session keeps running (and stays usable) behind it.
 (function () {
-    var modalEl = document.getElementById("contentModal");
-    if (!modalEl || !window.bootstrap) return;
-    var modal = new bootstrap.Modal(modalEl);
+    var win = document.getElementById("contentWindow");
+    if (!win || !window.FloatingWindow) return;
     var frame = document.getElementById("contentFrame");
-    var label = document.getElementById("contentModalLabel");
-    // link href -> modal title
+    var label = document.getElementById("contentWindowTitle");
     var TITLES = {
         "/therapist": "My sessions",
         "/me/sessions": "Your sessions",
@@ -441,12 +433,10 @@
                 var sep = h.indexOf("?") === -1 ? "?" : "&";
                 frame.src = h + sep + "embed=1" + hash;
                 label.textContent = TITLES[a.getAttribute("href")] || "";
-                modal.show();
+                window.FloatingWindow.open(win);
             });
         });
     });
-    // Stop the iframe when closed so it isn't running in the background.
-    modalEl.addEventListener("hidden.bs.modal", function () { frame.src = "about:blank"; });
 })();
 </script>
 {% if recording_enabled %}
@@ -474,20 +464,19 @@
         if (el && !el.textContent.trim()) { el.textContent = DISPLAY_ID; }
     })();
 
-    // Progress modal: load the embedded Progress page only when opened, and
-    // unload it on close so it isn't running in the background mid-session.
+    // Progress: open the embedded Progress page in a floating window; the
+    // iframe loads on open and is cleared on close (handled by FloatingWindow).
     (function () {
-        var modalEl = document.getElementById("progressModal");
-        var frame   = document.getElementById("progressFrame");
-        if (!modalEl || !frame) return;
-        modalEl.addEventListener("shown.bs.modal", function () {
+        var btn   = document.getElementById("progressBtn");
+        var win   = document.getElementById("progressWindow");
+        var frame = document.getElementById("progressFrame");
+        if (!btn || !win || !frame || !window.FloatingWindow) return;
+        btn.addEventListener("click", function () {
             if (!frame.getAttribute("src")) {
                 frame.src = "/progress/" + encodeURIComponent(USER_ID) + "/" +
                             encodeURIComponent(MODE) + "?embed=1";
             }
-        });
-        modalEl.addEventListener("hidden.bs.modal", function () {
-            frame.removeAttribute("src");
+            window.FloatingWindow.open(win);
         });
     })();
 
