@@ -675,8 +675,11 @@
 </script>
 
 {% if rtc_enabled %}
-<!-- Realtime conferencing (Phase 1): LiveKit audio + AssemblyAI streaming STT -->
-<script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+<!-- Realtime conferencing (Phase 1): LiveKit audio + AssemblyAI streaming STT.
+     Self-hosted (see static/vendor/) so a blocked CDN can't kill the RTC layer.
+     Note: the background-blur track-processors are still a runtime dynamic import
+     from esm.sh (CSP-allowed), not a jsDelivr asset. -->
+<script src="{{ url_for('static', filename='vendor/livekit-client.umd.min.js') }}"></script>
 <script nonce="{{ csp_nonce }}">
 (function () {
     var joinBtn = document.getElementById("rtcJoinBtn");

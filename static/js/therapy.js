@@ -139,6 +139,24 @@ var _currentDisplayName = null;
 function joinRoom(sessionId, userId, mode, soloMode) {
     _currentUserId = userId;
 
+    // If the Socket.IO client failed to load, `io` is undefined. Fail SAFE, not
+    // fatal: show the user a clear message and return, instead of letting the
+    // `io(...)` call below throw — a throw here aborts the page's load handler and
+    // silently kills everything wired after joinRoom (heartbeat, recording
+    // controls, the session-name and display-name buttons). Self-hosting the
+    // script (static/vendor/socket.io.min.js) is the real fix; this is the guard.
+    if (typeof io === "undefined") {
+        console.error("Socket.IO client (io) is not loaded — cannot connect to the session.");
+        var _es = document.getElementById("emptyState");
+        if (_es) {
+            _es.innerHTML =
+                '<i class="bi bi-wifi-off display-4 text-danger opacity-75"></i>' +
+                '<p class="mt-3">Couldn’t connect to the session. Please reload the page. ' +
+                'If it keeps happening, disable any ad or script blocker for this site.</p>';
+        }
+        return;
+    }
+
     // Use polling only. Cloud Run is capped at max-instances=1 so all
     // Socket.IO sessions share the same instance — no cross-instance room
     // problem. WebSocket upgrade is skipped: werkzeug (dev) crashes on it

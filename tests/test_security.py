@@ -529,3 +529,72 @@ class TestValidateConfigEncryptionKey:
             import config as cfg
             importlib.reload(cfg)
             cfg.validate_config()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Self-hosted front-end assets.
+#
+# Critical scripts (Socket.IO, Bootstrap, Chart.js, LiveKit) MUST be served
+# same-origin from /static/vendor/, never from a third-party CDN. Real clients
+# run Brave Shields / ad blockers / corporate proxies that block those CDNs; when
+# cdn.socket.io was blocked, `io` was undefined, joinRoom() threw, and the entire
+# live-session console (heartbeat, recording, session-name + display-name buttons)
+# was silently dead. These tests would have caught that regression.
+# ---------------------------------------------------------------------------
+import glob
+
+_ROOT = os.path.dirname(os.path.dirname(__file__))
+_VENDOR = os.path.join(_ROOT, "static", "vendor")
+_TEMPLATES = os.path.join(_ROOT, "templates")
+_BLOCKED_CDN_HOSTS = ("cdn.socket.io", "cdn.jsdelivr.net")
+_VENDORED_FILES = (
+    "socket.io.min.js",
+    "bootstrap/bootstrap.bundle.min.js",
+    "bootstrap/bootstrap.min.css",
+    "bootstrap-icons/bootstrap-icons.min.css",
+    "bootstrap-icons/fonts/bootstrap-icons.woff2",
+    "bootstrap-icons/fonts/bootstrap-icons.woff",
+    "chart.umd.min.js",
+    "livekit-client.umd.min.js",
+)
+
+
+class TestSelfHostedAssets:
+    def test_rendered_page_uses_local_vendor_not_cdn(self, enc_client):
+        """A page extending base.html must load its scripts from /static/vendor/
+        and reference no blocked third-party CDN host."""
+        html = enc_client.get("/login").get_data(as_text=True)
+        assert "vendor/socket.io.min.js" in html
+        assert "vendor/bootstrap/bootstrap.bundle.min.js" in html
+        assert "vendor/chart.umd.min.js" in html
+        assert "vendor/bootstrap/bootstrap.min.css" in html
+        assert "vendor/bootstrap-icons/bootstrap-icons.min.css" in html
+        for host in _BLOCKED_CDN_HOSTS:
+            assert host not in html, f"{host} still referenced in the rendered /login page"
+
+    def test_no_template_loads_from_a_blocked_cdn(self):
+        """No HTML template may reference a blocked CDN host (src/href or otherwise)."""
+        offenders = []
+        for path in glob.glob(os.path.join(_TEMPLATES, "*.html")):
+            text = open(path, encoding="utf-8").read()
+            for host in _BLOCKED_CDN_HOSTS:
+                if host in text:
+                    offenders.append(f"{os.path.basename(path)} -> {host}")
+        assert not offenders, "Blocked CDN hosts referenced in templates: " + ", ".join(offenders)
+
+    def test_vendored_files_present(self):
+        """Every self-hosted asset must exist on disk and be non-trivial in size,
+        so a missing/empty vendor file fails CI instead of the browser."""
+        for rel in _VENDORED_FILES:
+            p = os.path.join(_VENDOR, rel)
+            assert os.path.isfile(p), f"missing vendored asset: static/vendor/{rel}"
+            assert os.path.getsize(p) > 1000, f"vendored asset looks truncated: static/vendor/{rel}"
+
+    def test_icons_css_fonts_are_local(self):
+        """Bootstrap-icons CSS must reference its fonts by relative path (resolves
+        same-origin), not a CDN URL."""
+        css = open(os.path.join(_VENDOR, "bootstrap-icons", "bootstrap-icons.min.css"),
+                   encoding="utf-8").read()
+        assert "fonts/bootstrap-icons.woff2" in css
+        for host in _BLOCKED_CDN_HOSTS:
+            assert host not in css
