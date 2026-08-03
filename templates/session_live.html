@@ -48,13 +48,14 @@
                 </button>
                 {% endif %}
                 {% if rtc_enabled %}
-                <!-- For clients the chat pane starts collapsed (video full-width); this
-                     toggle opens it. The clinician keeps the side-by-side view. -->
+                <!-- Shows/hides the chat (conversation text) pane so video can go
+                     full-width. Action label: "Hide Chat" when the pane is shown,
+                     "Show Chat" when hidden. Clients start collapsed; clinician open. -->
                 <button type="button" id="transcriptToggleBtn"
                         class="btn btn-outline-green btn-sm rounded-pill{% if not is_therapist %} active{% endif %}"
-                        title="{% if is_therapist %}Hide transcript{% else %}Show transcript{% endif %}"
+                        title="{% if is_therapist %}Hide the chat pane (full-width video){% else %}Show the chat pane{% endif %}"
                         aria-pressed="{% if is_therapist %}false{% else %}true{% endif %}">
-                    <i class="bi bi-card-text"></i><span class="d-none d-md-inline ms-1">Transcript</span>
+                    <i class="bi bi-card-text"></i><span class="d-none d-md-inline ms-1">{% if is_therapist %}Hide Chat{% else %}Show Chat{% endif %}</span>
                 </button>
                 {% endif %}
                 <button type="button" id="progressBtn"
@@ -1072,8 +1073,9 @@
     dv.addEventListener("pointercancel", endResize);
 })();
 
-// Transcript toggle — hide/show the chat pane so the video can go full-width.
-// The button lives in the header (always visible), so it can toggle back.
+// Show/Hide Chat toggle — hide/show the chat (conversation text) pane so the video
+// can go full-width. Action label flips: "Show Chat" when hidden, "Hide Chat" when
+// shown. The button lives in the header (always visible), so it can toggle back.
 (function () {
     var btn  = document.getElementById("transcriptToggleBtn");
     var work = document.querySelector(".session-work");
@@ -1082,7 +1084,9 @@
         var hidden = work.classList.toggle("chat-hidden");
         btn.classList.toggle("active", hidden);
         btn.setAttribute("aria-pressed", hidden ? "true" : "false");
-        btn.title = hidden ? "Show transcript" : "Hide transcript";
+        btn.title = hidden ? "Show the chat pane" : "Hide the chat pane (full-width video)";
+        var lbl = btn.querySelector("span");
+        if (lbl) { lbl.textContent = hidden ? "Show Chat" : "Hide Chat"; }
     });
 })();
 </script>
