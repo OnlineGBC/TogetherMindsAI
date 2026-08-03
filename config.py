@@ -160,6 +160,13 @@ ASSEMBLYAI_API_KEY: str = os.environ.get("ASSEMBLYAI_API_KEY", "")
 # True when both the audio (LiveKit) and STT (AssemblyAI) backends are configured.
 RTC_ENABLED: bool = bool(LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET and ASSEMBLYAI_API_KEY)
 
+# Live transcription (AssemblyAI STT) is a per-session, therapist-controlled feature
+# that defaults OFF in every session — the clinician turns it on from the session
+# menu. This master flag governs whether the feature (and its therapist toggle) is
+# available at all; set it false to remove transcription everywhere (e.g. while the
+# STT path is being hardened). Only has effect when RTC_ENABLED is also true.
+TRANSCRIPTION_ENABLED: bool = os.environ.get("TRANSCRIPTION_ENABLED", "true").lower() in ("1", "true", "yes")
+
 # ---------------------------------------------------------------------------
 # Session recording (Phase 4 — optional paid A/V recording). OFF by default.
 # When enabled, recordings are made by the self-hosted LiveKit Egress service and

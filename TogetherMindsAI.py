@@ -319,6 +319,11 @@ session_copilot_emit_counter: dict = {}  # session_id → throttle counter used 
 session_crisis_seen: set = set()   # session_ids where a crisis was ever detected
 session_crisis_ack: set  = set()   # session_ids the therapist marked "handled — stand down"
 
+# Live transcription (AssemblyAI STT) — therapist-controlled, per session, DEFAULT
+# OFF. Absence of a key = off; the clinician flips it from the session menu, and the
+# new state is broadcast so clients update. Ephemeral (resets to off on restart).
+session_transcription_on: dict = {}                     # session_id → bool
+
 # Phase 4 recording consent state — ephemeral, reset on restart.
 session_recording_requested: dict = {}                  # session_id → bool (therapist wants to record)
 session_recording_consent: dict   = defaultdict(dict)   # session_id → {user_id: bool}
@@ -1435,6 +1440,7 @@ def _render_session_room(session_id, mode):
         is_therapist=is_therapist,
         is_therapist_led=bool(ts and ts.therapist_id),
         rtc_enabled=config.RTC_ENABLED,
+        transcription_enabled=config.TRANSCRIPTION_ENABLED,
         recording_enabled=config.RECORDING_ENABLED,
         in_live_session=True,   # navbar/footer: open other links in a new tab (C),
                                 # and Home/Sign out get a leave-confirm modal (A)
@@ -1704,6 +1710,7 @@ def session_consent_get(session_id):
     states = sorted(US_STATES.items(), key=lambda kv: kv[1])
     countries = sorted(COUNTRIES.items(), key=lambda kv: kv[1])
     return render_template("consent_gate.html", session_id=session_id, mode=ts.mode,
+                           transcription_enabled=config.TRANSCRIPTION_ENABLED,
                            states=states, countries=countries)
 
 
@@ -3468,6 +3475,10 @@ def on_join(data):
             _evaluate_recording(session_id)
         _emit_recording_state(session_id)
 
+        # Live transcription is per-session, default off — sync current state to the
+        # newcomer so its UI + consent copy match (only the clinician can change it).
+        emit("transcription_state", {"on": bool(session_transcription_on.get(session_id))})
+
         # Sync the shared session friendly name to this newcomer (silent — no popup).
         _fn = (ts.friendly_name if ts else None) or session_friendly_name.get(session_id)
         if _fn:
@@ -3767,6 +3778,27 @@ def _evaluate_recording(session_id: str) -> None:
     except Exception as e:
         db.session.rollback()
         app.logger.error("recording evaluate error: %s", type(e).__name__)
+
+
+@socketio.on("set_transcription")
+def on_set_transcription(data):
+    """Clinician turns live transcription on/off for the whole session.
+
+    Default is OFF (absence of state). Only the session's own clinician may flip it;
+    the new state is broadcast so every client updates its UI + consent copy and any
+    running speech-to-text stops when it goes off. No-op unless the feature is
+    available (TRANSCRIPTION_ENABLED) and RTC is configured."""
+    session_id = data.get("session_id", "")
+    user_id    = _socket_user_id()
+    if not (config.TRANSCRIPTION_ENABLED and config.RTC_ENABLED):
+        return
+    if not user_id or session_therapist_id.get(session_id) != user_id:
+        return   # only the session's clinician may toggle transcription
+    on = bool(data.get("on"))
+    session_transcription_on[session_id] = on
+    log_event("transcription_" + ("enabled" if on else "disabled"),
+              session_id=session_id, user_id=user_id)
+    socketio.emit("transcription_state", {"on": on}, to=session_id)
 
 
 @socketio.on("recording_request")

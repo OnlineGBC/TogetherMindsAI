@@ -37,6 +37,16 @@
                     </ul>
                 </div>
                 {% endif %}
+                {% if is_therapist and rtc_enabled and transcription_enabled %}
+                <!-- Therapist-only: turn live transcription on/off for the WHOLE session.
+                     Default off; clients follow via the transcription_state socket event. -->
+                <button type="button" id="txToggleBtn"
+                        class="btn btn-outline-green btn-sm rounded-pill"
+                        title="Live transcription is off — tap to turn it on for everyone"
+                        aria-pressed="false">
+                    <i class="bi bi-badge-cc"></i><span class="d-none d-md-inline ms-1">Transcription: Off</span>
+                </button>
+                {% endif %}
                 {% if rtc_enabled %}
                 <!-- For clients the chat pane starts collapsed (video full-width); this
                      toggle opens it. The clinician keeps the side-by-side view. -->
@@ -102,9 +112,13 @@
             <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn" title="Tap to turn your camera on">
                 <i class="bi bi-camera-video-off-fill"></i> Camera off
             </button>
-            <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcSttBtn" title="Transcription is off — tap to turn it on">
+            {% if transcription_enabled %}
+            <!-- Per-participant transcription pill — hidden until the clinician turns
+                 on live transcription for the session (JS reveals it on that event). -->
+            <button class="btn btn-sm btn-outline-secondary rounded-pill d-none" id="rtcSttBtn" title="Transcription is off — tap to turn it on">
                 <i class="bi bi-badge-cc"></i> Transcription off
             </button>
+            {% endif %}
             {% endif %}
             {% if recording_enabled %}
             <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
@@ -170,27 +184,45 @@
                         <div class="d-flex align-items-start gap-2">
                             <i class="bi bi-mic-fill text-primary-green fs-5 mt-1"></i>
                             <div class="small">
-                                <strong>Join audio &amp; live transcription.</strong>
-                                Your microphone is shared with others in this session. Your speech is
-                                <strong>transcribed to text by an automated (AI) service</strong>, and that
-                                text becomes part of the session transcript — your clinician's confidential
-                                record. Your session is <strong>not recorded by default</strong> — only the
-                                text is kept. Recording the audio/video is a separate, optional feature that
-                                stays off unless <strong>every participant consents</strong>, and anyone can
-                                decline or stop it at any time. If a session is recorded, the
-                                audio/video recording is kept for <strong>30 days</strong> and then
-                                permanently deleted; the written transcript is kept as the clinical
-                                record for <strong>up to 6 years</strong>.
-                                This session is also supported by a private <strong>AI co-pilot</strong> that
-                                assists your clinician; it does not replace their professional judgment.
-                                Speech and text are handled by our service providers under signed HIPAA
-                                agreements — see our <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.
-                                By joining, you <strong>consent to live AI transcription</strong> as described;
-                                you may decline by not joining audio.
+                                <!-- Shown when the clinician has live transcription ON for this
+                                     session. JS (transcription_state) picks which copy is visible. -->
+                                <div id="consentCopyOn" class="d-none">
+                                    <strong>Join audio &amp; live transcription.</strong>
+                                    Your microphone is shared with others in this session. Your speech is
+                                    <strong>transcribed to text by an automated (AI) service</strong>, and that
+                                    text becomes part of the session transcript — your clinician's confidential
+                                    record. Your session is <strong>not recorded by default</strong> — only the
+                                    text is kept. Recording the audio/video is a separate, optional feature that
+                                    stays off unless <strong>every participant consents</strong>, and anyone can
+                                    decline or stop it at any time. If a session is recorded, the
+                                    audio/video recording is kept for <strong>30 days</strong> and then
+                                    permanently deleted; the written transcript is kept as the clinical
+                                    record for <strong>up to 6 years</strong>.
+                                    This session is also supported by a private <strong>AI co-pilot</strong> that
+                                    assists your clinician; it does not replace their professional judgment.
+                                    Speech and text are handled by our service providers under signed HIPAA
+                                    agreements — see our <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.
+                                    By joining, you <strong>consent to live AI transcription</strong> as described;
+                                    you may decline by not joining audio.
+                                </div>
+                                <!-- Shown when transcription is OFF (the default). No transcription is
+                                     claimed; if the clinician later turns it on, you are told and choose. -->
+                                <div id="consentCopyOff">
+                                    <strong>Join audio.</strong>
+                                    Your microphone is shared with others in this session so they can hear you.
+                                    Your speech is <strong>not transcribed</strong> and the session is
+                                    <strong>not recorded</strong> unless your clinician turns those on — you
+                                    will be told, and you can decline (by not turning on your own transcription,
+                                    or by leaving audio). Recording the audio/video is a separate, optional
+                                    feature that stays off unless <strong>every participant consents</strong>.
+                                    This session is supported by a private <strong>AI co-pilot</strong> that
+                                    assists your clinician; it does not replace their professional judgment.
+                                    See our <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.
+                                </div>
                             </div>
                         </div>
                         <button class="btn btn-primary-green rounded-3 mt-2" id="rtcJoinBtn">
-                            <i class="bi bi-mic-fill me-2"></i>Join audio &amp; transcription
+                            <i class="bi bi-mic-fill me-2"></i><span id="rtcJoinBtnLabel">Join audio</span>
                         </button>
                     </div>
                     <div id="rtcLive" class="d-none flex-column flex-grow-1">
@@ -213,8 +245,12 @@
                             {% if not is_therapist %}<button class="btn btn-sm btn-outline-danger rounded-pill" id="rtcLeaveBtn"><i class="bi bi-box-arrow-right"></i> Leave</button>{% endif %}
                         </div>
                         <div id="rtcVideoGrid" class="mb-2 flex-grow-1"></div>
-                        <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
-                        <div id="rtcCaptions" class="border rounded-3 p-2 small bg-light" style="min-height:2.5rem">…</div>
+                        <!-- Live captions — only meaningful when the clinician has turned on
+                             transcription for the session; JS shows/hides this block. -->
+                        <div id="rtcCaptionsWrap" class="d-none">
+                            <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
+                            <div id="rtcCaptions" class="border rounded-3 p-2 small bg-light" style="min-height:2.5rem">…</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -692,6 +728,9 @@
     var muteBtn = document.getElementById("rtcMuteBtn");
     var camBtn  = document.getElementById("rtcCamBtn");
     var lkRoom = null, sttWS = null, audioCtx = null, micStream = null, processor = null, srcNode = null, muted = false, sttEnabled = true;
+    // Session-level transcription state (therapist-controlled, default OFF). Updated by
+    // the `transcription_state` socket event via window._tmTranscription.apply below.
+    var _txOn = false;
 
     function setStatus(t, cls) { statusEl.textContent = t; statusEl.className = "badge " + (cls || "bg-secondary"); }
     function isJoined() { return !!lkRoom; }
@@ -749,6 +788,36 @@
         if (!isJoined()) { joinThen(); } else { setStt(!sttEnabled); }
     }); }
 
+    // Apply the session-level transcription state (from the clinician's toggle).
+    // Reveals/hides the transcription pill, captions, and swaps the join-panel
+    // consent copy so it always matches whether transcription can occur. Turning it
+    // OFF stops any speech-to-text already running.
+    var txBtn        = document.getElementById("txToggleBtn");      // therapist-only
+    var captionsWrap = document.getElementById("rtcCaptionsWrap");
+    var consentOn    = document.getElementById("consentCopyOn");
+    var consentOff   = document.getElementById("consentCopyOff");
+    var joinLabel    = document.getElementById("rtcJoinBtnLabel");
+    function applyTranscription(on) {
+        _txOn = !!on;
+        if (sttBtn)      sttBtn.classList.toggle("d-none", !_txOn);
+        if (captionsWrap) captionsWrap.classList.toggle("d-none", !_txOn);
+        if (consentOn)   consentOn.classList.toggle("d-none", !_txOn);
+        if (consentOff)  consentOff.classList.toggle("d-none", _txOn);
+        if (joinLabel)   joinLabel.textContent = _txOn ? "Join audio & transcription" : "Join audio";
+        if (txBtn) {
+            txBtn.setAttribute("aria-pressed", _txOn ? "true" : "false");
+            txBtn.className = "btn btn-sm rounded-pill " + (_txOn ? "btn-warning text-dark" : "btn-outline-green");
+            txBtn.title = _txOn ? "Live transcription is on for everyone — tap to turn it off"
+                                : "Live transcription is off — tap to turn it on for everyone";
+            var lbl = txBtn.querySelector("span");
+            if (lbl) lbl.textContent = "Transcription: " + (_txOn ? "On" : "Off");
+        }
+        // If transcription just went off while our STT was running, stop it.
+        if (!_txOn && isJoined() && sttEnabled) { setStt(false); }
+    }
+    // Exposed so the socket layer (therapy.js) can push state changes in.
+    window._tmTranscription = { apply: applyTranscription };
+
     async function joinAudio() {
         document.getElementById("rtcConsent").classList.add("d-none");
         document.getElementById("rtcLive").classList.remove("d-none");
@@ -786,11 +855,17 @@
         await lkRoom.localParticipant.publishTrack(micStream.getAudioTracks()[0], { source: LivekitClient.Track.Source.Microphone });
         setStatus("live", "bg-success");
 
-        // 2) AssemblyAI streaming STT (in-browser)
-        sttEnabled = true;
+        // 2) AssemblyAI streaming STT (in-browser) — ONLY if the clinician has turned
+        //    live transcription on for this session (default off). Joining audio with
+        //    transcription on is the client's consent point (see the join panel copy).
         muted = false;
-        startSTT();
-        setSttIndicator(true);
+        if (_txOn) {
+            sttEnabled = true;
+            startSTT();
+            setSttIndicator(true);
+        } else {
+            sttEnabled = false;
+        }
         updateMicPill();
         updateCamPill();
     }
