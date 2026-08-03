@@ -128,8 +128,10 @@ steps:
       # Subscription billing (Phase 4 Step 4 — Stripe) + A/V recording (Phase 4).
       # Plain env vars (not secrets): flip BILLING_ENABLED=false to restore full
       # access; RECORDING_ENABLED gates the Premium recording feature.
+      # TRANSCRIPTION_ENABLED makes live transcription AVAILABLE (the therapist
+      # toggle); it still defaults OFF per session. Set false to remove it entirely.
       - --set-env-vars
-      - BILLING_ENABLED=false,RECORDING_ENABLED=true
+      - BILLING_ENABLED=false,RECORDING_ENABLED=true,TRANSCRIPTION_ENABLED=true
       # Stripe secrets PINNED to :1 = TEST keys, so deploys stay in Stripe test
       # mode. AT GO-LIVE: change these four to :2 (the live versions) — or :latest —
       # and redeploy to switch to live keys.
