@@ -691,7 +691,7 @@
     var sttBtn  = document.getElementById("rtcSttBtn");
     var muteBtn = document.getElementById("rtcMuteBtn");
     var camBtn  = document.getElementById("rtcCamBtn");
-    var lkRoom = null, sttWS = null, audioCtx = null, micStream = null, processor = null, srcNode = null, muted = false, sttEnabled = true;
+    var lkRoom = null, sttWS = null, audioCtx = null, micStream = null, micAudioTrack = null, processor = null, srcNode = null, muted = false, sttEnabled = true;
 
     function setStatus(t, cls) { statusEl.textContent = t; statusEl.className = "badge " + (cls || "bg-secondary"); }
     function isJoined() { return !!lkRoom; }
@@ -703,14 +703,28 @@
         btn.className  = "btn btn-sm rounded-pill " + (on ? onClass : "btn-outline-secondary");
         btn.title      = on ? onTitle : offTitle;
     }
+    // --- Mic truthfulness: read the REAL microphone track, not a local flag, so the
+    // pill can never claim "on" after the phone OS mutes or ends the mic (app-switch,
+    // screen lock, incoming call). `enabled` is OUR mute; `muted`/`ended` are the OS's. ---
+    function _micTrackAlive() { return !!micAudioTrack && micAudioTrack.readyState === "live"; }
+    function _micOsMuted()    { return !!micAudioTrack && micAudioTrack.muted === true; }
+    function _micLive()       { return _micTrackAlive() && !micAudioTrack.muted && micAudioTrack.enabled; }
+    function _watchMicTrack(track) {
+        if (!track) { return; }
+        // These fire without any user action when the OS mutes/unmutes/ends the mic,
+        // so the pill self-corrects to reality.
+        track.addEventListener("mute",   updateMicPill);
+        track.addEventListener("unmute", updateMicPill);
+        track.addEventListener("ended",  updateMicPill);
+    }
     function updateMicPill() {
-        var on = isJoined() && !muted;
+        var on = isJoined() && _micLive();
         setPill(muteBtn, on,
             '<i class="bi bi-mic-fill"></i> Mic on',
             '<i class="bi bi-mic-mute-fill"></i> Mic off',
             "btn-success",
             "Others can hear you — tap to mute",
-            isJoined() ? "You are muted — tap to unmute"
+            isJoined() ? "Your mic is off — tap to turn it on"
                        : "Tap to join audio so others can hear you");
     }
     function updateCamPill() {
@@ -783,7 +797,9 @@
         micStream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
-        await lkRoom.localParticipant.publishTrack(micStream.getAudioTracks()[0], { source: LivekitClient.Track.Source.Microphone });
+        micAudioTrack = micStream.getAudioTracks()[0];
+        _watchMicTrack(micAudioTrack);
+        await lkRoom.localParticipant.publishTrack(micAudioTrack, { source: LivekitClient.Track.Source.Microphone });
         setStatus("live", "bg-success");
 
         // 2) AssemblyAI streaming STT (in-browser)
@@ -849,11 +865,41 @@
         try { if (camTrack) camTrack.stop(); } catch (e) {}
         try { if (lkRoom) lkRoom.disconnect(); } catch (e) {}
         if (videoGrid) videoGrid.innerHTML = "";
-        micStream = camTrack = lkRoom = null;
+        micStream = micAudioTrack = camTrack = lkRoom = null;
         sttEnabled = false; muted = false;
         setSttIndicator(false); updateMicPill(); updateCamPill();
         document.getElementById("rtcLive").classList.add("d-none");
         document.getElementById("rtcConsent").classList.remove("d-none");
+    }
+
+    // Re-acquire the microphone after the OS ended/interrupted it (common on mobile
+    // after an app-switch or screen-lock). Gets a fresh mic, swaps it into the live
+    // call and the transcription graph, and honours the user's current mute intent.
+    // Never throws into the caller — on failure the mic simply stays off (honest pill).
+    async function recoverMic() {
+        if (!isJoined()) { return; }
+        try {
+            var fresh = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+            });
+            var newTrack = fresh.getAudioTracks()[0];
+            // Swap the published track on the call.
+            try { if (micAudioTrack) { await lkRoom.localParticipant.unpublishTrack(micAudioTrack); } } catch (e) {}
+            try { if (micStream) { micStream.getTracks().forEach(function (t) { t.stop(); }); } } catch (e) {}
+            await lkRoom.localParticipant.publishTrack(newTrack, { source: LivekitClient.Track.Source.Microphone });
+            micStream = fresh;
+            micAudioTrack = newTrack;
+            _watchMicTrack(micAudioTrack);
+            try { micAudioTrack.enabled = !muted; } catch (e) {}
+            // Re-point the transcription audio graph at the new stream, if STT is up.
+            if (audioCtx && processor) {
+                try { if (srcNode) { srcNode.disconnect(); } } catch (e) {}
+                try { srcNode = audioCtx.createMediaStreamSource(micStream); srcNode.connect(processor); } catch (e) {}
+            }
+        } catch (e) {
+            console.error("mic recovery failed", e);
+        }
+        updateMicPill();
     }
 
     // ---- Phase 2: video + background (blur / preset / upload) ----
@@ -947,13 +993,30 @@
     if (muteBtn) muteBtn.addEventListener("click", function () {
         // Not joined yet → tapping Mic joins audio (turns your mic on).
         if (!isJoined()) { joinThen(); return; }
+        // Mic isn't truly live (OS ended or interrupted it) → re-acquire on tap rather
+        // than toggling a dead/blocked track. Recovery comes back live and unmuted.
+        if (!_micTrackAlive() || _micOsMuted()) { muted = false; recoverMic(); return; }
+        // Otherwise a normal mute/unmute on a live track.
         muted = !muted;
-        if (micStream) micStream.getAudioTracks().forEach(function (t) { t.enabled = !muted; });
+        try { if (micAudioTrack) { micAudioTrack.enabled = !muted; } } catch (e) {}
         updateMicPill();
     });
     var rtcLeaveBtn = document.getElementById("rtcLeaveBtn");   // absent for the therapist
     if (rtcLeaveBtn) { rtcLeaveBtn.addEventListener("click", leaveAudio); }
     window.addEventListener("beforeunload", leaveAudio);
+
+    // Mobile suspends media when the tab is backgrounded (app-switch, screen-lock).
+    // On return: revive the (suspended) audio context so transcription resumes, and
+    // if the OS ended/interrupted the mic while we intended it on, re-acquire it —
+    // so the mic self-heals and the pill reflects reality without a reload.
+    function onForeground() {
+        if (document.visibilityState !== "visible" || !isJoined()) { return; }
+        if (audioCtx && audioCtx.state === "suspended") { audioCtx.resume().catch(function () {}); }
+        if (!muted && (!_micTrackAlive() || _micOsMuted())) { recoverMic(); }
+        else { updateMicPill(); }
+    }
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("pageshow", onForeground);
 
     // Initial strip state — nothing joined yet, so everything reads "off".
     updateMicPill(); updateCamPill(); setSttIndicator(false);
