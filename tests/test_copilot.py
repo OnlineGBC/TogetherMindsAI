@@ -308,6 +308,24 @@ def test_no_ai_autoreply_in_therapist_led(enc_client):
     assert all(m["user_id"] != "AI" for m in c_new)
 
 
+def test_therapist_hello_broadcasts_to_room(enc_client):
+    """A therapist can send a chat message and it reaches everyone in the room.
+
+    This is the live message path that clears the chat's "Connecting…" placeholder
+    once the first message arrives — confirms the connection is functional even
+    though an empty session's placeholder text initially reads like it is still
+    connecting."""
+    t_sio, c_sio, sid, client_user = _join_pair(enc_client)
+
+    with patch("copilot.generate_suggestions", return_value=[]):
+        t_sio.emit("send_message", {"session_id": sid, "text": "hello", "mode": "couple"})
+
+    t_new = _args_of(t_sio.get_received(), "new_message")
+    c_new = _args_of(c_sio.get_received(), "new_message")
+    assert any(m.get("text") == "hello" for m in t_new), "therapist should see their own message"
+    assert any(m.get("text") == "hello" for m in c_new), "client should receive the message"
+
+
 def test_crisis_alerts_therapist_only_no_client_transcript_message(enc_client):
     t_sio, c_sio, sid, client_user = _join_pair(enc_client)
 

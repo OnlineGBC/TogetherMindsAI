@@ -197,6 +197,13 @@ function joinRoom(sessionId, userId, mode, soloMode) {
             // The send button starts disabled in the HTML so no one can speak
             // before the AI co-pilot has opened the session.
             _hideSendSpinner();
+        } else {
+            // Connected and joined, but no messages yet — update the placeholder so
+            // it no longer reads "Connecting…" (which looks like a failed connection).
+            // It is removed entirely when the first message arrives (new_message).
+            var _es = document.getElementById("emptyState");
+            var _p  = _es && _es.querySelector("p");
+            if (_p) { _p.textContent = "Connected — messages will appear here as the session begins."; }
         }
         scrollToBottom(chatBox);
 
