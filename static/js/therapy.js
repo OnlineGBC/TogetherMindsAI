@@ -197,13 +197,6 @@ function joinRoom(sessionId, userId, mode, soloMode) {
             // The send button starts disabled in the HTML so no one can speak
             // before the AI co-pilot has opened the session.
             _hideSendSpinner();
-        } else {
-            // Connected and joined, but no messages yet — update the placeholder so
-            // it no longer reads "Connecting…" (which looks like a failed connection).
-            // It is removed entirely when the first message arrives (new_message).
-            var _es = document.getElementById("emptyState");
-            var _p  = _es && _es.querySelector("p");
-            if (_p) { _p.textContent = "Connected — messages will appear here as the session begins."; }
         }
         scrollToBottom(chatBox);
 
@@ -774,27 +767,9 @@ function initSessionControls(sessionId, userId, isTherapist) {
                 if (socket) socket.emit("set_friendly_name", { session_id: sessionId, user_id: userId, name: name });
             });
         }
-
-        // Therapist-only: toggle live transcription for the whole session (default
-        // off). No optimistic update — the UI follows the transcription_state echo
-        // below, so the therapist button and every client stay in lock-step.
-        var txBtn = document.getElementById("txToggleBtn");
-        if (txBtn) {
-            txBtn.addEventListener("click", function () {
-                var turnOn = txBtn.getAttribute("aria-pressed") !== "true";
-                if (socket) socket.emit("set_transcription", { session_id: sessionId, on: turnOn });
-            });
-        }
     }
 
     if (!socket) return;
-
-    // Session-level transcription state (clinician-controlled). Push it into the RTC
-    // layer, which reveals/hides the pill + captions and swaps the consent copy.
-    socket.on("transcription_state", function (data) {
-        var on = !!(data && data.on);
-        if (window._tmTranscription) { window._tmTranscription.apply(on); }
-    });
 
     var fnModalEl = document.getElementById("friendlyNameModal");
 
