@@ -454,6 +454,23 @@ def test_recording_email_has_three_token_links(enc_client):
     assert sid not in plain.split("Session:")[0]           # no session id in the links
 
 
+def test_recording_email_wording_and_retention_bullets(enc_client):
+    """Both the 'ready' and 'reminder' emails use audio/video wording and carry the
+    retention/download guidance bullets (video expires; transcript kept 6 years)."""
+    with app.app_context():
+        sid = _seed("ther-1"); _seed_recording(sid, token="tokA")
+        row = SessionRecording.query.filter_by(session_id=sid).first()
+        for kind in ("ready", "reminder"):
+            subject, plain, html = tm._recording_email_content(row, kind)
+            assert "audio/video" in subject                       # renamed from "recording"
+            for body in (plain, html):
+                assert "download both the video and the transcript" in body
+                assert "retained for six years" in body
+                assert "prevailing US law" in body
+                assert "cannot be recovered" in body
+            assert "<ul" in html and "<li>" in html               # rendered as bullets
+
+
 def test_end_session_stops_active_recording_then_emails_recording(enc_client):
     # Ending a session (over HTTP) with a recording running stops egress and emails
     # the RECORDING (once, on end), not the transcript-only email.

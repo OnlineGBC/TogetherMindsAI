@@ -2803,16 +2803,29 @@ def _recording_email_content(row, kind: str):
     expires = row.retention_expires_at
     expires_str = expires.strftime("%d %b %Y") if expires else "30 days from recording"
     if kind == "reminder":
-        subject = "TogetherMindsAI — your session recording is deleted tomorrow"
-        lead = ("This is a final reminder: the session recording below is scheduled to be "
+        subject = "TogetherMindsAI — your session audio/video is deleted tomorrow"
+        lead = ("This is a final reminder: the session audio/video below is scheduled to be "
                 f"permanently deleted on {expires_str}. Download it now if you still need it.")
     else:
-        subject = "TogetherMindsAI — your session recording is ready"
-        lead = ("Your session recording is ready to download. For privacy it is kept for "
-                f"{RECORDING_RETENTION_DAYS} days and then permanently deleted "
+        subject = "TogetherMindsAI — your session audio/video is ready"
+        lead = ("Your session audio/video is ready to download. The audio/video recording is "
+                f"kept for {RECORDING_RETENTION_DAYS} days and then permanently deleted "
                 f"(on or about {expires_str}).")
+    # Retention / download guidance — shown as bullets on BOTH the ready and reminder
+    # emails, right under the lead. The video expires (30 days); the transcript +
+    # analysis are the long-lived clinical record — spelled out so it's unambiguous.
+    bullets = [
+        "We recommend you download both the video and the transcript for your permanent record.",
+        (f"The audio/video recording will be permanently deleted on or about {expires_str}. "
+         "Once deleted, it cannot be recovered — download it before then."),
+        ("The transcript and AI analysis are retained for six years, or as required by "
+         "prevailing US law, as the clinical record."),
+        "Please store any downloaded copies securely, in line with your practice's requirements.",
+    ]
     plain = (
         f"{lead}\n\n"
+        + "".join(f"  • {b}\n" for b in bullets)
+        + "\n"
         f"Session: {row.session_id}\n"
         "Sign in as this session's clinician to open these:\n"
         f"  • Video recording: {video_url}\n"
@@ -2825,6 +2838,9 @@ def _recording_email_content(row, kind: str):
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
         f'<h2 style="color:#2e7d32;">{h(subject.split("— ")[-1].capitalize())}</h2>'
         f'<p style="color:#212121;line-height:1.5;">{h(lead)}</p>'
+        '<ul style="color:#212121;line-height:1.6;padding-left:20px;margin:12px 0;">'
+        + "".join(f'<li>{h(b)}</li>' for b in bullets)
+        + '</ul>'
         f'<p style="margin:18px 0 6px;"><a href="{h(video_url)}" '
         'style="background:#2e7d32;color:#fff;text-decoration:none;padding:10px 18px;'
         'border-radius:8px;display:inline-block;">▶ Download video</a></p>'
