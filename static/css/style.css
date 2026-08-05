@@ -496,25 +496,31 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 12px;
     align-content: start;
+    position: relative;         /* anchor for the floating self-view (below) */
 }
 .rtc-tile {
     position: relative;
     width: 100%;
     aspect-ratio: 4 / 3;
+    max-height: 72vh;           /* a single expanded remote fills the width but stays on-screen */
     background: #000;
     border-radius: 0.6rem;
     overflow: hidden;
     box-shadow: 0 6px 18px rgba(15, 60, 55, 0.18);
 }
-/* "Shrink my video" — self-view only, LOCAL to this browser (other participants are
-   unaffected). The user's own tile becomes a small square tucked to the end of the
-   grid, so they focus on everyone else rather than themselves. */
+/* "Shrink my video" — self-view only, LOCAL to this browser (others are unaffected).
+   The user's own tile is pulled OUT of the grid and floated as a small picture-in-
+   picture FIXED in the bottom-right corner, so the remaining participants expand to
+   fill the whole area — no reserved empty slot / gap. (Not draggable.) */
 #rtcVideoGrid.self-mini [data-tile="local"] {
-    width: 132px;
-    max-width: 132px;
-    justify-self: end;
-    align-self: end;
-    order: 99;
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    width: clamp(120px, 20%, 200px);
+    max-width: 200px;
+    margin: 0;
+    z-index: 5;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 }
 
 /* ---- Clearly visible scrollbars in the session room ---- */
