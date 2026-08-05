@@ -211,9 +211,10 @@
                                 <input type="file" id="rtcBgUpload" accept="image/*" class="d-none">
                             </span>
                             <!-- Shrink your own video — LOCAL to your view only; others still
-                                 see you full-size. Remembered per device. -->
+                                 see you full-size. Shown ONLY when your camera is on (nothing
+                                 to shrink otherwise); hidden by default until then. -->
                             <button type="button" id="rtcSelfMiniBtn"
-                                    class="btn btn-sm btn-outline-secondary rounded-pill"
+                                    class="btn btn-sm btn-outline-secondary rounded-pill d-none"
                                     title="Shrink your own video in your view (only you see this)"
                                     aria-pressed="false">
                                 <i class="bi bi-arrows-angle-in"></i> Shrink my video
@@ -961,11 +962,13 @@
         await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
         addTile("local", "You", camTrack.attach());
         updateCamPill();
+        _updateSelfMiniVisibility();   // camera on → the shrink control is now relevant
     }
     async function cameraOff() {
         try { if (camTrack) { await lkRoom.localParticipant.unpublishTrack(camTrack); camTrack.stop(); } } catch (e) {}
         camTrack = null; removeTile("local");
         updateCamPill();
+        _updateSelfMiniVisibility();   // camera off → nothing to shrink; hide the control
     }
 
     // preset backgrounds: gradients generated client-side (no image files to ship)
@@ -1037,10 +1040,18 @@
     // Remembered per device via localStorage. Works in every mode (the self tile is
     // always data-tile="local").
     var selfMiniBtn = document.getElementById("rtcSelfMiniBtn");
+    // The "Shrink my video" control is tied to the CAMERA: it only makes sense when
+    // your camera is on (there's a self-view to shrink). Hidden otherwise, so you
+    // never see "My video: small" with no video. Called from applySelfMini and from
+    // cameraOn/cameraOff.
+    function _updateSelfMiniVisibility() {
+        if (selfMiniBtn) { selfMiniBtn.classList.toggle("d-none", !camTrack); }
+    }
     function applySelfMini(on) {
         if (videoGrid) { videoGrid.classList.toggle("self-mini", on); }
         if (selfMiniBtn) {
             selfMiniBtn.setAttribute("aria-pressed", on ? "true" : "false");
+            // Rebuild the class list, then re-apply camera-tied visibility (below).
             selfMiniBtn.className = "btn btn-sm rounded-pill " + (on ? "btn-success" : "btn-outline-secondary");
             selfMiniBtn.innerHTML = on
                 ? '<i class="bi bi-arrows-angle-expand"></i> My video: small'
@@ -1049,6 +1060,7 @@
                 ? "Your video is small in your view — tap for normal size (only you see this)"
                 : "Shrink your own video in your view (only you see this)";
         }
+        _updateSelfMiniVisibility();
     }
     var _selfMini = false;
     try { _selfMini = localStorage.getItem("tmSelfMini") === "1"; } catch (e) {}

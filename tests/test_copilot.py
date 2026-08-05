@@ -629,6 +629,19 @@ def test_wellness_check_wired_for_client_only(enc_client):
     assert "startWellnessCheck()" in c_body
 
 
+def test_shrink_video_button_hidden_by_default(enc_client):
+    """The 'Shrink my video' control ships hidden (d-none) — JS shows it only when the
+    camera is on, so it's tied to the camera state (no 'My video: small' with no video)."""
+    import config
+    sid = _insert_solo_session(therapist_id="tsm", created_by="tsm")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "tsm"
+    with patch.object(config, "RTC_ENABLED", True):
+        body = enc_client.get("/therapy/solo/" + sid).get_data(as_text=True)
+    assert 'id="rtcSelfMiniBtn"' in body                          # the control is present
+    assert "btn-outline-secondary rounded-pill d-none" in body   # …but hidden until camera on
+
+
 # ---------------------------------------------------------------------------
 # Unified session room — one template/handler for solo / couple / group
 # ---------------------------------------------------------------------------
