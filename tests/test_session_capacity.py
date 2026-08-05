@@ -65,10 +65,11 @@ def test_couple_reconnect_is_allowed():
 
 
 # ---------------------------------------------------------------------------
-# Route-level: the client-enter gate exempts a RETURNING consented client (so a
-# stale-presence race can't wrongly tell them the room is full) and sends a genuine
-# un-consented newcomer to the acknowledgement modal (welcome?session_full=1).
-# Would have caught: a returning 1:1 client being told "That session is already full".
+# Capacity is enforced at the SocketIO JOIN (live presence), NOT at the HTTP render
+# (whose presence is stale on polling transport and wrongly bounced returning clients
+# to /welcome). So: the HTTP render must no longer bounce on a "full" room, and the
+# socket join emits `session_full` for a genuine over-capacity client. Would have
+# caught: a returning 1:1 client told the room is full and ejected to /welcome.
 # ---------------------------------------------------------------------------
 from datetime import datetime, timezone, timedelta
 from cryptography.fernet import Fernet
@@ -77,9 +78,10 @@ from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("FIELD_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
-from TogetherMindsAI import app
-from models import db as _db, init_encryption, TherapySession
+from TogetherMindsAI import app, socketio
+from models import db as _db, init_encryption, TherapySession, SessionStateCert
 from session_id import generate_session_id
+from tests.socket_utils import authed_socket, certify_state
 
 init_encryption(os.environ["FIELD_ENCRYPTION_KEY"])
 
@@ -108,24 +110,31 @@ def _seed_solo(therapist="ther-cap"):
     return sid, therapist
 
 
-def test_newcomer_to_full_solo_redirects_to_modal(cap_client):
+def test_http_render_does_not_bounce_on_full(cap_client):
+    """A 'full' room must NOT eject a client at the HTTP render (presence is stale
+    there). An un-consented client proceeds to the consent gate, never to /welcome."""
     with app.app_context():
         sid, ther = _seed_solo()
-    room_participants[sid] = {ther, "client-A"}          # a client slot is taken
+    room_participants[sid] = {ther, "client-A"}          # room looks full
     with cap_client.session_transaction() as s:
-        s["user_id"] = "client-B"                         # un-consented newcomer
+        s["user_id"] = "client-B"
     rv = cap_client.get(f"/therapy/solo/{sid}")
-    assert rv.status_code in (302, 303)
-    assert "session_full=1" in rv.headers.get("Location", "")
+    loc = rv.headers.get("Location") or ""
+    assert "session_full" not in loc                     # not bounced to the modal
+    assert "/consent" in loc                             # proceeds to the consent gate
 
 
-def test_returning_consented_client_is_exempt_from_full(cap_client):
+def test_socket_join_to_full_solo_emits_session_full(cap_client):
+    """The SocketIO join is the capacity authority: a second client joining a solo
+    (cap 1) is rejected with a `session_full` event, not admitted."""
     with app.app_context():
         sid, ther = _seed_solo()
-    room_participants[sid] = {ther, "client-A"}          # slot occupied (e.g. stale ghost)
-    with cap_client.session_transaction() as s:
-        s["user_id"] = "client-B"                         # would be blocked WITHOUT the exemption
-        s["consented_sessions"] = [sid]                   # …but already consented → returning client
-    rv = cap_client.get(f"/therapy/solo/{sid}")
-    # Must NOT be bounced to the capacity modal.
-    assert "session_full=1" not in (rv.headers.get("Location") or "")
+        certify_state(_db, SessionStateCert, sid, ther, state="CA")
+        t = authed_socket(app, socketio, ther, clinician=True)
+        t.emit("join", {"session_id": sid, "mode": "solo"}); t.get_received()
+        c1 = authed_socket(app, socketio, "cli-1", session_id=sid, state="CA")
+        c1.emit("join", {"session_id": sid, "mode": "solo"}); c1.get_received()
+        c2 = authed_socket(app, socketio, "cli-2", session_id=sid, state="CA")
+        c2.emit("join", {"session_id": sid, "mode": "solo"})
+        names = [e["name"] for e in c2.get_received()]
+    assert "session_full" in names

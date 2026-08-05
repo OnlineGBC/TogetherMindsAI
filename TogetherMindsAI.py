@@ -234,6 +234,12 @@ socketio = SocketIO(
     app,
     async_mode=config.ASYNC_MODE,
     cors_allowed_origins=config.CORS_ALLOWED_ORIGINS,
+    # Detect a departed client quickly. On polling transport the default ping cycle
+    # can take ~45s to notice a client who navigated away, leaving their in-memory
+    # presence slot occupied by a ghost — which made a 1:1's single client slot look
+    # "full" to the same person returning. Tighter ping frees the slot in ~20s.
+    ping_interval=10,
+    ping_timeout=10,
     # Disable WebSocket upgrade when running under werkzeug's dev server.
     # werkzeug does not support WebSocket; upgrade attempts cause a 500 error
     # (AssertionError: write() before start_response).  In production the
@@ -1402,15 +1408,12 @@ def _render_session_room(session_id, mode):
     if mode == "solo" and not (ts and ts.therapist_id):
         return _redirect_invalid_session()
 
-    # Enforce the per-mode client capacity before admitting a client into the room.
-    # A client who already consented to THIS session in this browser is a RETURNING
-    # participant, not a new third party — never capacity-block them. This also stops
-    # a stale-presence race (a client who just left and came right back, before their
-    # old socket has timed out) from being wrongly told the room is full. A genuine
-    # newcomer to a full room is sent to the acknowledgement modal on the welcome page.
-    already_consented = session_id in session.get("consented_sessions", [])
-    if not already_consented and _session_is_full(session_id, mode, user_id, ts.therapist_id if ts else None):
-        return redirect(url_for("welcome", session_full=1))
+    # NOTE: per-mode client capacity is deliberately NOT enforced here. Presence at
+    # HTTP-render time is stale — a just-departed client's socket lingers briefly on
+    # polling transport — so an early bounce here wrongly ejected a RETURNING client
+    # to /welcome. The SocketIO join is the single authority: it re-checks capacity
+    # with live presence and, if genuinely full, emits `session_full`, which sends the
+    # client to the acknowledgement modal (/welcome?session_full=1).
 
     # Consent gate — a CLIENT must agree to the transcription/recording disclosure
     # on a dedicated screen BEFORE the room renders, so no session content is ever
@@ -3386,12 +3389,17 @@ def on_join(data):
             return
 
         # Hard capacity gate: reject a client that would exceed the mode's cap
-        # (solo=1, couple=2, group=unlimited). The therapist is never blocked.
+        # (solo=1, couple=2, group=unlimited). The therapist is never blocked. This is
+        # the AUTHORITY (checked with live presence at join time, not the stale HTTP
+        # render) — a dedicated `session_full` event sends the client to the
+        # acknowledgement modal rather than an inline error.
         if _session_is_full(session_id, eff_mode, user_id, therapist_id):
             cap = _MODE_CLIENT_CAP.get(eff_mode)
-            emit("error", {"message":
-                 "This session is full — it allows up to %d participant%s."
-                 % (cap, "" if cap == 1 else "s")})
+            emit("session_full", {
+                "cap": cap,
+                "message": "This session is full — it allows up to %d participant%s."
+                           % (cap, "" if cap == 1 else "s"),
+            })
             return
 
         # Waiting room: a client may not be in a live therapist-led session unless

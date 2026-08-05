@@ -333,6 +333,14 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         }
     });
 
+    socket.on("session_full", function () {
+        // The room is at its participant limit (checked with LIVE presence at join,
+        // so this reflects real capacity, not a stale ghost). Send the client to the
+        // must-acknowledge modal on the welcome page instead of a silent bounce.
+        _sessionEnded = true;   // suppress the unsaved-session warning
+        window.location.href = "/welcome?session_full=1";
+    });
+
     socket.on("participant_list", function (data) {
         _updateParticipantPanel(data.participants || []);
     });
