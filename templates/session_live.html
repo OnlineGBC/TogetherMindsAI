@@ -613,7 +613,12 @@
         })();
         {% endif %}
         if (RECORDING_ENABLED) { initRecordingControls(SESSION_ID, USER_ID, IS_THERAPIST); }
+        {% if not is_therapist %}
+        // The wellness "checking in with you" prompt is for the CLIENT only — never
+        // the therapist. Client activity now includes speaking (transcribed) and any
+        // live conversation, not just typing/clicking (see therapy.js).
         startWellnessCheck();
+        {% endif %}
         initDisplayNameRename(SESSION_ID, USER_ID, false /* realtime */);
         initEndSessionGuard(SESSION_ID, USER_ID, "/progress/" + USER_ID + "/{{ mode }}");
         initSessionControls(SESSION_ID, USER_ID, IS_THERAPIST);

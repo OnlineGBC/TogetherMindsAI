@@ -610,6 +610,25 @@ def test_consumer_couple_composer_stays_gated(enc_client):
     assert 'id="sendBtn" disabled' in body
 
 
+def test_wellness_check_wired_for_client_only(enc_client):
+    """The 'checking in with you' wellness timer is wired for the CLIENT view only —
+    never the therapist, who would otherwise get the client-oriented check-in."""
+    # Therapist view of a therapist-led solo → no wellness check.
+    t_sid = _insert_solo_session(therapist_id="tw", created_by="tw")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "tw"
+    t_body = enc_client.get("/therapy/solo/" + t_sid).get_data(as_text=True)
+    assert "startWellnessCheck()" not in t_body
+
+    # Non-therapist (client) view → wellness check present.
+    c_sid = _insert_couple_session(therapist_id=None, created_by="ow")
+    with enc_client.session_transaction() as s:
+        s["user_id"] = "ow"
+        s["consented_sessions"] = [c_sid]
+    c_body = enc_client.get("/therapy/couple/" + c_sid).get_data(as_text=True)
+    assert "startWellnessCheck()" in c_body
+
+
 # ---------------------------------------------------------------------------
 # Unified session room — one template/handler for solo / couple / group
 # ---------------------------------------------------------------------------

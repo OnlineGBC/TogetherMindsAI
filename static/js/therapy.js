@@ -101,18 +101,27 @@ function initChatTextareaAutoGrow(elementId) {
 // ---------------------------------------------------------------------------
 var _inactivityTimer = null;
 var _INACTIVITY_MS   = 20 * 60 * 1000; // 20 minutes
+// Only enabled for the CLIENT (via startWellnessCheck). The check-in is meant for
+// the client, never the therapist — so on the therapist side this stays false and
+// every reset call below is a no-op.
+var _wellnessEnabled = false;
 
 /**
- * Start the inactivity wellness check timer.
- * Call once per page load on any therapy page.
+ * Start the inactivity wellness check timer. Call once per page load — CLIENT ONLY
+ * (the template gates this so the therapist never gets the check-in).
  */
 function startWellnessCheck() {
+    _wellnessEnabled = true;
     _resetInactivityTimer();
     document.addEventListener("keydown", _resetInactivityTimer);
     document.addEventListener("click",   _resetInactivityTimer);
 }
 
+// Reset the "gone quiet" timer. Counts as activity: typing, clicking, and — via the
+// calls in sendMessage / the new_message handler — SPEAKING (a transcribed turn) and
+// any live conversation. So the modal only fires after a genuine 20-minute lull.
 function _resetInactivityTimer() {
+    if (!_wellnessEnabled) { return; }
     clearTimeout(_inactivityTimer);
     _inactivityTimer = setTimeout(_showWellnessModal, _INACTIVITY_MS);
 }
@@ -216,6 +225,9 @@ function joinRoom(sessionId, userId, mode, soloMode) {
     });
 
     socket.on("new_message", function (data) {
+        // A message arriving means the session is live — keep the wellness timer
+        // from firing mid-conversation (covers the other party speaking too).
+        _resetInactivityTimer();
         var chatBox = document.getElementById("chatBox");
 
         // Remove empty state if present
@@ -491,6 +503,9 @@ function sendMessage(sessionId, userId, text, mode) {
         console.warn("Socket not connected — cannot send message.");
         return;
     }
+    // Sending counts as activity — this is also how a SPOKEN turn (voice → STT →
+    // sendMessage) keeps the wellness timer alive, not just typing.
+    _resetInactivityTimer();
     _showSendSpinner();
     socket.emit("send_message", {
         session_id: sessionId,
