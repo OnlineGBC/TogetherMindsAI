@@ -210,6 +210,14 @@
                                 </select>
                                 <input type="file" id="rtcBgUpload" accept="image/*" class="d-none">
                             </span>
+                            <!-- Shrink your own video — LOCAL to your view only; others still
+                                 see you full-size. Remembered per device. -->
+                            <button type="button" id="rtcSelfMiniBtn"
+                                    class="btn btn-sm btn-outline-secondary rounded-pill"
+                                    title="Shrink your own video in your view (only you see this)"
+                                    aria-pressed="false">
+                                <i class="bi bi-arrows-angle-in"></i> Shrink my video
+                            </button>
                         </div>
                         <div id="rtcVideoGrid" class="mb-2 flex-grow-1"></div>
                         <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
@@ -1017,6 +1025,36 @@
     }
     document.addEventListener("visibilitychange", onForeground);
     window.addEventListener("pageshow", onForeground);
+
+    // Self-view size — LOCAL only: shrink your OWN video tile in your OWN view.
+    // Sends nothing to the server; other participants still see you full-size. The
+    // class lives on the grid, so it keeps applying whenever your camera is on.
+    // Remembered per device via localStorage. Works in every mode (the self tile is
+    // always data-tile="local").
+    var selfMiniBtn = document.getElementById("rtcSelfMiniBtn");
+    function applySelfMini(on) {
+        if (videoGrid) { videoGrid.classList.toggle("self-mini", on); }
+        if (selfMiniBtn) {
+            selfMiniBtn.setAttribute("aria-pressed", on ? "true" : "false");
+            selfMiniBtn.className = "btn btn-sm rounded-pill " + (on ? "btn-success" : "btn-outline-secondary");
+            selfMiniBtn.innerHTML = on
+                ? '<i class="bi bi-arrows-angle-expand"></i> My video: small'
+                : '<i class="bi bi-arrows-angle-in"></i> Shrink my video';
+            selfMiniBtn.title = on
+                ? "Your video is small in your view — tap for normal size (only you see this)"
+                : "Shrink your own video in your view (only you see this)";
+        }
+    }
+    var _selfMini = false;
+    try { _selfMini = localStorage.getItem("tmSelfMini") === "1"; } catch (e) {}
+    applySelfMini(_selfMini);
+    if (selfMiniBtn) {
+        selfMiniBtn.addEventListener("click", function () {
+            _selfMini = !_selfMini;
+            try { localStorage.setItem("tmSelfMini", _selfMini ? "1" : "0"); } catch (e) {}
+            applySelfMini(_selfMini);
+        });
+    }
 
     // Initial strip state — nothing joined yet, so everything reads "off".
     updateMicPill(); updateCamPill(); setSttIndicator(false);

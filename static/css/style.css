@@ -506,6 +506,16 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
     overflow: hidden;
     box-shadow: 0 6px 18px rgba(15, 60, 55, 0.18);
 }
+/* "Shrink my video" — self-view only, LOCAL to this browser (other participants are
+   unaffected). The user's own tile becomes a small square tucked to the end of the
+   grid, so they focus on everyone else rather than themselves. */
+#rtcVideoGrid.self-mini [data-tile="local"] {
+    width: 132px;
+    max-width: 132px;
+    justify-self: end;
+    align-self: end;
+    order: 99;
+}
 
 /* ---- Clearly visible scrollbars in the session room ---- */
 body.therapy-page .chat-window .card-body,
