@@ -1403,9 +1403,14 @@ def _render_session_room(session_id, mode):
         return _redirect_invalid_session()
 
     # Enforce the per-mode client capacity before admitting a client into the room.
-    if _session_is_full(session_id, mode, user_id, ts.therapist_id if ts else None):
-        flash("That session is already full.", "warning")
-        return redirect(url_for("welcome"))
+    # A client who already consented to THIS session in this browser is a RETURNING
+    # participant, not a new third party — never capacity-block them. This also stops
+    # a stale-presence race (a client who just left and came right back, before their
+    # old socket has timed out) from being wrongly told the room is full. A genuine
+    # newcomer to a full room is sent to the acknowledgement modal on the welcome page.
+    already_consented = session_id in session.get("consented_sessions", [])
+    if not already_consented and _session_is_full(session_id, mode, user_id, ts.therapist_id if ts else None):
+        return redirect(url_for("welcome", session_full=1))
 
     # Consent gate — a CLIENT must agree to the transcription/recording disclosure
     # on a dedicated screen BEFORE the room renders, so no session content is ever

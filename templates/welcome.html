@@ -301,4 +301,42 @@
         <i class="bi bi-box-arrow-in-right me-1"></i>Invited to a session? Enter your Session ID
     </a>
 </div>
+
+{% if request.args.get('session_full') %}
+<!-- Capacity block — shown when a client tried to enter a session that is already
+     at its participant limit. A floating modal that must be acknowledged (static
+     backdrop, no keyboard/close) so it can't be missed. -->
+<div class="modal fade" id="sessionFullModal" tabindex="-1" aria-labelledby="sessionFullLabel"
+     data-bs-backdrop="static" data-bs-keyboard="false" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sessionFullLabel">
+                    <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Session is full
+                </h5>
+            </div>
+            <div class="modal-body">
+                That session already has its participant, so you can't join right now.
+                If you just left it, please wait a few seconds and try again. If this keeps
+                happening, contact your clinician.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary-green rounded-pill px-4" data-bs-dismiss="modal">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script nonce="{{ csp_nonce }}">
+    (function () {
+        var el = document.getElementById("sessionFullModal");
+        if (el && typeof bootstrap !== "undefined") {
+            bootstrap.Modal.getOrCreateInstance(el).show();
+        }
+        // Clean the ?session_full flag so a refresh doesn't re-pop the modal.
+        if (window.history && history.replaceState) {
+            history.replaceState(null, "", window.location.pathname);
+        }
+    })();
+</script>
+{% endif %}
 {% endblock %}
