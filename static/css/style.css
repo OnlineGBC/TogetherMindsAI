@@ -1327,3 +1327,40 @@ div.alert.alert-share i.bi { color: #eaf5f2 !important; }
     .fw-rs { display: none; }            /* no resize on touch */
     .fw-header { cursor: default; }
 }
+
+/* ------------------------------------------------------------------------
+   Co-Pilot panel — LIGHT theme (2026-08-05)
+   Only the Co-Pilot panel flips to a light card list with dark, readable
+   text; the rest of the clinician-led session page stays dark. These rules
+   override the shared dark surface/text ONLY on .therapist-console .tc-*,
+   so nothing else on the page is affected. Colour accents (left borders +
+   category labels) are kept for meaning; card bodies darkened for contrast.
+   -------------------------------------------------------------------------- */
+.therapist-console .tc-card        { background: #ffffff; }
+.therapist-console .tc-card-text   { color: #20302c; }
+.therapist-console .tc-card-source { color: #6c757d; }
+.therapist-console .tc-reply-q     { color: #5b6b66; border-left-color: rgba(0, 0, 0, 0.12); }
+.therapist-console .tc-status      { color: #5b6b66; }
+.therapist-console .tc-empty       { color: #7d8d88; }
+.therapist-console .tc-dismiss     { color: #9aa8a3; }
+.therapist-console .tc-dismiss:hover { color: #20302c; }
+
+/* Risk / urgent: light red tint instead of dark; darker red label for contrast. */
+.therapist-console .tc-card-risk,
+.therapist-console .tc-card-urgent { background: #fdecea; }
+.therapist-console .tc-card-risk  .tc-card-label,
+.therapist-console .tc-card-urgent .tc-card-label { color: #d32f2f; }
+
+/* Co-pilot reply: light teal tint; readable teal label. */
+.therapist-console .tc-card-reply { background: #e6f7f4; }
+.therapist-console .tc-card-reply .tc-card-label { color: #00796b; }
+
+/* ICD code chips — undo the app-wide dark override; restore the light lavender. */
+.therapist-console .tc-code-link { background: #f1ebfb !important; border-color: #ddcdf3 !important; color: #4c2a85 !important; }
+.therapist-console .tc-code-link:hover { background: #e7dcfa !important; border-color: #c9b3ee !important; }
+
+/* "Private note to the co-pilot" box — light with dark text (beats the global
+   .form-control dark !important). */
+.therapist-console .tc-notes { background: #f7faf9; }
+.therapist-console .tc-notes textarea.form-control { background: #ffffff !important; color: #20302c !important; border-color: #cfe0db !important; }
+.therapist-console .tc-notes textarea.form-control::placeholder { color: #8a9a95 !important; }
