@@ -960,9 +960,6 @@
         await applyBackground();
         await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
         addTile("local", "You", camTrack.attach());
-        // Restore the user's remembered PiP position onto the fresh tile.
-        var _lt = videoGrid.querySelector('[data-tile="local"]');
-        if (_lt) { _restoreSelfPos(_lt); }
         updateCamPill();
     }
     async function cameraOff() {
@@ -1042,10 +1039,6 @@
     var selfMiniBtn = document.getElementById("rtcSelfMiniBtn");
     function applySelfMini(on) {
         if (videoGrid) { videoGrid.classList.toggle("self-mini", on); }
-        if (on && videoGrid) {
-            var _lt = videoGrid.querySelector('[data-tile="local"]');
-            if (_lt) { _restoreSelfPos(_lt); }
-        }
         if (selfMiniBtn) {
             selfMiniBtn.setAttribute("aria-pressed", on ? "true" : "false");
             selfMiniBtn.className = "btn btn-sm rounded-pill " + (on ? "btn-success" : "btn-outline-secondary");
@@ -1067,54 +1060,6 @@
             applySelfMini(_selfMini);
         });
     }
-
-    // Free-drag the small self-view PiP (LOCAL only; remembered per device as a
-    // fraction of the video area so it survives resizes). Only active when the
-    // self-view is small; works with mouse and touch (pointer events). Placing the
-    // saved position back on the tile is done via _restoreSelfPos, called when the
-    // tile is (re)created (camera on) and when self-view is switched to small.
-    function _restoreSelfPos(tile) {
-        if (!tile || !videoGrid.classList.contains("self-mini")) { return; }
-        var saved;
-        try { saved = JSON.parse(localStorage.getItem("tmSelfPos") || "null"); } catch (e) { saved = null; }
-        if (!saved) { return; }   // no saved position → CSS default (bottom-right corner)
-        var gw = videoGrid.clientWidth, gh = videoGrid.clientHeight;
-        var left = Math.max(0, Math.min(saved.l * gw, gw - tile.offsetWidth));
-        var top  = Math.max(0, Math.min(saved.t * gh, gh - tile.offsetHeight));
-        tile.style.left = left + "px"; tile.style.top = top + "px";
-        tile.style.right = "auto"; tile.style.bottom = "auto";
-    }
-    (function () {
-        var drag = null;
-        videoGrid.addEventListener("pointerdown", function (e) {
-            if (!videoGrid.classList.contains("self-mini")) { return; }
-            var tile = e.target.closest ? e.target.closest('[data-tile="local"]') : null;
-            if (!tile || !videoGrid.contains(tile)) { return; }
-            var g = videoGrid.getBoundingClientRect(), t = tile.getBoundingClientRect();
-            drag = { tile: tile, g: g, offX: e.clientX - t.left, offY: e.clientY - t.top };
-            try { tile.setPointerCapture(e.pointerId); } catch (er) {}
-            tile.style.cursor = "grabbing";
-            e.preventDefault();
-        });
-        videoGrid.addEventListener("pointermove", function (e) {
-            if (!drag) { return; }
-            var g = drag.g, t = drag.tile;
-            var left = Math.max(0, Math.min(e.clientX - g.left - drag.offX, g.width  - t.offsetWidth));
-            var top  = Math.max(0, Math.min(e.clientY - g.top  - drag.offY, g.height - t.offsetHeight));
-            t.style.left = left + "px"; t.style.top = top + "px";
-            t.style.right = "auto"; t.style.bottom = "auto";
-        });
-        function _end() {
-            if (!drag) { return; }
-            var g = drag.g, t = drag.tile;
-            var left = parseFloat(t.style.left) || 0, top = parseFloat(t.style.top) || 0;
-            try { localStorage.setItem("tmSelfPos", JSON.stringify({ l: left / g.width, t: top / g.height })); } catch (er) {}
-            t.style.cursor = "";
-            drag = null;
-        }
-        videoGrid.addEventListener("pointerup", _end);
-        videoGrid.addEventListener("pointercancel", _end);
-    })();
 
     // Initial strip state — nothing joined yet, so everything reads "off".
     updateMicPill(); updateCamPill(); setSttIndicator(false);
