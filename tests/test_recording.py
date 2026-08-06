@@ -471,6 +471,23 @@ def test_recording_email_wording_and_retention_bullets(enc_client):
             assert "<ul" in html and "<li>" in html               # rendered as bullets
 
 
+def test_recording_email_shows_friendly_name_and_access_note(enc_client):
+    """The email shows the friendly session name alongside the ID, and a prominent
+    note that only the signed-in clinician can download."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        ts = db.session.get(TherapySession, sid)
+        ts.friendly_name = "Smith weekly"
+        db.session.commit()
+        _seed_recording(sid, token="tokF")
+        row = SessionRecording.query.filter_by(session_id=sid).first()
+        _, plain, html = tm._recording_email_content(row, "ready")
+    for body in (plain, html):
+        assert "Smith weekly" in body                    # friendly name shown
+        assert sid in body                               # ID still shown alongside
+        assert "No one else can download" in body        # prominent access-control note
+
+
 def test_end_session_stops_active_recording_then_emails_recording(enc_client):
     # Ending a session (over HTTP) with a recording running stops egress and emails
     # the RECORDING (once, on end), not the transcript-only email.

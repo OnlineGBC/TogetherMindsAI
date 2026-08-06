@@ -2830,18 +2830,49 @@ def _recording_email_content(row, kind: str):
          "prevailing US law, as the clinical record."),
         "Please store any downloaded copies securely, in line with your practice's requirements.",
     ]
+    # Friendly session name (if the clinician set one) shown alongside the ID, so they
+    # can tell which client/session this is at a glance. Best-effort: never break the
+    # email if the lookup/decryption fails.
+    friendly = ""
+    try:
+        _ts = db.session.get(TherapySession, row.session_id)
+        friendly = (_ts.friendly_name if _ts else "") or ""
+    except Exception:
+        friendly = ""
+    session_label_txt = f"{friendly}  (ID: {row.session_id})" if friendly else row.session_id
+    access_note = ("Only you, signed in to TogetherMindsAI as this session's clinician, "
+                   "can open these links. No one else can download this recording or the "
+                   "documents, even if they receive this email.")
+
     plain = (
         f"{lead}\n\n"
         + "".join(f"  • {b}\n" for b in bullets)
         + "\n"
-        f"Session: {row.session_id}\n"
-        "Sign in as this session's clinician to open these:\n"
+        f"Session: {session_label_txt}\n"
+        f"PRIVATE — {access_note}\n\n"
+        "Open the links below (sign in first):\n"
         f"  • Video recording: {video_url}\n"
         f"  • Transcript + AI analysis + ICD codes (PDF): {pdf_url}\n"
-        f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n\n"
-        "Only you, signed in as this session's clinician, can open these links.\n"
+        f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n"
     )
     _link = "color:#2e7d32;text-decoration:none;font-weight:600;"
+    _mono = "font-family:ui-monospace,Consolas,monospace;"
+    if friendly:
+        _session_line = (f'<strong>Session:</strong> {h(friendly)} '
+                         f'<span style="color:#666;{_mono}font-size:13px;">(ID: {h(row.session_id)})</span>')
+    else:
+        _session_line = f'<strong>Session ID:</strong> <span style="{_mono}">{h(row.session_id)}</span>'
+    # Prominent access-control callout: which session, and that ONLY the clinician can
+    # download — placed right above the download links so it's read first.
+    access_box = (
+        '<div style="margin:18px 0;padding:14px 16px;border:1px solid #b9d9cf;'
+        'border-radius:10px;background:#f2f9f6;">'
+        f'<div style="font-size:15px;color:#212121;">{_session_line}</div>'
+        '<div style="font-size:14px;color:#2e7d32;font-weight:700;margin-top:8px;">'
+        '&#128274; Private &mdash; only you can open these links.</div>'
+        f'<div style="font-size:13px;color:#444;line-height:1.5;margin-top:4px;">{h(access_note)}</div>'
+        '</div>'
+    )
     html_body = (
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
         f'<h2 style="color:#2e7d32;">{h(subject.split("— ")[-1].capitalize())}</h2>'
@@ -2849,13 +2880,12 @@ def _recording_email_content(row, kind: str):
         '<ul style="color:#212121;line-height:1.6;padding-left:20px;margin:12px 0;">'
         + "".join(f'<li>{h(b)}</li>' for b in bullets)
         + '</ul>'
-        f'<p style="margin:18px 0 6px;"><a href="{h(video_url)}" '
+        + access_box
+        + f'<p style="margin:18px 0 6px;"><a href="{h(video_url)}" '
         'style="background:#2e7d32;color:#fff;text-decoration:none;padding:10px 18px;'
         'border-radius:8px;display:inline-block;">▶ Download video</a></p>'
         f'<p style="margin:6px 0;"><a href="{h(pdf_url)}" style="{_link}">📄 Transcript, AI analysis &amp; ICD codes (PDF)</a></p>'
         f'<p style="margin:6px 0;"><a href="{h(docx_url)}" style="{_link}">📝 Transcript, AI analysis &amp; ICD codes (Word)</a></p>'
-        f'<p style="color:#555;font-size:13px;margin-top:14px;">Session <strong>{h(row.session_id)}</strong>. '
-        'Only you, signed in as this session\'s clinician, can open these links.</p>'
         '<p style="color:#888;font-size:12px;margin-top:20px;">Sent automatically by TogetherMindsAI.</p>'
         "</div>"
     )
