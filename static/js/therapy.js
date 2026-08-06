@@ -395,6 +395,17 @@ function initRecordingControls(sessionId, userId, isTherapist) {
     // Local hint only — the server's "awaiting" list is authoritative for button
     // state; this just stops the consent modal from re-popping once answered.
     var _answered = isTherapist;
+    // The recording-consent MODAL is the single, prominent consent action. Track when
+    // it's open so we don't ALSO show the strip "Allow" button at the same time (the
+    // dual control made consenting feel like two steps). "Allow" stays a fallback.
+    var _recModalOpen = false;
+    if (modalEl) {
+        modalEl.addEventListener("hidden.bs.modal", function () {
+            _recModalOpen = false;
+            // Dismissed without answering → expose "Allow" as the fallback consent.
+            if (!_answered && allowBtn) { allowBtn.classList.remove("d-none"); }
+        });
+    }
 
     function show(el) { if (el) el.classList.remove("d-none"); }
     function hide(el) { if (el) el.classList.add("d-none"); }
@@ -418,10 +429,12 @@ function initRecordingControls(sessionId, userId, isTherapist) {
     });
 
     // ---- Client controls ----
-    if (allowBtn)    allowBtn.addEventListener("click", function () { sendConsent(true); });
+    // Any consent action closes the modal too, so the two controls can never both
+    // linger (which is what read as "consent, then Allow again").
+    if (allowBtn)    allowBtn.addEventListener("click", function () { sendConsent(true); hideModal(); });
     if (withdrawBtn) withdrawBtn.addEventListener("click", function () { sendConsent(false); });
     if (consentBtn)  consentBtn.addEventListener("click", function () { sendConsent(true); hideModal(); });
-    if (declineBtn)  declineBtn.addEventListener("click", function () { sendConsent(false); });
+    if (declineBtn)  declineBtn.addEventListener("click", function () { sendConsent(false); hideModal(); });
 
     // ---- Server → client events ----
     socket.on("recording_unavailable", function (data) {
@@ -433,6 +446,7 @@ function initRecordingControls(sessionId, userId, isTherapist) {
         if (isTherapist || _answered) return;
         if (window._tmInWaitingRoom) return;   // not while held in the waiting room
         if (modalEl && typeof bootstrap !== "undefined") {
+            _recModalOpen = true;
             bootstrap.Modal.getOrCreateInstance(modalEl).show();
         }
     });
@@ -481,7 +495,11 @@ function initRecordingControls(sessionId, userId, isTherapist) {
             }
         } else if (requested) {
             if (iAmAwaited) {
-                show(allowBtn); hide(withdrawBtn);
+                // Don't show the strip "Allow" while the consent modal is up — the modal
+                // is the action. Allow appears only as a fallback (modal dismissed, or
+                // re-consenting after a withdraw).
+                if (_recModalOpen) { hide(allowBtn); } else { show(allowBtn); }
+                hide(withdrawBtn);
                 setClientRec('<i class="bi bi-record-circle"></i> Recording: your consent needed', "text-bg-warning");
             } else {
                 hide(allowBtn); show(withdrawBtn);
