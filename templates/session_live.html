@@ -1064,9 +1064,16 @@
                 : "Shrink your own video in your view (only you see this)";
         }
         _updateSelfMiniVisibility();
-        if (on && videoGrid) {
-            var _lt = videoGrid.querySelector('[data-tile="local"]');
-            if (_lt) { _restoreSelfPos(_lt); }
+        var _lt = videoGrid && videoGrid.querySelector('[data-tile="local"]');
+        if (_lt) {
+            if (on) {
+                _restoreSelfPos(_lt);   // small: float at the remembered/default spot
+            } else {
+                // Full size: clear the drag/float inline position, or the leftover
+                // left/top would offset the (position:relative) tile out of its normal
+                // grid slot — making the full-size self-view "disappear" / leaving a gap.
+                _lt.style.left = _lt.style.top = _lt.style.right = _lt.style.bottom = "";
+            }
         }
     }
     var _selfMini = false;
