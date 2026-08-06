@@ -524,6 +524,10 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
     cursor: grab;            /* draggable: move your own PiP anywhere in the video area */
     touch-action: none;      /* let touch drag the tile instead of scrolling the page */
 }
+/* When self-view is small, the remaining participants fill the width. The high
+   specificity (id) also overrides the mobile per-tile width clamp (.rtc-tile width:
+   clamp(...) in the ≤991.98px media query), so "shrink to fill" works on phones too. */
+#rtcVideoGrid.self-mini .rtc-tile:not([data-tile="local"]) { width: 100%; }
 
 /* ---- Clearly visible scrollbars in the session room ---- */
 body.therapy-page .chat-window .card-body,
