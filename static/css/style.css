@@ -521,6 +521,8 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
     margin: 0;
     z-index: 5;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+    cursor: grab;            /* draggable: move your own PiP anywhere in the video area */
+    touch-action: none;      /* let touch drag the tile instead of scrolling the page */
 }
 
 /* ---- Clearly visible scrollbars in the session room ---- */

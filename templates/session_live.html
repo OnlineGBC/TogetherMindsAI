@@ -961,6 +961,9 @@
         await applyBackground();
         await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
         addTile("local", "You", camTrack.attach());
+        // Put the fresh self-tile back at the user's remembered drag position.
+        var _lt = videoGrid.querySelector('[data-tile="local"]');
+        if (_lt) { _restoreSelfPos(_lt); }
         updateCamPill();
         _updateSelfMiniVisibility();   // camera on → the shrink control is now relevant
     }
@@ -1061,6 +1064,10 @@
                 : "Shrink your own video in your view (only you see this)";
         }
         _updateSelfMiniVisibility();
+        if (on && videoGrid) {
+            var _lt = videoGrid.querySelector('[data-tile="local"]');
+            if (_lt) { _restoreSelfPos(_lt); }
+        }
     }
     var _selfMini = false;
     try { _selfMini = localStorage.getItem("tmSelfMini") === "1"; } catch (e) {}
@@ -1072,6 +1079,65 @@
             applySelfMini(_selfMini);
         });
     }
+
+    // ---- Draggable self-view PiP (LOCAL only; remembered per device) ----
+    // Free-drag your own small thumbnail anywhere in the video area. Robust vs. the
+    // earlier version: the grid is measured LIVE on every move (never cached) and the
+    // clamp uses the grid's own client box — the SAME box the tile is positioned in —
+    // so every corner (incl. bottom-right) is reachable, and it re-clamps on resize.
+    // Position is saved as a fraction of the video area so it survives size changes.
+    function _placeSelfAt(tile, lFrac, tFrac) {
+        var gw = videoGrid.clientWidth, gh = videoGrid.clientHeight;
+        var left = Math.max(0, Math.min(lFrac * gw, Math.max(0, gw - tile.offsetWidth)));
+        var top  = Math.max(0, Math.min(tFrac * gh, Math.max(0, gh - tile.offsetHeight)));
+        tile.style.left = left + "px"; tile.style.top = top + "px";
+        tile.style.right = "auto"; tile.style.bottom = "auto";
+    }
+    function _restoreSelfPos(tile) {
+        if (!tile || !videoGrid.classList.contains("self-mini")) { return; }
+        var saved;
+        try { saved = JSON.parse(localStorage.getItem("tmSelfPos") || "null"); } catch (e) { saved = null; }
+        if (!saved) { return; }   // no saved position → CSS default (bottom-right corner)
+        _placeSelfAt(tile, saved.l, saved.t);
+    }
+    (function () {
+        var drag = null;
+        videoGrid.addEventListener("pointerdown", function (e) {
+            if (!videoGrid.classList.contains("self-mini")) { return; }
+            var tile = e.target.closest ? e.target.closest('[data-tile="local"]') : null;
+            if (!tile || !videoGrid.contains(tile)) { return; }
+            var t = tile.getBoundingClientRect();
+            drag = { tile: tile, offX: e.clientX - t.left, offY: e.clientY - t.top };
+            try { tile.setPointerCapture(e.pointerId); } catch (er) {}
+            tile.style.cursor = "grabbing";
+            e.preventDefault();
+        });
+        videoGrid.addEventListener("pointermove", function (e) {
+            if (!drag) { return; }
+            var t = drag.tile;
+            var gr = videoGrid.getBoundingClientRect();          // live, not cached
+            var left = Math.max(0, Math.min(e.clientX - gr.left - drag.offX, Math.max(0, videoGrid.clientWidth  - t.offsetWidth)));
+            var top  = Math.max(0, Math.min(e.clientY - gr.top  - drag.offY, Math.max(0, videoGrid.clientHeight - t.offsetHeight)));
+            t.style.left = left + "px"; t.style.top = top + "px";
+            t.style.right = "auto"; t.style.bottom = "auto";
+        });
+        function _end() {
+            if (!drag) { return; }
+            var t = drag.tile;
+            var gw = videoGrid.clientWidth || 1, gh = videoGrid.clientHeight || 1;
+            var left = parseFloat(t.style.left) || 0, top = parseFloat(t.style.top) || 0;
+            try { localStorage.setItem("tmSelfPos", JSON.stringify({ l: left / gw, t: top / gh })); } catch (er) {}
+            t.style.cursor = "";
+            drag = null;
+        }
+        videoGrid.addEventListener("pointerup", _end);
+        videoGrid.addEventListener("pointercancel", _end);
+        // Keep it in bounds and on the remembered spot when the window/pane resizes.
+        window.addEventListener("resize", function () {
+            var tile = videoGrid.querySelector('[data-tile="local"]');
+            if (tile && videoGrid.classList.contains("self-mini")) { _restoreSelfPos(tile); }
+        });
+    })();
 
     // Initial strip state — nothing joined yet, so everything reads "off".
     updateMicPill(); updateCamPill(); setSttIndicator(false);
