@@ -55,9 +55,9 @@ android {
     namespace "com.onlinegbc.togethermindsai"
     defaultConfig {
         applicationId "com.onlinegbc.togethermindsai"
-        minSdkVersion 21
-        targetSdkVersion 35
-        versionCode 4
+        minSdkVersion 23
+        targetSdkVersion 36
+        versionCode 7
         versionName "4"
 
         // The name for the application
@@ -208,6 +208,6 @@ repositories {
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     
-        implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
+        implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.2'
     
 }

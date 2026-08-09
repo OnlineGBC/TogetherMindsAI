@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 import io
 import smtplib
 from email.message import EmailMessage
+from email.utils import formataddr
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, make_response, flash, send_file, abort, Response, stream_with_context, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -2044,7 +2045,10 @@ def _send_email(to_emails, subject: str, plain_body: str, html_body: str) -> Non
     same Gmail SMTP path. Raises on failure (callers decide how to handle)."""
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER
+    # Display name so clinician-facing mail reads as the product, not personal mail
+    # from whoever owns the SMTP account.
+    msg["From"] = formataddr(
+        ("TogetherMindsAI", config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER))
     msg["To"] = ", ".join(to_emails)
     msg.set_content(plain_body)
     msg.add_alternative(html_body, subtype="html")
@@ -2809,25 +2813,33 @@ def _recording_email_content(row, kind: str):
     pdf_url   = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/pdf"
     docx_url  = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/docx"
     expires = row.retention_expires_at
-    expires_str = expires.strftime("%d %b %Y") if expires else "30 days from recording"
+    # Always label the zone. The stamp is UTC, and a bare date can read as a day
+    # early or late for a clinician in another timezone.
+    expires_str = (f"{expires.strftime('%d %b %Y')} (UTC)" if expires
+                   else "30 days from recording")
     if kind == "reminder":
-        subject = "TogetherMindsAI — your session audio/video is deleted tomorrow"
-        lead = ("This is a final reminder: the session audio/video below is scheduled to be "
+        # Name the date, never "tomorrow". The sweep picks up anything expiring within
+        # the next 24h, so the deadline is often the SAME calendar day as this email.
+        subject = f"TogetherMindsAI — your session audio/video will be deleted on {expires_str}"
+        heading = f"Your session audio/video will be deleted on {expires_str}"
+        lead = ("This is a final reminder: the recording below is scheduled to be "
                 f"permanently deleted on {expires_str}. Download it now if you still need it.")
     else:
         subject = "TogetherMindsAI — your session audio/video is ready"
-        lead = ("Your session audio/video is ready to download. The audio/video recording is "
+        heading = "Your session audio/video is ready"
+        lead = ("Your session audio/video is ready to download. The recording is "
                 f"kept for {RECORDING_RETENTION_DAYS} days and then permanently deleted "
-                f"(on or about {expires_str}).")
+                f"on or about {expires_str}.")
     # Retention / download guidance — shown as bullets on BOTH the ready and reminder
     # emails, right under the lead. The video expires (30 days); the transcript +
     # analysis are the long-lived clinical record — spelled out so it's unambiguous.
     bullets = [
         "We recommend you download both the video and the transcript for your permanent record.",
-        (f"The audio/video recording will be permanently deleted on or about {expires_str}. "
-         "Once deleted, it cannot be recovered — download it before then."),
-        ("The transcript and AI analysis are retained for six years, or as required by "
-         "prevailing US law, as the clinical record."),
+        (f"The recording will be permanently deleted on or about {expires_str}. "
+         "Once deleted, it cannot be recovered and the download links below will stop "
+         "working — download it before then."),
+        ("The transcript and AI analysis are the clinical record, and are retained for "
+         "six years, or longer if prevailing US law requires it."),
         "Please store any downloaded copies securely, in line with your practice's requirements.",
     ]
     # Friendly session name (if the clinician set one) shown alongside the ID, so they
@@ -2875,7 +2887,7 @@ def _recording_email_content(row, kind: str):
     )
     html_body = (
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
-        f'<h2 style="color:#2e7d32;">{h(subject.split("— ")[-1].capitalize())}</h2>'
+        f'<h2 style="color:#2e7d32;">{h(heading)}</h2>'
         f'<p style="color:#212121;line-height:1.5;">{h(lead)}</p>'
         '<ul style="color:#212121;line-height:1.6;padding-left:20px;margin:12px 0;">'
         + "".join(f'<li>{h(b)}</li>' for b in bullets)

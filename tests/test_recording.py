@@ -471,6 +471,60 @@ def test_recording_email_wording_and_retention_bullets(enc_client):
             assert "<ul" in html and "<li>" in html               # rendered as bullets
 
 
+def test_reminder_email_names_the_date_not_tomorrow(enc_client):
+    """The sweep reminds anything expiring within the next 24h, so the deadline is
+    often the SAME calendar day as the email. It must state the dated deadline with
+    its timezone — never the word 'tomorrow'."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_recording(sid, expires_in=timedelta(hours=12), token="tokR")
+        row = db.session.get(SessionRecording, rid)
+        row.retention_expires_at = datetime(2026, 8, 9, 4, 0, tzinfo=timezone.utc)
+        db.session.commit()
+        subject, plain, html = tm._recording_email_content(row, "reminder")
+    assert "09 Aug 2026 (UTC)" in subject                  # dated deadline, zone labelled
+    for body in (subject, plain, html):
+        assert "tomorrow" not in body.lower()
+        assert "09 Aug 2026 (UTC)" in body
+    # The heading is built explicitly rather than str.capitalize()'d off the subject —
+    # capitalize() would lowercase the month into "09 aug 2026".
+    assert "Your session audio/video will be deleted on 09 Aug 2026 (UTC)" in html
+
+
+def test_recording_email_bullets_are_parallel_and_flag_dead_links(enc_client):
+    """Bullet 3 joins the duration and the legal condition in parallel, and the
+    email says the links stop working once the recording is deleted."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        _seed_recording(sid, expires_in=timedelta(days=30), token="tokB")
+        row = SessionRecording.query.filter_by(session_id=sid).first()
+        for kind in ("ready", "reminder"):
+            _, plain, html = tm._recording_email_content(row, kind)
+            for body in (plain, html):
+                assert ("retained for six years, or longer if prevailing US law "
+                        "requires it") in body
+                assert "as the clinical record." not in body   # old trailing modifier
+                assert "download links below will stop working" in body
+            # "audio/video" survives in the subject line and the opening sentence only.
+            assert html.count("audio/video") <= 2
+
+
+def test_send_email_from_header_has_product_display_name():
+    """Clinician-facing mail should read as the product, not as personal mail from
+    whoever happens to own the SMTP account."""
+    with patch("TogetherMindsAI.smtplib") as mock_smtplib, \
+         patch.object(config, "FEEDBACK_FROM_EMAIL", "noreply@example.com"), \
+         patch.object(config, "FEEDBACK_SMTP_HOST", "smtp.example.com"), \
+         patch.object(config, "FEEDBACK_SMTP_PORT", 587), \
+         patch.object(config, "FEEDBACK_SMTP_USER", "u"), \
+         patch.object(config, "FEEDBACK_SMTP_PASSWORD", "p"):
+        smtp = mock_smtplib.SMTP.return_value.__enter__.return_value
+        tm._send_email(["doc@example.com"], "Subj", "plain", "<p>html</p>")
+    msg = smtp.send_message.call_args[0][0]
+    assert msg["From"] == "TogetherMindsAI <noreply@example.com>"
+    assert msg["To"] == "doc@example.com"
+
+
 def test_recording_email_shows_friendly_name_and_access_note(enc_client):
     """The email shows the friendly session name alongside the ID, and a prominent
     note that only the signed-in clinician can download."""
