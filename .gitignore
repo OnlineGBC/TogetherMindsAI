@@ -222,8 +222,15 @@ __pycache__/
 # Accidental pip shell-redirect artifacts (e.g. =0.40.0)
 =*
 
-# Android keystore — signing credential, never commit
+# Android keystore — signing credential, never commit. Patterns, not just the one
+# exact name: a copy like android.keystore.old or release.jks is the same secret and
+# was previously left untracked, one `git add -A` away from being committed.
 android.keystore
+*.keystore
+*.keystore.*
+*.jks
+*.p12
+*.pepk
 
 # Android build artifacts — regenerated on every build, not source
 .gradle/
