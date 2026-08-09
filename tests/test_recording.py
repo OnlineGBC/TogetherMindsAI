@@ -573,24 +573,83 @@ def test_recording_email_wording_and_retention_bullets(enc_client):
             assert "<ul" in html and "<li>" in html               # rendered as bullets
 
 
+def _email_at(rid, kind, expires_utc):
+    """Render an email for a recording with an exact UTC deadline."""
+    with app.app_context():
+        row = db.session.get(SessionRecording, rid)
+        row.retention_expires_at = expires_utc
+        db.session.commit()
+        return tm._recording_email_content(row, kind)
+
+
 def test_reminder_email_names_the_date_not_tomorrow(enc_client):
     """The sweep reminds anything expiring within the next 24h, so the deadline is
-    often the SAME calendar day as the email. It must state the dated deadline with
-    its timezone — never the word 'tomorrow'."""
+    often the SAME calendar day as the email. It must state the dated deadline —
+    never the word 'tomorrow'."""
     with app.app_context():
         sid = _seed("ther-1")
         rid = _seed_recording(sid, expires_in=timedelta(hours=12), token="tokR")
-        row = db.session.get(SessionRecording, rid)
-        row.retention_expires_at = datetime(2026, 8, 9, 4, 0, tzinfo=timezone.utc)
-        db.session.commit()
-        subject, plain, html = tm._recording_email_content(row, "reminder")
-    assert "09 Aug 2026 (UTC)" in subject                  # dated deadline, zone labelled
+    # 16:00 UTC is midday in Eastern — same calendar date either way, so this test
+    # stays about the wording. The conversion itself is covered separately below.
+    subject, plain, html = _email_at(rid, "reminder",
+                                     datetime(2026, 8, 9, 16, 0, tzinfo=timezone.utc))
+    assert "09 Aug 2026" in subject                        # dated deadline
     for body in (subject, plain, html):
         assert "tomorrow" not in body.lower()
-        assert "09 Aug 2026 (UTC)" in body
+        assert "09 Aug 2026" in body
     # The heading is built explicitly rather than str.capitalize()'d off the subject —
     # capitalize() would lowercase the month into "09 aug 2026".
-    assert "Final notice: your session audio/video will be deleted on 09 Aug 2026 (UTC)" in html
+    assert "Final notice: your audio/video session will be deleted on 09 Aug 2026" in html
+
+
+def test_emails_carry_no_utc_label_and_use_eastern_dates(enc_client):
+    """Dates are shown in US Eastern with no zone label. The stored deadline is UTC,
+    so it must be CONVERTED — 09 Aug 02:00 UTC is still the 8th in Eastern, and an
+    unconverted date would name a day the reader has not reached."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_recording(sid, expires_in=timedelta(days=3), token="tokZ")
+    for kind in ("ready", "early", "reminder"):
+        subject, plain, html = _email_at(rid, kind,
+                                         datetime(2026, 8, 9, 2, 0, tzinfo=timezone.utc))
+        for body in (subject, plain, html):
+            assert "UTC" not in body                       # no zone label anywhere
+        for body in (plain, html):
+            # Everything above the footer — the footer stamps TODAY's date, which
+            # would otherwise collide with the deadline assertions below.
+            above_footer = body.split("Sent automatically")[0]
+            assert "08 Aug 2026" in above_footer           # converted to Eastern
+            assert "09 Aug 2026" not in above_footer       # NOT the raw UTC date
+
+
+def test_emails_say_audio_video_session_and_drop_relative_days(enc_client):
+    """Wording: 'audio/video session', and no 'about N days from now' countdown."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_recording(sid, expires_in=timedelta(days=7), token="tokW")
+    for kind in ("ready", "early", "reminder"):
+        subject, plain, html = _email_at(rid, kind,
+                                         datetime(2026, 8, 9, 16, 0, tzinfo=timezone.utc))
+        assert "audio/video session" in subject
+        assert "session audio/video" not in subject
+        for body in (plain, html):
+            assert "session audio/video" not in body
+            assert "days from now" not in body
+
+
+def test_emails_footer_stamps_send_time_in_us_eastern(enc_client):
+    """Footer says when the email was sent, in US Eastern, in both parts."""
+    import re
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_recording(sid, expires_in=timedelta(days=7), token="tokT")
+    _, plain, html = _email_at(rid, "early",
+                               datetime(2026, 8, 9, 16, 0, tzinfo=timezone.utc))
+    stamp = re.compile(r"Sent automatically by TogetherMindsAI at "
+                       r"\d{2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [AP]M US Eastern time\.")
+    for body in (plain, html):
+        assert stamp.search(body), f"footer stamp missing/misformatted in: {body[-300:]}"
+        assert "Sent automatically by TogetherMindsAI." not in body   # old bare footer
 
 
 def test_recording_email_bullets_are_parallel_and_flag_dead_links(enc_client):

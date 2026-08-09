@@ -14,6 +14,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import io
 import smtplib
@@ -2817,6 +2818,26 @@ RECORDING_WARNING_GRACE_HOURS = 24
 RECORDING_DELETE_BACKSTOP_DAYS = 7
 
 
+_EASTERN = ZoneInfo("America/New_York")
+
+
+def _eastern(dt: datetime) -> datetime:
+    """A UTC timestamp as US Eastern. Values read back from the DB come out naive,
+    so treat a naive value as the UTC it was stored as rather than as local time."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_EASTERN)
+
+
+def _sent_at_line() -> str:
+    """Footer stamp: when this email was sent, in US Eastern. Written out as
+    'US Eastern time' rather than EDT/EST so it reads the same year-round."""
+    now = _eastern(datetime.now(timezone.utc))
+    return ("Sent automatically by TogetherMindsAI at "
+            f"{now.strftime('%d %b %Y')}, {now.strftime('%I:%M %p').lstrip('0')} "
+            "US Eastern time.")
+
+
 def _recording_download_url(row) -> str:
     """Absolute link to the in-app, therapist-gated download route. Keyed on the
     recording's opaque token (NOT the session id), so the session id never appears
@@ -2831,27 +2852,27 @@ def _recording_email_content(row, kind: str):
     pdf_url   = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/pdf"
     docx_url  = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/docx"
     expires = row.retention_expires_at
-    # Always label the zone. The stamp is UTC, and a bare date can read as a day
-    # early or late for a clinician in another timezone.
-    expires_str = (f"{expires.strftime('%d %b %Y')} (UTC)" if expires
+    # Dates are shown in US Eastern and carry no zone label. The stamp is UTC, so it
+    # MUST be converted: 09 Aug 02:00 UTC is still the 8th in Eastern, and an
+    # unconverted date would name a day the reader has not reached yet.
+    expires_str = (_eastern(expires).strftime("%d %b %Y") if expires
                    else "30 days from recording")
     if kind == "reminder":
         # Name the date, never "tomorrow" — the deadline can be the same calendar day
         # as this email. "Final notice" distinguishes it from the earlier warning.
-        subject = f"TogetherMindsAI — final notice: your session audio/video will be deleted on {expires_str}"
-        heading = f"Final notice: your session audio/video will be deleted on {expires_str}"
+        subject = f"TogetherMindsAI — final notice: your audio/video session will be deleted on {expires_str}"
+        heading = f"Final notice: your audio/video session will be deleted on {expires_str}"
         lead = ("This is a final reminder: the recording below is scheduled to be "
                 f"permanently deleted on {expires_str}. Download it now if you still need it.")
     elif kind == "early":
-        subject = f"TogetherMindsAI — your session audio/video will be deleted on {expires_str}"
-        heading = f"Your session audio/video will be deleted on {expires_str}"
-        lead = (f"The recording below is scheduled to be permanently deleted on {expires_str}, "
-                f"about {RECORDING_EARLY_WARNING_DAYS} days from now. Download it while you "
-                "still can — we will send one final notice before it goes.")
+        subject = f"TogetherMindsAI — your audio/video session will be deleted on {expires_str}"
+        heading = f"Your audio/video session will be deleted on {expires_str}"
+        lead = (f"The recording below is scheduled to be permanently deleted on {expires_str}. "
+                "Download it while you still can — we will send one final notice before it goes.")
     else:
-        subject = "TogetherMindsAI — your session audio/video is ready"
-        heading = "Your session audio/video is ready"
-        lead = ("Your session audio/video is ready to download. The recording is "
+        subject = "TogetherMindsAI — your audio/video session is ready"
+        heading = "Your audio/video session is ready"
+        lead = ("Your audio/video session is ready to download. The recording is "
                 f"kept for {RECORDING_RETENTION_DAYS} days and then permanently deleted "
                 f"on or about {expires_str}.")
     # Retention / download guidance — shown as bullets on BOTH the ready and reminder
@@ -2880,6 +2901,7 @@ def _recording_email_content(row, kind: str):
                    "can open these links. No one else can download this recording or the "
                    "documents, even if they receive this email.")
 
+    sent_at = _sent_at_line()
     plain = (
         f"{lead}\n\n"
         + "".join(f"  • {b}\n" for b in bullets)
@@ -2890,6 +2912,7 @@ def _recording_email_content(row, kind: str):
         f"  • Video recording: {video_url}\n"
         f"  • Transcript + AI analysis + ICD codes (PDF): {pdf_url}\n"
         f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n"
+        f"\n{sent_at}\n"
     )
     _link = "color:#2e7d32;text-decoration:none;font-weight:600;"
     _mono = "font-family:ui-monospace,Consolas,monospace;"
@@ -2922,7 +2945,7 @@ def _recording_email_content(row, kind: str):
         'border-radius:8px;display:inline-block;">▶ Download video</a></p>'
         f'<p style="margin:6px 0;"><a href="{h(pdf_url)}" style="{_link}">📄 Transcript, AI analysis &amp; ICD codes (PDF)</a></p>'
         f'<p style="margin:6px 0;"><a href="{h(docx_url)}" style="{_link}">📝 Transcript, AI analysis &amp; ICD codes (Word)</a></p>'
-        '<p style="color:#888;font-size:12px;margin-top:20px;">Sent automatically by TogetherMindsAI.</p>'
+        f'<p style="color:#888;font-size:12px;margin-top:20px;">{h(sent_at)}</p>'
         "</div>"
     )
     return subject, plain, html_body

@@ -13,6 +13,10 @@ grpcio==1.80.0
 # Google Secrets Manager — uncomment when wiring up secret retrieval on Cloud Run
 # google-cloud-secret-manager>=2.16.0
 python-dotenv==1.0.1
+# Timezone database for zoneinfo (recording emails stamp times in US Eastern).
+# python:3.10-slim may carry no system tzdata, and without it ZoneInfo raises,
+# the email fails to build, and the send is silently skipped.
+tzdata==2026.2
 cryptography==44.0.0
 # pinned to 0.41.2 — 0.42.x changed EncryptedType impl from Text to LargeBinary,
 # breaking FernetEngine decryption on PostgreSQL (TypeError: string argument without an encoding)
