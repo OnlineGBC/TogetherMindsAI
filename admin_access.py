@@ -1,0 +1,213 @@
+"""
+admin_access.py
+---------------
+Comp access (full access without paying) and the admin 2-of-3 challenge.
+
+Flask-free on purpose so every rule here is directly testable: hashing, code
+issue/verify, the factor count, and the comp grant/revoke helpers. The HTTP
+routes live in routes_admin.py.
+
+Why emails are hashed: Clinician.email is Fernet-encrypted, which produces
+different ciphertext each time, so `filter_by(email=...)` can never match. A
+deterministic HMAC gives a stable lookup key AND lets an address be comped
+before that person has ever signed up.
+"""
+import hmac
+import hashlib
+import logging
+import secrets
+from datetime import datetime, timezone, timedelta
+
+import config
+
+log = logging.getLogger(__name__)
+
+CODE_DIGITS = 6
+CHANNELS = ("email",)
+
+
+def _hmac_key() -> bytes:
+    """Key for the lookup hashes. SECRET_KEY is already required and rotated with
+    the deployment; the hash is a lookup index, not a password store."""
+    return (config.SECRET_KEY or "").encode() or b"insecure-dev-key"
+
+
+def email_hash(email: str) -> str:
+    """Stable lookup hash for an email address. Case- and space-insensitive."""
+    normalised = (email or "").strip().lower()
+    if not normalised:
+        return ""
+    return hmac.new(_hmac_key(), normalised.encode(), hashlib.sha256).hexdigest()
+
+
+def code_hash(code: str) -> str:
+    """Hash for a one-time code, so codes are never stored in the clear."""
+    return hmac.new(_hmac_key(), (code or "").encode(), hashlib.sha256).hexdigest()
+
+
+def is_admin(email: str) -> bool:
+    """True when this address is configured as an admin."""
+    return bool(email) and (email or "").strip().lower() in config.ADMIN_EMAILS
+
+
+def new_code() -> str:
+    """A fresh numeric one-time code, uniformly random."""
+    upper = 10 ** CODE_DIGITS
+    return str(secrets.randbelow(upper)).zfill(CODE_DIGITS)
+
+
+def verify_totp(submitted: str) -> bool:
+    """Check a code from the authenticator app. False when TOTP isn't configured
+    or pyotp isn't installed — a missing factor must never count as a pass."""
+    if not (submitted and config.ADMIN_TOTP_SECRET):
+        return False
+    try:
+        import pyotp
+    except ImportError:                              # pragma: no cover
+        log.warning("pyotp not installed - TOTP factor unavailable")
+        return False
+    try:
+        # valid_window=1 tolerates one 30s step of clock drift either way.
+        return bool(pyotp.TOTP(config.ADMIN_TOTP_SECRET).verify(submitted.strip(),
+                                                                valid_window=1))
+    except Exception as exc:
+        log.warning("totp verify error: %s", type(exc).__name__)
+        return False
+
+
+def totp_provisioning_uri(account: str) -> str:
+    """otpauth:// URI for enrolling the authenticator app, or "" if unavailable."""
+    if not config.ADMIN_TOTP_SECRET:
+        return ""
+    try:
+        import pyotp
+        return pyotp.TOTP(config.ADMIN_TOTP_SECRET).provisioning_uri(
+            name=account, issuer_name="TogetherMindsAI")
+    except Exception:                                # pragma: no cover
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# One-time codes. `db` and `AdminAuthCode` are passed in so this module stays
+# import-light and the tests can drive it directly.
+# ---------------------------------------------------------------------------
+
+def issue_code(db, AdminAuthCode, admin_email: str, channel: str) -> str:
+    """Create and store a one-time code for `channel`, returning the plaintext
+    code to send. Any earlier unused code on the same channel is retired first,
+    so only the newest one works."""
+    if channel not in CHANNELS:
+        raise ValueError(f"unknown channel: {channel}")
+    now = datetime.now(timezone.utc)
+    a_hash = email_hash(admin_email)
+
+    (AdminAuthCode.query
+     .filter(AdminAuthCode.admin_hash == a_hash,
+             AdminAuthCode.channel == channel,
+             AdminAuthCode.used_at.is_(None))
+     .update({AdminAuthCode.used_at: now}, synchronize_session=False))
+
+    code = new_code()
+    db.session.add(AdminAuthCode(
+        admin_hash=a_hash, channel=channel, code_hash=code_hash(code),
+        created_at=now,
+        expires_at=now + timedelta(minutes=config.ADMIN_CODE_TTL_MINUTES),
+        attempts=0,
+    ))
+    db.session.commit()
+    return code
+
+
+def verify_code(db, AdminAuthCode, admin_email: str, channel: str, submitted: str) -> bool:
+    """Check a one-time code. Consumes it on success. Counts the attempt either
+    way, and refuses once the attempt budget is spent."""
+    if not submitted:
+        return False
+    now = datetime.now(timezone.utc)
+    row = (AdminAuthCode.query
+           .filter(AdminAuthCode.admin_hash == email_hash(admin_email),
+                   AdminAuthCode.channel == channel,
+                   AdminAuthCode.used_at.is_(None))
+           .order_by(AdminAuthCode.id.desc())
+           .first())
+    if row is None:
+        return False
+    expires = row.expires_at
+    if expires.tzinfo is None:                       # naive when read back from the DB
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires <= now or (row.attempts or 0) >= config.ADMIN_CODE_MAX_ATTEMPTS:
+        return False
+
+    row.attempts = (row.attempts or 0) + 1
+    ok = hmac.compare_digest(row.code_hash, code_hash(submitted.strip()))
+    if ok:
+        row.used_at = now                            # single use
+    db.session.commit()
+    return ok
+
+
+def count_factors(db, AdminAuthCode, admin_email: str,
+                  totp: str = "", email_code: str = "") -> int:
+    """How many of the two factors verified. Both are checked (no short-circuit),
+    so one wrong code does not mask a correct one."""
+    passed = 0
+    if verify_totp(totp):
+        passed += 1
+    if verify_code(db, AdminAuthCode, admin_email, "email", email_code):
+        passed += 1
+    return passed
+
+
+def challenge_passed(db, AdminAuthCode, admin_email: str,
+                     totp: str = "", email_code: str = "") -> bool:
+    """True when enough factors verified (either one, by default)."""
+    return count_factors(db, AdminAuthCode, admin_email,
+                         totp, email_code) >= config.ADMIN_FACTORS_REQUIRED
+
+
+# ---------------------------------------------------------------------------
+# Comp grants
+# ---------------------------------------------------------------------------
+
+def has_comp_access(CompAccess, email: str) -> bool:
+    """True when this address holds an active comp grant."""
+    h = email_hash(email)
+    if not h:
+        return False
+    return CompAccess.query.filter(CompAccess.email_hash == h,
+                                   CompAccess.revoked_at.is_(None)).first() is not None
+
+
+def grant(db, CompAccess, email: str, note: str, added_by: str):
+    """Grant (or re-activate) comp access for an address. Returns the row, or
+    None when the address is unusable."""
+    normalised = (email or "").strip().lower()
+    if "@" not in normalised:
+        return None
+    now = datetime.now(timezone.utc)
+    row = CompAccess.query.filter_by(email_hash=email_hash(normalised)).first()
+    if row is None:
+        row = CompAccess(email_hash=email_hash(normalised), email=normalised,
+                         note=(note or "")[:200], added_by=added_by, created_at=now)
+        db.session.add(row)
+    else:                                            # re-activate a revoked grant
+        row.revoked_at = None
+        row.note = (note or row.note or "")[:200]
+        row.added_by = added_by
+    db.session.commit()
+    return row
+
+
+def revoke(db, CompAccess, row_id: int) -> bool:
+    """Revoke a grant. Keeps the row so the history survives for audit."""
+    row = db.session.get(CompAccess, row_id)
+    if row is None or row.revoked_at is not None:
+        return False
+    row.revoked_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return True
+
+
+def active_grants(CompAccess):
+    """All grants, newest first — active and revoked (the list shows both)."""
+    return CompAccess.query.order_by(CompAccess.id.desc()).all()

@@ -8,7 +8,11 @@ simple-websocket==1.1.0
 # (Dockerfile uses --worker-class eventlet)
 # gunicorn 25.x requires eventlet>=0.40.3
 eventlet==0.41.0
-typing-extensions==4.12.2
+# Must stay >= 4.15.0: the Dockerfile pre-installs that floor to work around a
+# PyTorch-index naming problem, and pydantic 2.13 requires >= 4.14.1. Pinning it
+# lower silently drags pydantic back to 2.11, whose pydantic-core has no wheel
+# for Python 3.14 and tries to compile from Rust source.
+typing-extensions==4.15.0
 grpcio==1.80.0
 # Google Secrets Manager — uncomment when wiring up secret retrieval on Cloud Run
 # google-cloud-secret-manager>=2.16.0
@@ -17,6 +21,8 @@ python-dotenv==1.0.1
 # python:3.10-slim may carry no system tzdata, and without it ZoneInfo raises,
 # the email fails to build, and the send is silently skipped.
 tzdata==2026.2
+# TOTP (authenticator app) for the admin comp-access console's 2-of-3 challenge.
+pyotp==2.9.0
 cryptography==44.0.0
 # pinned to 0.41.2 — 0.42.x changed EncryptedType impl from Text to LargeBinary,
 # breaking FernetEngine decryption on PostgreSQL (TypeError: string argument without an encoding)

@@ -426,3 +426,54 @@ class SessionRecording(db.Model):
 
     def __repr__(self):
         return f"<SessionRecording id={self.id} session={self.session_id} status={self.status}>"
+
+
+class CompAccess(db.Model):
+    """An email granted full (premium) access without paying.
+
+    Keyed on email_hash, NOT on the email itself: Clinician.email is Fernet-
+    encrypted, which produces different ciphertext every time, so an equality
+    query on the plaintext can never match. email_hash is a deterministic HMAC of
+    the lowercased address (see admin_access.email_hash), which both makes the
+    lookup possible and lets an address be comped BEFORE that person has ever
+    signed up — it takes effect the moment they log in.
+
+    Revoking sets revoked_at rather than deleting the row, so the grant history
+    survives for audit.
+    """
+    __tablename__ = "comp_access"
+
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    email_hash = db.Column(db.String(64), unique=True, index=True, nullable=False)
+    # Shown back in the admin list so a grant is recognisable. Encrypted at rest
+    # like every other stored address.
+    email      = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    note       = db.Column(db.String(200), nullable=True)
+    added_by   = db.Column(db.String(255), nullable=True)      # admin email
+    created_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime, nullable=True)         # NULL = active
+
+    def __repr__(self):
+        state = "revoked" if self.revoked_at else "active"
+        return f"<CompAccess id={self.id} {state}>"
+
+
+class AdminAuthCode(db.Model):
+    """A one-time code sent to an admin by email or SMS for the 2-of-3 challenge.
+
+    The code is stored hashed, never in the clear. Rows are single-use, expire,
+    and carry an attempt counter so a code cannot be brute-forced.
+    """
+    __tablename__ = "admin_auth_codes"
+
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    admin_hash = db.Column(db.String(64), index=True, nullable=False)  # HMAC of admin email
+    channel    = db.Column(db.String(10), nullable=False)              # email | sms
+    code_hash  = db.Column(db.String(64), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at    = db.Column(db.DateTime, nullable=True)
+    attempts   = db.Column(db.Integer, nullable=False, default=0)
+
+    def __repr__(self):
+        return f"<AdminAuthCode id={self.id} channel={self.channel}>"

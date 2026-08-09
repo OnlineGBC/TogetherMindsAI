@@ -29,13 +29,14 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, init_encryption, friendly_name_key
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, init_encryption, friendly_name_key
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis
 import copilot
 import clinical_summary
 import recording
 import billing
+import admin_access
 import documents
 import feedback_email
 from audit import log_event
@@ -1212,6 +1213,16 @@ def _effective_plan(clinician):
         return "premium"                   # billing disabled -> full access
     if clinician is None:
         return "free"
+    # Comp access granted from the admin console outranks Stripe: these are
+    # accounts we have decided get full access without paying. Best-effort — a
+    # lookup problem must fall through to the normal subscription check, never
+    # hand out access and never break the session.
+    try:
+        if admin_access.has_comp_access(CompAccess, getattr(clinician, "email", "") or ""):
+            return "premium"
+    except Exception:
+        app.logger.warning("comp access lookup failed for clinician %s",
+                           getattr(clinician, "id", "?"))
     if (clinician.subscription_status or "").lower() not in ("active", "trialing"):
         return "free"
     return clinician.plan or "free"
@@ -4087,6 +4098,12 @@ routes_oauth.register_oauth_routes(app)
 # stripe_webhook). The Stripe logic stays in billing.py.
 import routes_billing
 routes_billing.register_billing_routes(app)
+
+# Admin comp-access console — same pattern. Unreachable (404) unless ADMIN_EMAILS
+# is configured AND the caller is signed in as one of those addresses AND they
+# have passed the 2-of-3 challenge.
+import routes_admin
+routes_admin.register_admin_routes(app)
 
 
 if __name__ == "__main__":

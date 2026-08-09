@@ -208,6 +208,29 @@ FEEDBACK_TO_EMAIL: str = FEEDBACK_TO_EMAILS[0] if FEEDBACK_TO_EMAILS else ""
 FEEDBACK_FROM_EMAIL: str = os.environ.get("FEEDBACK_FROM_EMAIL", FEEDBACK_SMTP_USER)
 
 
+# ---------------------------------------------------------------------------
+# Admin comp-access console (/accessadmin) — grant full access to an email
+# without payment. Guarded by two factors, EITHER of which gets you in: an
+# authenticator app (TOTP) or a code emailed to the admin. With no ADMIN_EMAILS
+# set the console stays unreachable, so an unconfigured deploy cannot expose it.
+# ---------------------------------------------------------------------------
+
+_admin_emails_raw: str = os.environ.get("ADMIN_EMAILS", "")
+ADMIN_EMAILS: list = [a.strip().lower() for a in _admin_emails_raw.split(",") if a.strip()]
+ADMIN_TOTP_SECRET: str = os.environ.get("ADMIN_TOTP_SECRET", "")
+
+# How long an admin stays verified before being challenged again, and how long a
+# one-time code stays usable.
+ADMIN_SESSION_MINUTES: int = int(os.environ.get("ADMIN_SESSION_MINUTES", "15"))
+ADMIN_CODE_TTL_MINUTES: int = int(os.environ.get("ADMIN_CODE_TTL_MINUTES", "10"))
+ADMIN_CODE_MAX_ATTEMPTS: int = int(os.environ.get("ADMIN_CODE_MAX_ATTEMPTS", "5"))
+# Either factor on its own is enough (the admin has already signed in with OAuth
+# as a configured admin address, so this is the second factor, not the first).
+ADMIN_FACTORS_REQUIRED: int = int(os.environ.get("ADMIN_FACTORS_REQUIRED", "1"))
+
+ADMIN_CONSOLE_ENABLED: bool = bool(ADMIN_EMAILS)
+
+
 def secure_env_file() -> None:
     """Restrict .env file permissions to the current OS user on every startup.
 

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Comp access — TogetherMindsAI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-9">
+
+    <div class="mb-3">
+      <h3 class="fw-bold mb-1">Comp access</h3>
+      <p class="text-muted mb-0">
+        Grant full access without payment. Signed in as <strong>{{ admin_email }}</strong>.
+      </p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert rounded-4 {{ 'alert-danger' if category == 'error' else 'alert-info' }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% if not verified %}
+    {# ---- 2-of-3 challenge ------------------------------------------------ #}
+    <div class="card rounded-4 border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-1">Confirm it's you</h5>
+        <p class="text-muted small mb-3">
+          Use <strong>either</strong> your authenticator app or a code emailed to you.
+          Emailed codes expire and can be used once.
+        </p>
+
+        <div class="d-flex gap-2 mb-3 flex-wrap">
+          <form method="post" action="{{ url_for('admin_access_send_code') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="channel" value="email">
+            <button class="btn btn-outline-secondary btn-sm rounded-pill" type="submit">
+              <i class="bi bi-envelope me-1"></i>Email me a code
+            </button>
+          </form>
+        </div>
+
+        <form method="post" action="{{ url_for('admin_access_verify') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="row g-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label small fw-semibold">Authenticator app</label>
+              <input class="form-control" name="totp" inputmode="numeric" autocomplete="one-time-code"
+                     placeholder="6 digits" {% if not totp_available %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small fw-semibold">Emailed code</label>
+              <input class="form-control" name="email_code" inputmode="numeric" placeholder="6 digits">
+            </div>
+          </div>
+          <button class="btn btn-primary rounded-pill mt-3" type="submit">Verify</button>
+        </form>
+      </div>
+    </div>
+
+    {% else %}
+    {# ---- Grant a new comp ------------------------------------------------ #}
+    <div class="card rounded-4 border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-3">Give someone full access</h5>
+        <form method="post" action="{{ url_for('admin_access_add') }}" class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="col-12 col-md-5">
+            <label class="form-label small fw-semibold">Email address</label>
+            <input class="form-control" name="email" type="email" required placeholder="name@example.com">
+          </div>
+          <div class="col-12 col-md-5">
+            <label class="form-label small fw-semibold">Note (optional)</label>
+            <input class="form-control" name="note" maxlength="200" placeholder="Why, or who they are">
+          </div>
+          <div class="col-12 col-md-2 d-grid">
+            <button class="btn btn-primary rounded-pill" type="submit">Add</button>
+          </div>
+        </form>
+        <p class="text-muted small mb-0 mt-2">
+          Works before they sign up — access applies the moment they first log in.
+        </p>
+      </div>
+    </div>
+
+    {# ---- Existing grants ------------------------------------------------- #}
+    <div class="card rounded-4 border-0 shadow-sm">
+      <div class="card-body">
+        <h5 class="fw-bold mb-3">Current grants</h5>
+        {% if not grants %}
+          <p class="text-muted mb-0">Nobody has comp access yet.</p>
+        {% else %}
+        <div class="table-responsive">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr class="small text-muted">
+                <th>Email</th><th>Note</th><th>Added</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for g in grants %}
+              <tr>
+                <td class="small">{{ g.email or '—' }}</td>
+                <td class="small text-muted">{{ g.note or '' }}</td>
+                <td class="small text-muted">{{ g.created_at.strftime('%d %b %Y') if g.created_at else '' }}</td>
+                <td>
+                  {% if g.revoked_at %}
+                    <span class="badge bg-secondary rounded-pill">Revoked</span>
+                  {% else %}
+                    <span class="badge bg-success rounded-pill">Active</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  {% if not g.revoked_at %}
+                  <form method="post" action="{{ url_for('admin_access_revoke') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="id" value="{{ g.id }}">
+                    <button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Revoke</button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

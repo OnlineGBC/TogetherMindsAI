@@ -125,6 +125,12 @@ steps:
       - MICROSOFT_CLIENT_ID=MICROSOFT_CLIENT_ID:latest
       - --set-secrets
       - MICROSOFT_CLIENT_SECRET=MICROSOFT_CLIENT_SECRET:latest
+      # Admin comp-access console (/accessadmin). Without ADMIN_EMAILS the
+      # console is unreachable, so an unconfigured deploy cannot expose it.
+      - --set-secrets
+      - ADMIN_EMAILS=ADMIN_EMAILS:latest
+      - --set-secrets
+      - ADMIN_TOTP_SECRET=ADMIN_TOTP_SECRET:latest
       # Subscription billing (Phase 4 Step 4 — Stripe) + A/V recording (Phase 4).
       # Plain env vars (not secrets): flip BILLING_ENABLED=false to restore full
       # access; RECORDING_ENABLED gates the Premium recording feature.
