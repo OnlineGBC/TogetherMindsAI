@@ -122,6 +122,28 @@ def test_docx_includes_friendly_session_name(client):
     assert session_id in text
 
 
+def test_transcript_email_footer_stamps_send_time_in_us_eastern(client):
+    """The end-session transcript email carries the same timestamped footer as the
+    recording emails — not the old bare "Sent automatically by TogetherMindsAI."."""
+    import re
+    import TogetherMindsAI as tm
+
+    user_id = str(uuid.uuid4())
+    session_id = generate_session_id()
+    with app.app_context():
+        _seed_session_with_message(user_id, session_id)
+        ts = db.session.get(TherapySession, session_id)
+        ts.download_token = "tok-transcript"
+        db.session.commit()
+        _, plain, html = tm._session_email_content(ts)
+
+    stamp = re.compile(r"Sent automatically by TogetherMindsAI at "
+                       r"\d{2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [AP]M US Eastern time\.")
+    for body in (plain, html):
+        assert stamp.search(body), f"footer stamp missing/misformatted in: {body[-300:]}"
+        assert "Sent automatically by TogetherMindsAI." not in body   # old bare footer
+
+
 @pytest.mark.parametrize("fmt", ["pdf", "docx"])
 def test_transcript_download_forbidden_without_access(client, fmt):
     """A user with no stake in the session can't download its transcript."""

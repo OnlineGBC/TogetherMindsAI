@@ -3288,12 +3288,14 @@ def _session_email_content(ts):
     subject = "TogetherMindsAI — your session transcript is ready"
     lead = ("Your session has ended. The transcript, AI analysis and ICD codes are "
             "ready to download.")
+    sent_at = _sent_at_line()
     plain = (
         f"{lead}\n\n"
         "Sign in as this session's clinician to open these:\n"
         f"  • Transcript + AI analysis + ICD codes (PDF): {pdf_url}\n"
         f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n\n"
         "Only you, signed in as this session's clinician, can open these links.\n"
+        f"\n{sent_at}\n"
     )
     _link = "color:#2e7d32;text-decoration:none;font-weight:600;"
     html_body = (
@@ -3304,7 +3306,7 @@ def _session_email_content(ts):
         f'<p style="margin:6px 0;"><a href="{h(docx_url)}" style="{_link}">📝 Transcript, AI analysis &amp; ICD codes (Word)</a></p>'
         '<p style="color:#555;font-size:13px;margin-top:14px;">'
         'Only you, signed in as this session\'s clinician, can open these links.</p>'
-        '<p style="color:#888;font-size:12px;margin-top:20px;">Sent automatically by TogetherMindsAI.</p>'
+        f'<p style="color:#888;font-size:12px;margin-top:20px;">{h(sent_at)}</p>'
         "</div>"
     )
     return subject, plain, html_body
