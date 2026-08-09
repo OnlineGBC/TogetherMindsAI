@@ -859,6 +859,13 @@ if not config.IS_TESTING:
             db.session.commit()
         except Exception:
             db.session.rollback()  # column already exists
+        # Early ("about a week left") warning timestamp. TIMESTAMP, not DATETIME —
+        # DATETIME is invalid on Postgres and the column would silently never appear.
+        try:
+            db.session.execute(text("ALTER TABLE session_recordings ADD COLUMN early_reminder_sent_at TIMESTAMP"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
         # Opaque download token (Phase 4 Step 3 security) — keeps the session id
         # out of the download URL. Idempotent.
         try:
@@ -2797,6 +2804,17 @@ def recording_stop(session_id):
 # ---------------------------------------------------------------------------
 
 RECORDING_RETENTION_DAYS = 30
+# Two warnings before deletion, each sent at most once. The sweep runs hourly, so
+# these land close to their nominal times instead of drifting a whole day.
+RECORDING_EARLY_WARNING_DAYS  = 7     # "about a week left"
+RECORDING_FINAL_WARNING_HOURS = 48    # final notice
+# A recording is never deleted until its final notice has been out this long, so a
+# warning issued late still gives the clinician a real window to download.
+RECORDING_WARNING_GRACE_HOURS = 24
+# Backstop: delete this far past expiry even if no warning could be sent (no email
+# on file, SMTP down). Without it, an undeliverable warning would retain session
+# video indefinitely, against the 30-day retention we promise.
+RECORDING_DELETE_BACKSTOP_DAYS = 7
 
 
 def _recording_download_url(row) -> str:
@@ -2818,12 +2836,18 @@ def _recording_email_content(row, kind: str):
     expires_str = (f"{expires.strftime('%d %b %Y')} (UTC)" if expires
                    else "30 days from recording")
     if kind == "reminder":
-        # Name the date, never "tomorrow". The sweep picks up anything expiring within
-        # the next 24h, so the deadline is often the SAME calendar day as this email.
-        subject = f"TogetherMindsAI — your session audio/video will be deleted on {expires_str}"
-        heading = f"Your session audio/video will be deleted on {expires_str}"
+        # Name the date, never "tomorrow" — the deadline can be the same calendar day
+        # as this email. "Final notice" distinguishes it from the earlier warning.
+        subject = f"TogetherMindsAI — final notice: your session audio/video will be deleted on {expires_str}"
+        heading = f"Final notice: your session audio/video will be deleted on {expires_str}"
         lead = ("This is a final reminder: the recording below is scheduled to be "
                 f"permanently deleted on {expires_str}. Download it now if you still need it.")
+    elif kind == "early":
+        subject = f"TogetherMindsAI — your session audio/video will be deleted on {expires_str}"
+        heading = f"Your session audio/video will be deleted on {expires_str}"
+        lead = (f"The recording below is scheduled to be permanently deleted on {expires_str}, "
+                f"about {RECORDING_EARLY_WARNING_DAYS} days from now. Download it while you "
+                "still can — we will send one final notice before it goes.")
     else:
         subject = "TogetherMindsAI — your session audio/video is ready"
         heading = "Your session audio/video is ready"
@@ -2951,41 +2975,67 @@ def _finalize_stopped_recording(row) -> None:
 
 
 def _recording_retention_sweep() -> None:
-    """Daily: send due 24h-before-deletion reminders, then delete recordings past
-    their retention deadline. Idempotent and safe to run repeatedly. Never raises."""
+    """Hourly: send the two due warnings, then delete recordings that are past their
+    deadline AND have had their final notice long enough to act on. Idempotent and
+    safe to run repeatedly. Never raises."""
     if not config.RECORDING_ENABLED:
         return
     try:
         with app.app_context():
             now = datetime.now(timezone.utc)
-            soon = now + timedelta(hours=24)
 
-            # 1) Reminders — expiring within 24h, not yet reminded, not deleted.
-            due = (SessionRecording.query
-                   .filter(SessionRecording.status == "stopped",
-                           SessionRecording.retention_expires_at.isnot(None),
-                           SessionRecording.retention_expires_at <= soon,
-                           SessionRecording.retention_expires_at > now,
-                           SessionRecording.reminder_sent_at.is_(None))
-                   .all())
-            for row in due:
+            # 1) Early warning — "about a week left", once.
+            early_due = (SessionRecording.query
+                         .filter(SessionRecording.status == "stopped",
+                                 SessionRecording.retention_expires_at.isnot(None),
+                                 SessionRecording.retention_expires_at <=
+                                     now + timedelta(days=RECORDING_EARLY_WARNING_DAYS),
+                                 SessionRecording.early_reminder_sent_at.is_(None))
+                         .all())
+            for row in early_due:
+                if _email_recording(row, "early"):
+                    row.early_reminder_sent_at = now
+                    db.session.commit()
+
+            # 2) Final notice — once. Deliberately NO "not yet expired" condition: a
+            # recording whose deadline slipped past between sweeps must still get its
+            # warning rather than being deleted silently. Step 3 then holds off on it.
+            final_due = (SessionRecording.query
+                         .filter(SessionRecording.status == "stopped",
+                                 SessionRecording.retention_expires_at.isnot(None),
+                                 SessionRecording.retention_expires_at <=
+                                     now + timedelta(hours=RECORDING_FINAL_WARNING_HOURS),
+                                 SessionRecording.reminder_sent_at.is_(None))
+                         .all())
+            for row in final_due:
                 if _email_recording(row, "reminder"):
                     row.reminder_sent_at = now
                     db.session.commit()
 
-            # 2) Deletions — past the retention deadline.
+            # 3) Deletions — past the deadline, and either the final notice has been
+            # out long enough to act on, or we have hit the backstop (no warning was
+            # ever deliverable, and we will not retain session video indefinitely).
+            warned_by = now - timedelta(hours=RECORDING_WARNING_GRACE_HOURS)
+            backstop  = now - timedelta(days=RECORDING_DELETE_BACKSTOP_DAYS)
             expired = (SessionRecording.query
                        .filter(SessionRecording.status == "stopped",
                                SessionRecording.retention_expires_at.isnot(None),
-                               SessionRecording.retention_expires_at <= now)
+                               SessionRecording.retention_expires_at <= now,
+                               db.or_(SessionRecording.reminder_sent_at <= warned_by,
+                                      SessionRecording.retention_expires_at <= backstop))
                        .all())
             for row in expired:
                 if recording.delete_object(row.gcs_object):
+                    unwarned = row.reminder_sent_at is None
                     row.status = "deleted"
                     db.session.commit()
+                    if unwarned:
+                        app.logger.warning(
+                            "recording %s deleted by backstop with no warning sent "
+                            "(check clinician email / SMTP)", row.id)
                     log_event("recording_deleted", session_id=row.session_id,
                               user_id=row.started_by, recording_id=row.id,
-                              trigger="retention_expired")
+                              trigger="retention_backstop" if unwarned else "retention_expired")
     except Exception as exc:
         db.session.rollback()
         app.logger.error("recording retention sweep error: %s", type(exc).__name__)
@@ -3027,8 +3077,11 @@ def recording_download(token):
 # `_scheduler` global was created in the startup block above). Registered here,
 # not in that block, because the sweep is defined further down this module.
 if not config.IS_TESTING:
+    # Hourly, not daily: the warning windows are 7 days and 48 hours wide, and a
+    # daily tick drifted enough that a recording could pass its deadline between
+    # runs and be deleted having never been warned.
     _scheduler.add_job(
-        _recording_retention_sweep, "interval", hours=24, id="recording_retention_sweep",
+        _recording_retention_sweep, "interval", hours=1, id="recording_retention_sweep",
     )
     # Catch up on any reminders/deletions that came due while the app was down.
     threading.Thread(target=_recording_retention_sweep, daemon=True).start()

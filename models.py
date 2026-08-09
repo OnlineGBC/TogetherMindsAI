@@ -414,7 +414,11 @@ class SessionRecording(db.Model):
     started_at  = db.Column(db.DateTime, nullable=False)
     stopped_at  = db.Column(db.DateTime, nullable=True)
     retention_expires_at = db.Column(db.DateTime, nullable=True)  # 30-day delete (Phase 4 Step 3)
-    reminder_sent_at     = db.Column(db.DateTime, nullable=True)  # 24h-before-deletion email sent (exactly once)
+    # Two warnings, each sent at most once: an early "about a week left" notice and
+    # a final notice. A recording is not deleted until the final notice has gone out
+    # (see _recording_retention_sweep), so neither may be reused for the other.
+    early_reminder_sent_at = db.Column(db.DateTime, nullable=True)  # 7-days-before email
+    reminder_sent_at     = db.Column(db.DateTime, nullable=True)  # final (48h) email
     # Opaque, unguessable download token. The download URL is keyed on this, NOT on
     # the session id, so the session id never appears in a URL / email / browser
     # history / referrer. Still therapist-gated on top of the token.

@@ -205,13 +205,21 @@ def test_unconsented_newcomer_pauses_recording(enc_client):
 # ---------------------------------------------------------------------------
 
 def _seed_recording(sid, status="stopped", expires_in=None, reminded=False,
-                    started_by="ther-1", gcs="obj.mp4", token="dltok"):
+                    early_reminded=False, started_by="ther-1", gcs="obj.mp4",
+                    token="dltok"):
     now = datetime.now(timezone.utc)
+    # `reminded` is either a bool (final notice sent just now) or a timedelta saying
+    # how long AGO it was sent — deletion only happens once that notice has aged.
+    if isinstance(reminded, timedelta):
+        reminded_at = now - reminded
+    else:
+        reminded_at = now if reminded else None
     row = SessionRecording(
         session_id=sid, egress_id="EG", gcs_object=gcs, status=status,
         started_by=started_by, started_at=now, stopped_at=now,
         retention_expires_at=(now + expires_in) if expires_in is not None else None,
-        reminder_sent_at=(now if reminded else None),
+        reminder_sent_at=reminded_at,
+        early_reminder_sent_at=(now if early_reminded else None),
         download_token=token,
     )
     db.session.add(row)
@@ -238,9 +246,10 @@ def test_stop_stamps_30day_retention(enc_client):
 
 
 def test_sweep_sends_reminder_once(enc_client):
+    # early_reminded: the 7-day warning already went out, so only the final notice is due.
     with app.app_context():
         sid = _seed()
-        rid = _seed_recording(sid, expires_in=timedelta(hours=12))
+        rid = _seed_recording(sid, expires_in=timedelta(hours=12), early_reminded=True)
     with patch.object(config, "RECORDING_ENABLED", True), \
          patch.object(tm, "_email_recording", return_value=True) as mail, \
          patch("recording.delete_object", return_value=True):
@@ -252,9 +261,11 @@ def test_sweep_sends_reminder_once(enc_client):
 
 
 def test_sweep_deletes_expired_recording_once(enc_client):
+    # Deletion now requires an aged final notice — seed one sent 48h ago.
     with app.app_context():
         sid = _seed()
-        rid = _seed_recording(sid, expires_in=timedelta(hours=-1), gcs="gone.mp4")
+        rid = _seed_recording(sid, expires_in=timedelta(hours=-1), gcs="gone.mp4",
+                              reminded=timedelta(hours=48), early_reminded=True)
     with patch.object(config, "RECORDING_ENABLED", True), \
          patch.object(tm, "_email_recording", return_value=True), \
          patch("recording.delete_object", return_value=True) as rm:
@@ -268,12 +279,103 @@ def test_sweep_deletes_expired_recording_once(enc_client):
 def test_sweep_keeps_object_if_delete_fails(enc_client):
     with app.app_context():
         sid = _seed()
-        rid = _seed_recording(sid, expires_in=timedelta(hours=-1))
+        rid = _seed_recording(sid, expires_in=timedelta(hours=-1),
+                              reminded=timedelta(hours=48), early_reminded=True)
     with patch.object(config, "RECORDING_ENABLED", True), \
          patch("recording.delete_object", return_value=False):
         tm._recording_retention_sweep()
     with app.app_context():
         assert db.session.get(SessionRecording, rid).status == "stopped"   # not marked deleted
+
+
+def _sweep_email_kinds(mail):
+    """The email kinds the sweep sent, in order — _email_recording(row, kind)."""
+    return [c.args[1] for c in mail.call_args_list]
+
+
+def test_sweep_sends_early_warning_once(enc_client):
+    """A recording a week out gets the early warning and nothing else."""
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid, expires_in=timedelta(days=5))
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_email_recording", return_value=True) as mail, \
+         patch("recording.delete_object", return_value=True) as rm:
+        tm._recording_retention_sweep()
+        tm._recording_retention_sweep()                      # idempotent
+    assert _sweep_email_kinds(mail) == ["early"]             # no final notice yet
+    rm.assert_not_called()
+    with app.app_context():
+        row = db.session.get(SessionRecording, rid)
+        assert row.early_reminder_sent_at is not None
+        assert row.reminder_sent_at is None
+
+
+def test_sweep_sends_both_warnings_when_deadline_is_close(enc_client):
+    """Inside 48h with no early warning yet (e.g. a short retention), both go out —
+    early first, then the final notice."""
+    with app.app_context():
+        sid = _seed()
+        _seed_recording(sid, expires_in=timedelta(hours=30))
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_email_recording", return_value=True) as mail, \
+         patch("recording.delete_object", return_value=True):
+        tm._recording_retention_sweep()
+    assert _sweep_email_kinds(mail) == ["early", "reminder"]
+
+
+def test_expired_but_unwarned_recording_is_warned_not_deleted(enc_client):
+    """The bug this fixes: a deadline that slipped past between sweeps must get its
+    final notice, NOT a silent deletion."""
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid, expires_in=timedelta(hours=-1), early_reminded=True)
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_email_recording", return_value=True) as mail, \
+         patch("recording.delete_object", return_value=True) as rm:
+        tm._recording_retention_sweep()
+    assert _sweep_email_kinds(mail) == ["reminder"]           # warned, despite being late
+    rm.assert_not_called()                                    # and NOT deleted in the same run
+    with app.app_context():
+        assert db.session.get(SessionRecording, rid).status == "stopped"
+
+
+def test_expired_recording_waits_for_the_warning_to_age(enc_client):
+    """Deletion holds off until the final notice is old enough to have been acted on."""
+    with app.app_context():
+        sid = _seed()
+        fresh = _seed_recording(sid, expires_in=timedelta(hours=-1), token="tokFresh",
+                                reminded=timedelta(hours=1), early_reminded=True)
+        aged  = _seed_recording(sid, expires_in=timedelta(hours=-1), token="tokAged",
+                                gcs="aged.mp4", reminded=timedelta(hours=25),
+                                early_reminded=True)
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_email_recording", return_value=True), \
+         patch("recording.delete_object", return_value=True) as rm:
+        tm._recording_retention_sweep()
+    rm.assert_called_once_with("aged.mp4")                    # only the aged one goes
+    with app.app_context():
+        assert db.session.get(SessionRecording, fresh).status == "stopped"
+        assert db.session.get(SessionRecording, aged).status == "deleted"
+
+
+def test_backstop_deletes_recording_that_could_never_be_warned(enc_client):
+    """If no warning is deliverable (no clinician email, SMTP down), we still do not
+    retain session video indefinitely — the backstop deletes and logs why."""
+    with app.app_context():
+        sid = _seed()
+        rid = _seed_recording(sid, expires_in=timedelta(days=-8), gcs="stale.mp4")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_email_recording", return_value=False), \
+         patch.object(tm, "log_event") as logged, \
+         patch("recording.delete_object", return_value=True) as rm:
+        tm._recording_retention_sweep()
+    rm.assert_called_once_with("stale.mp4")
+    with app.app_context():
+        row = db.session.get(SessionRecording, rid)
+        assert row.status == "deleted"
+        assert row.reminder_sent_at is None                   # never successfully warned
+    assert logged.call_args.kwargs["trigger"] == "retention_backstop"
 
 
 def _make_therapist_session(client, sid, uid="ther-1"):
@@ -488,7 +590,7 @@ def test_reminder_email_names_the_date_not_tomorrow(enc_client):
         assert "09 Aug 2026 (UTC)" in body
     # The heading is built explicitly rather than str.capitalize()'d off the subject —
     # capitalize() would lowercase the month into "09 aug 2026".
-    assert "Your session audio/video will be deleted on 09 Aug 2026 (UTC)" in html
+    assert "Final notice: your session audio/video will be deleted on 09 Aug 2026 (UTC)" in html
 
 
 def test_recording_email_bullets_are_parallel_and_flag_dead_links(enc_client):
