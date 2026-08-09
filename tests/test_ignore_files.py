@@ -37,10 +37,12 @@ def test_no_signing_credential_is_tracked_or_present_unignored():
     assert not offenders, f"signing credential committed to the repo: {offenders}"
 
 
-def test_gcloudignore_excludes_the_keystore():
-    """The build context is uploaded to Cloud Build; the keystore must not ride along."""
+def test_gcloudignore_covers_keystore_patterns():
+    """The build context is uploaded whole to Cloud Build, so the same pattern cover
+    the repo has must apply here — a renamed keystore is the same credential."""
     text = GCLOUDIGNORE.read_text(encoding="utf-8", errors="replace")
     lines = {ln.strip() for ln in text.splitlines()}
-    assert "android.keystore" in lines or "*.keystore" in lines, (
-        ".gcloudignore must exclude the signing keystore from the upload"
+    missing = [p for p in KEYSTORE_PATTERNS if p not in lines]
+    assert not missing, (
+        f".gcloudignore must cover signing-credential patterns, missing: {missing}"
     )

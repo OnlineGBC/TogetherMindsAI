@@ -7,8 +7,15 @@ TogetherMindsAI.venv/
 # Local database
 instance/
 
-# Secrets — never upload
+# Secrets — never upload. Patterns, not one exact filename: a renamed copy of the
+# signing keystore is the same credential, and the build context is uploaded whole.
 .env
+android.keystore
+*.keystore
+*.keystore.*
+*.jks
+*.p12
+*.pepk
 
 # Python cache
 __pycache__/
@@ -38,6 +45,5 @@ gradle.properties
 *.apk
 *.aab
 *.idsig
-android.keystore
 manifest-checksum.txt
 store_icon.png
