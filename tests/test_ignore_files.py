@@ -37,6 +37,16 @@ def test_no_signing_credential_is_tracked_or_present_unignored():
     assert not offenders, f"signing credential committed to the repo: {offenders}"
 
 
+def test_both_ignores_skip_pip_redirect_artifacts():
+    """A file literally named "=0.41.0", created by `pip install pkg>=0.41.0` in a
+    shell that treats > as a redirect. Junk, and it was being uploaded to Cloud
+    Build because only .gitignore covered it."""
+    for path in (GITIGNORE, GCLOUDIGNORE):
+        lines = {ln.strip() for ln in
+                 path.read_text(encoding="utf-8", errors="replace").splitlines()}
+        assert "=*" in lines, f"{path.name} should ignore pip redirect artifacts"
+
+
 def test_gcloudignore_covers_keystore_patterns():
     """The build context is uploaded whole to Cloud Build, so the same pattern cover
     the repo has must apply here — a renamed keystore is the same credential."""

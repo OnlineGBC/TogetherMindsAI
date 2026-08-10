@@ -23,6 +23,9 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
+# Accidental pip shell-redirect artifacts (e.g. a file literally named "=0.41.0")
+=*
+
 # Tests — not needed inside the Docker image
 tests/
 
