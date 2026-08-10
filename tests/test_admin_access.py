@@ -200,6 +200,25 @@ def test_no_factor_at_all_fails(client):
         _with_admin_config(check)
 
 
+def test_totp_secret_survives_a_bom_and_crlf(client):
+    """A secret piped in from a Windows shell arrives as BOM + value + CRLF.
+    str.strip() removes the CRLF but NOT the BOM (U+FEFF is not whitespace), so the
+    secret failed to base32-decode and the factor silently returned false."""
+    dirty = "﻿" + TOTP_SECRET + "\r\n"
+    with app.app_context():
+        with patch.object(config, "ADMIN_TOTP_SECRET", dirty):
+            assert admin_access.clean_secret(dirty) == TOTP_SECRET
+            assert admin_access.verify_totp(_totp_now()) is True
+
+
+def test_totp_secret_tolerates_display_spacing(client):
+    """Some tools show a key grouped in fours; pasting that must still work."""
+    spaced = " ".join(TOTP_SECRET[i:i + 4] for i in range(0, len(TOTP_SECRET), 4))
+    with app.app_context():
+        with patch.object(config, "ADMIN_TOTP_SECRET", spaced):
+            assert admin_access.verify_totp(_totp_now()) is True
+
+
 def test_unconfigured_totp_never_counts_as_a_factor(client):
     """A blank secret must fail closed, not silently pass."""
     with app.app_context():

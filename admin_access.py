@@ -57,6 +57,19 @@ def new_code() -> str:
     return str(secrets.randbelow(upper)).zfill(CODE_DIGITS)
 
 
+def clean_secret(raw: str) -> str:
+    """A base32 secret as stored, made safe to decode.
+
+    Secret stores hand back exactly the bytes that were written, and a value piped
+    in from a Windows shell arrives wrapped in a UTF-8 BOM and CRLF. str.strip()
+    removes the CRLF but NOT the BOM — U+FEFF is not whitespace in Python — so the
+    secret silently failed to base32-decode and the whole factor returned false
+    with nothing in the logs. Strip the BOM explicitly, and any internal spacing
+    some tools add when displaying a key.
+    """
+    return (raw or "").replace("﻿", "").replace(" ", "").strip()
+
+
 def normalise_code(submitted: str) -> str:
     """Digits only. Authenticator apps display codes as "123 456", and that inner
     space survives .strip(), so a pasted or typed code with it would never verify.
@@ -68,7 +81,8 @@ def verify_totp(submitted: str) -> bool:
     """Check a code from the authenticator app. False when TOTP isn't configured
     or pyotp isn't installed — a missing factor must never count as a pass."""
     code = normalise_code(submitted)
-    if not (code and config.ADMIN_TOTP_SECRET):
+    secret = clean_secret(config.ADMIN_TOTP_SECRET)
+    if not (code and secret):
         return False
     try:
         import pyotp
@@ -77,20 +91,23 @@ def verify_totp(submitted: str) -> bool:
         return False
     try:
         # valid_window=1 tolerates one 30s step of clock drift either way.
-        return bool(pyotp.TOTP(config.ADMIN_TOTP_SECRET.strip()).verify(code,
-                                                                        valid_window=1))
+        return bool(pyotp.TOTP(secret).verify(code, valid_window=1))
     except Exception as exc:
-        log.warning("totp verify error: %s", type(exc).__name__)
+        # Nearly always a secret that will not base32-decode. Say so loudly: this
+        # failed silently once already and looked like "the code is wrong".
+        log.warning("totp verify error (%s) - check ADMIN_TOTP_SECRET is clean "
+                    "base32 with no BOM/newline", type(exc).__name__)
         return False
 
 
 def totp_provisioning_uri(account: str) -> str:
     """otpauth:// URI for enrolling the authenticator app, or "" if unavailable."""
-    if not config.ADMIN_TOTP_SECRET:
+    secret = clean_secret(config.ADMIN_TOTP_SECRET)
+    if not secret:
         return ""
     try:
         import pyotp
-        return pyotp.TOTP(config.ADMIN_TOTP_SECRET).provisioning_uri(
+        return pyotp.TOTP(secret).provisioning_uri(
             name=account, issuer_name="TogetherMindsAI")
     except Exception:                                # pragma: no cover
         return ""
