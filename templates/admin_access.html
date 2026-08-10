@@ -2,6 +2,24 @@
 {% block title %}Comp access — TogetherMindsAI{% endblock %}
 
 {% block content %}
+<style>
+  /* Bootstrap's .table sets its own light-theme text colour, which renders near
+     black on this dark UI. style.css has no .table rule to override it, so point
+     the table's own variables at the app theme instead. */
+  .comp-table {
+    --bs-table-color: var(--text-dark);
+    --bs-table-bg: transparent;
+    --bs-table-border-color: rgba(255, 255, 255, .14);
+    color: var(--text-dark);
+  }
+  .comp-table > :not(caption) > * > * {
+    background-color: transparent;
+    color: inherit;
+  }
+  .comp-table thead th { color: var(--text-muted); font-weight: 700; }
+  .comp-table td.comp-muted { color: var(--text-muted); }
+</style>
+
 <div class="row justify-content-center">
   <div class="col-12 col-lg-9">
 
@@ -89,9 +107,9 @@
           <p class="text-muted mb-0">Nobody has comp access yet.</p>
         {% else %}
         <div class="table-responsive">
-          <table class="table align-middle mb-0">
+          <table class="table align-middle mb-0 comp-table">
             <thead>
-              <tr class="small text-muted">
+              <tr class="small">
                 <th>Email</th><th>Note</th><th>Added</th><th>Status</th><th></th>
               </tr>
             </thead>
@@ -99,8 +117,8 @@
             {% for g in grants %}
               <tr>
                 <td class="small">{{ g.email or '—' }}</td>
-                <td class="small text-muted">{{ g.note or '' }}</td>
-                <td class="small text-muted">{{ g.created_at.strftime('%d %b %Y') if g.created_at else '' }}</td>
+                <td class="small comp-muted">{{ g.note or '' }}</td>
+                <td class="small comp-muted">{{ g.created_at.strftime('%d %b %Y') if g.created_at else '' }}</td>
                 <td>
                   {% if g.revoked_at %}
                     <span class="badge bg-secondary rounded-pill">Revoked</span>

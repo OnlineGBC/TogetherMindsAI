@@ -1036,6 +1036,50 @@ def ratelimit_handler(e):
     return jsonify({"error": "Too many attempts. Please wait a few minutes and try again."}), 429
 
 
+def _wants_json() -> bool:
+    """True for API callers, who should get JSON rather than an HTML page."""
+    return (request.path.startswith("/api/")
+            or request.accept_mimetypes.best == "application/json")
+
+
+@app.errorhandler(404)
+def not_found_handler(e):
+    """Branded 404. Deliberately identical for a mistyped URL and for a page the
+    caller isn't allowed to see (e.g. /accessadmin), so the response never reveals
+    which of the two it was."""
+    if _wants_json():
+        return jsonify({"error": "not_found"}), 404
+    try:
+        return render_template("404.html"), 404
+    except Exception:                      # never let the error page error
+        app.logger.warning("404 template failed to render")
+        return "Page not found.", 404
+
+
+@app.errorhandler(500)
+@app.errorhandler(Exception)
+def server_error_handler(e):
+    """Branded 500. Re-raises HTTP errors (404, 403, …) so their own handlers and
+    status codes still apply — this catch-all is only for genuine crashes."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    app.logger.exception("unhandled error at %s", request.path)
+    # The request that crashed may have left the session unusable, which would
+    # then break the template's own context processors.
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
+    if _wants_json():
+        return jsonify({"error": "server_error"}), 500
+    try:
+        return render_template("500.html"), 500
+    except Exception:
+        app.logger.warning("500 template failed to render")
+        return "Something went wrong. Please try again.", 500
+
+
 # Routes — pages
 # ---------------------------------------------------------------------------
 
