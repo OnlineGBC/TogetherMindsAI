@@ -134,14 +134,15 @@ steps:
       # Subscription billing (Phase 4 Step 4 — Stripe) + A/V recording (Phase 4).
       # Plain env vars (not secrets): flip BILLING_ENABLED=false to restore full
       # access; RECORDING_ENABLED gates the Premium recording feature.
+      # BILLING_ENABLED=true puts entitlements into force: AI analysis and recording
+      # now require an active pro/premium subscription OR a comp grant from
+      # /accessadmin. With it false, every clinician got premium regardless.
       - --set-env-vars
-      - BILLING_ENABLED=false,RECORDING_ENABLED=true
+      - BILLING_ENABLED=true,RECORDING_ENABLED=true
       # Stripe secrets PINNED to :2 = LIVE keys (verified: :1 is sk_test_, :2 is
       # sk_live_). Still pinned rather than :latest so a new secret version cannot
       # silently change what production charges against. To revert to test mode,
       # set these four back to :1 and redeploy.
-      # NOTE: BILLING_ENABLED is still false above — live keys are armed but no
-      # customer is charged until that flag is flipped.
       - --set-secrets
       - STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:2
       - --set-secrets
