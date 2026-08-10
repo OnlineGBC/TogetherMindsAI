@@ -136,17 +136,20 @@ steps:
       # access; RECORDING_ENABLED gates the Premium recording feature.
       - --set-env-vars
       - BILLING_ENABLED=false,RECORDING_ENABLED=true
-      # Stripe secrets PINNED to :1 = TEST keys, so deploys stay in Stripe test
-      # mode. AT GO-LIVE: change these four to :2 (the live versions) — or :latest —
-      # and redeploy to switch to live keys.
+      # Stripe secrets PINNED to :2 = LIVE keys (verified: :1 is sk_test_, :2 is
+      # sk_live_). Still pinned rather than :latest so a new secret version cannot
+      # silently change what production charges against. To revert to test mode,
+      # set these four back to :1 and redeploy.
+      # NOTE: BILLING_ENABLED is still false above — live keys are armed but no
+      # customer is charged until that flag is flipped.
       - --set-secrets
-      - STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:1
+      - STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:2
       - --set-secrets
-      - STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:1
+      - STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET:2
       - --set-secrets
-      - STRIPE_PRICE_PRO=STRIPE_PRICE_PRO:1
+      - STRIPE_PRICE_PRO=STRIPE_PRICE_PRO:2
       - --set-secrets
-      - STRIPE_PRICE_PREMIUM=STRIPE_PRICE_PREMIUM:1
+      - STRIPE_PRICE_PREMIUM=STRIPE_PRICE_PREMIUM:2
       # min-instances must always be 1 — keeps a warm worker so couple/group
       # SocketIO sessions don't pay a 10-15s cold-start penalty on first message.
       - --min-instances
