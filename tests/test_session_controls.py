@@ -511,3 +511,31 @@ def test_in_session_nav_hides_home_and_my_sessions(enc_client):
     assert "/logout" in html                      # account menu / Sign out remains
     # The dashboard (not in-session) still shows the sessions nav.
     assert "bi-clipboard2-pulse" in enc_client.get("/therapist").get_data(as_text=True)
+
+
+def test_billing_link_is_in_the_navbar_for_clinicians(enc_client):
+    """Plans & billing was only reachable from a link at the very bottom of the
+    dashboard, and not at all from the home page. It belongs in the masthead."""
+    with enc_client.session_transaction() as s:
+        s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
+    html = enc_client.get("/therapist").get_data(as_text=True)
+    assert "Plans &amp; billing" in html
+    assert "bi-credit-card" in html
+    # Sits between My sessions and the account menu.
+    assert html.index("bi-clipboard2-pulse") < html.index("bi-credit-card") < html.index("acctMenu")
+
+
+def test_billing_link_hidden_when_not_a_signed_in_clinician(enc_client):
+    """Subscriptions are per clinician — a signed-out visitor has nothing to manage."""
+    html = enc_client.get("/welcome").get_data(as_text=True)
+    assert "bi-credit-card" not in html
+
+
+def test_billing_link_hidden_during_a_live_session(enc_client):
+    """The in-session nav stays focused; billing goes with the rest of it."""
+    with app.app_context():
+        sid = _seed("ther-1", mode="solo")
+    with enc_client.session_transaction() as s:
+        s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
+    html = enc_client.get(f"/therapy/solo/{sid}").get_data(as_text=True)
+    assert "bi-credit-card" not in html
