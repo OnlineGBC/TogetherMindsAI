@@ -161,6 +161,35 @@ def test_either_factor_alone_is_enough(client):
         _with_admin_config(check)
 
 
+def test_totp_code_accepts_the_space_authenticator_apps_display(client):
+    """Google Authenticator shows codes as "123 456". That inner space survives
+    .strip(), so typing the code as displayed used to fail every time."""
+    with app.app_context():
+        def check():
+            code = _totp_now()
+            spaced = f"{code[:3]} {code[3:]}"
+            assert admin_access.verify_totp(spaced) is True
+            assert admin_access.verify_totp(f"{code[:3]}-{code[3:]}") is True
+        _with_admin_config(check)
+
+
+def test_emailed_code_also_tolerates_separators(client):
+    with app.app_context():
+        def check():
+            code = admin_access.issue_code(db, AdminAuthCode, ADMIN, "email")
+            spaced = f"{code[:3]} {code[3:]}"
+            assert admin_access.verify_code(
+                db, AdminAuthCode, ADMIN, "email", spaced) is True
+        _with_admin_config(check)
+
+
+def test_normalise_code_strips_only_separators(client):
+    assert admin_access.normalise_code(" 123 456 ") == "123456"
+    assert admin_access.normalise_code("123-456") == "123456"
+    assert admin_access.normalise_code("") == ""
+    assert admin_access.normalise_code("abc") == ""          # nothing to verify
+
+
 def test_no_factor_at_all_fails(client):
     """Being signed in as an admin is not by itself enough."""
     with app.app_context():

@@ -15,6 +15,7 @@ before that person has ever signed up.
 import hmac
 import hashlib
 import logging
+import re
 import secrets
 from datetime import datetime, timezone, timedelta
 
@@ -56,10 +57,18 @@ def new_code() -> str:
     return str(secrets.randbelow(upper)).zfill(CODE_DIGITS)
 
 
+def normalise_code(submitted: str) -> str:
+    """Digits only. Authenticator apps display codes as "123 456", and that inner
+    space survives .strip(), so a pasted or typed code with it would never verify.
+    Also tolerates hyphens and any other separator a user might include."""
+    return re.sub(r"\D", "", submitted or "")
+
+
 def verify_totp(submitted: str) -> bool:
     """Check a code from the authenticator app. False when TOTP isn't configured
     or pyotp isn't installed — a missing factor must never count as a pass."""
-    if not (submitted and config.ADMIN_TOTP_SECRET):
+    code = normalise_code(submitted)
+    if not (code and config.ADMIN_TOTP_SECRET):
         return False
     try:
         import pyotp
@@ -68,8 +77,8 @@ def verify_totp(submitted: str) -> bool:
         return False
     try:
         # valid_window=1 tolerates one 30s step of clock drift either way.
-        return bool(pyotp.TOTP(config.ADMIN_TOTP_SECRET).verify(submitted.strip(),
-                                                                valid_window=1))
+        return bool(pyotp.TOTP(config.ADMIN_TOTP_SECRET.strip()).verify(code,
+                                                                        valid_window=1))
     except Exception as exc:
         log.warning("totp verify error: %s", type(exc).__name__)
         return False
@@ -121,7 +130,8 @@ def issue_code(db, AdminAuthCode, admin_email: str, channel: str) -> str:
 def verify_code(db, AdminAuthCode, admin_email: str, channel: str, submitted: str) -> bool:
     """Check a one-time code. Consumes it on success. Counts the attempt either
     way, and refuses once the attempt budget is spent."""
-    if not submitted:
+    code = normalise_code(submitted)
+    if not code:
         return False
     now = datetime.now(timezone.utc)
     row = (AdminAuthCode.query
@@ -139,7 +149,7 @@ def verify_code(db, AdminAuthCode, admin_email: str, channel: str, submitted: st
         return False
 
     row.attempts = (row.attempts or 0) + 1
-    ok = hmac.compare_digest(row.code_hash, code_hash(submitted.strip()))
+    ok = hmac.compare_digest(row.code_hash, code_hash(code))
     if ok:
         row.used_at = now                            # single use
     db.session.commit()
