@@ -7,6 +7,7 @@ flag and therapist-gated. The LiveKit Egress calls are mocked.
 
 import os
 import sys
+import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pytest
@@ -366,6 +367,182 @@ def test_rollover_is_a_no_op_when_recording_disabled(enc_client):
     stop.assert_not_called()
     with app.app_context():
         assert db.session.get(SessionRecording, rid).status == "active"
+
+
+def _seed_segment(sid, minutes_ago, gcs, token):
+    """A finished segment of a rolled-over session."""
+    now = datetime.now(timezone.utc)
+    row = SessionRecording(
+        session_id=sid, egress_id="EG", gcs_object=gcs, status="stopped",
+        started_by="ther-1",
+        started_at=now - timedelta(minutes=minutes_ago),
+        stopped_at=now - timedelta(minutes=minutes_ago - 90),
+        download_token=token,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row.id
+
+
+def test_segments_are_joined_into_one_recording(enc_client):
+    """A rolled-over session must end up as ONE downloadable file — otherwise the
+    email can only link one segment and the rest are unreachable."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        first = _seed_segment(sid, 200, "seg-a.mp4", "tokA")
+        second = _seed_segment(sid, 110, "seg-b.mp4", "tokB")
+
+        with patch("recording.concat_objects", return_value=True) as concat, \
+             patch("recording.delete_object", return_value=True) as rm:
+            combined = tm._combine_session_segments(sid)
+
+        assert combined is not None
+        # Joined in chronological order, not by row id.
+        sources, dest = concat.call_args.args
+        assert sources == ["seg-a.mp4", "seg-b.mp4"]
+        assert dest.startswith(f"{sid}/combined-") and dest.endswith(".mp4")
+
+        assert combined.gcs_object == dest
+        assert combined.status == "stopped"
+        assert combined.download_token and combined.download_token not in ("tokA", "tokB")
+        assert combined.retention_expires_at is not None      # its own 30-day clock
+
+        # Segments dropped only after the join, rows kept for audit.
+        assert {c.args[0] for c in rm.call_args_list} == {"seg-a.mp4", "seg-b.mp4"}
+        for seg_id in (first, second):
+            seg = db.session.get(SessionRecording, seg_id)
+            assert seg.status == "merged"
+            assert seg.gcs_object is None
+
+
+def test_single_segment_session_is_left_alone(enc_client):
+    """The common case — a session under the rollover threshold. No join, no
+    new row, and the original file is untouched."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        only = _seed_segment(sid, 40, "solo.mp4", "tokSolo")
+        with patch("recording.concat_objects") as concat, \
+             patch("recording.delete_object") as rm:
+            assert tm._combine_session_segments(sid) is None
+        concat.assert_not_called()
+        rm.assert_not_called()
+        assert db.session.get(SessionRecording, only).gcs_object == "solo.mp4"
+
+
+def test_failed_join_keeps_every_segment(enc_client):
+    """If the join fails, nothing may be deleted — the segments are the only copy."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        a = _seed_segment(sid, 200, "keep-a.mp4", "tokKA")
+        b = _seed_segment(sid, 110, "keep-b.mp4", "tokKB")
+
+        with patch("recording.concat_objects", return_value=False), \
+             patch("recording.delete_object") as rm:
+            assert tm._combine_session_segments(sid) is None
+
+        rm.assert_not_called()
+        for seg_id in (a, b):
+            seg = db.session.get(SessionRecording, seg_id)
+            assert seg.status == "stopped"
+            assert seg.gcs_object is not None
+
+
+def test_ready_email_links_the_joined_file(enc_client):
+    """End of session emails the combined recording, not the last segment."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        _seed_segment(sid, 200, "part-a.mp4", "tokPA")
+        last = _seed_segment(sid, 110, "part-b.mp4", "tokPB")
+
+    # Read the object path DURING the call: the dispatch runs in its own thread and
+    # the row is detached from the session once that thread's context closes.
+    seen = {}
+
+    def _capture(row, kind):
+        seen["object"] = row.gcs_object
+        seen["kind"] = kind
+        return True
+
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch("recording.concat_objects", return_value=True), \
+         patch("recording.delete_object", return_value=True), \
+         patch.object(tm, "_email_recording", side_effect=_capture):
+        tm._dispatch_recording_ready(last)
+        for _ in range(50):                       # the dispatch runs in a thread
+            if seen:
+                break
+            time.sleep(0.05)
+
+    assert seen.get("kind") == "ready"
+    assert seen.get("object", "").startswith(f"{sid}/combined-")
+
+
+def _fake_concat_run(returncode=0, dest_size=1234):
+    """Drive the real concat_objects with ffmpeg and GCS stubbed out."""
+    import recording as rec
+    from unittest.mock import MagicMock
+
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.poll.return_value = returncode
+    proc.stderr.read.return_value = b"boom"
+    blob = MagicMock()
+    bucket = MagicMock()
+    bucket.blob.return_value = blob
+
+    with patch("recording.signed_download_url", side_effect=["https://one", "https://two"]), \
+         patch("subprocess.Popen", return_value=proc) as popen, \
+         patch("recording._bucket", return_value=bucket), \
+         patch("recording.object_size", return_value=dest_size):
+        ok = rec.concat_objects(["a.mp4", "b.mp4"], "out.mp4")
+    return ok, popen, proc, blob
+
+
+def test_concat_builds_a_streaming_stream_copy_command():
+    """No re-encode, fragmented output, and both segments in order — the details
+    that make the join lossless and memory-safe."""
+    ok, popen, proc, blob = _fake_concat_run()
+    assert ok is True
+
+    cmd = popen.call_args.args[0]
+    assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "copy"      # no re-encode
+    assert "frag_keyframe+empty_moov+default_base_is_moof" in cmd  # pipe-able MP4
+    assert "concat" in cmd and "pipe:1" in cmd                     # streamed output
+    whitelist = cmd[cmd.index("-protocol_whitelist") + 1]
+    assert "https" in whitelist                                    # reads signed URLs
+
+    # The segment list goes in on stdin, in order.
+    listing = proc.stdin.write.call_args.args[0].decode()
+    assert listing.index("https://one") < listing.index("https://two")
+
+    # Output is streamed straight into the upload, never buffered to disk.
+    assert blob.upload_from_file.call_args.args[0] is proc.stdout
+    assert blob.chunk_size and blob.chunk_size > 0
+
+
+def test_concat_reports_failure_when_ffmpeg_exits_nonzero():
+    ok, _, _, _ = _fake_concat_run(returncode=1)
+    assert ok is False
+
+
+def test_concat_reports_failure_when_output_is_empty():
+    """An ffmpeg exit code of 0 is not proof the object landed."""
+    ok, _, _, _ = _fake_concat_run(returncode=0, dest_size=0)
+    assert ok is False
+
+
+def test_concat_needs_at_least_two_sources():
+    import recording as rec
+    assert rec.concat_objects(["only.mp4"], "dest.mp4") is False
+    assert rec.concat_objects([], "dest.mp4") is False
+    assert rec.concat_objects(["a.mp4", "b.mp4"], "") is False
+
+
+def test_concat_aborts_when_a_url_cannot_be_signed():
+    """Without every segment readable the output would silently lose footage."""
+    import recording as rec
+    with patch("recording.signed_download_url", side_effect=["https://a", None]):
+        assert rec.concat_objects(["a.mp4", "b.mp4"], "dest.mp4") is False
 
 
 def _sweep_email_kinds(mail):

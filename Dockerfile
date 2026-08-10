@@ -2,7 +2,10 @@ FROM python:3.10-slim
 
 # System dependencies: libpq-dev/gcc for psycopg2-binary; libgomp1 for the
 # onnxruntime backend used by fastembed (local embedding model).
+# ffmpeg joins rolled-over recording segments back into one file at the end of a
+# session (stream-copy, no re-encode). Adds ~80-100 MB to the image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
         libpq-dev \
         gcc \
         libgomp1 \

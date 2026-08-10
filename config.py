@@ -238,6 +238,14 @@ RECORDING_MAX_MINUTES: int = int(os.environ.get("RECORDING_MAX_MINUTES", "90"))
 RECORDING_ROLLOVER_CHECK_MINUTES: int = int(
     os.environ.get("RECORDING_ROLLOVER_CHECK_MINUTES", "5"))
 
+# Joining rolled-over segments back into one file at the end of a session.
+FFMPEG_BIN: str = os.environ.get("FFMPEG_BIN", "ffmpeg")
+# Signed URLs ffmpeg reads the segments through must outlive the whole join.
+RECORDING_CONCAT_URL_MINUTES: int = int(
+    os.environ.get("RECORDING_CONCAT_URL_MINUTES", "120"))
+RECORDING_CONCAT_TIMEOUT_SECONDS: int = int(
+    os.environ.get("RECORDING_CONCAT_TIMEOUT_SECONDS", "1800"))
+
 
 _admin_emails_raw: str = os.environ.get("ADMIN_EMAILS", "")
 ADMIN_EMAILS: list = [a.strip().lower() for a in _admin_emails_raw.split(",") if a.strip()]

@@ -3025,16 +3025,77 @@ def _email_recording(row, kind: str) -> bool:
         return False
 
 
+def _combine_session_segments(session_id: str):
+    """Join a session's recording segments into ONE file and return the combined row.
+
+    Sessions longer than RECORDING_MAX_MINUTES roll over to a new file, so they end
+    up as several objects. Without this the end-of-session email could only link one
+    of them and the rest were unreachable.
+
+    Returns None when there is nothing to combine (the common case — a session under
+    the rollover threshold has a single segment) or when the join failed, so callers
+    fall back to emailing the segment they already had. Never raises.
+    """
+    segments = (SessionRecording.query
+                .filter(SessionRecording.session_id == session_id,
+                        SessionRecording.status == "stopped",
+                        SessionRecording.gcs_object.isnot(None))
+                .order_by(SessionRecording.started_at.asc())
+                .all())
+    if len(segments) < 2:
+        return None
+
+    now = datetime.now(timezone.utc)
+    dest = f"{session_id}/combined-{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
+    if not recording.concat_objects([s.gcs_object for s in segments], dest):
+        app.logger.warning("segment join failed (sid=%s, %d segments) — "
+                           "segments left intact", session_id, len(segments))
+        return None
+
+    combined = SessionRecording(
+        session_id=session_id, egress_id=None, gcs_object=dest, status="stopped",
+        started_by=segments[0].started_by,
+        started_at=segments[0].started_at,
+        stopped_at=segments[-1].stopped_at or now,
+        download_token=secrets.token_urlsafe(32),
+    )
+    db.session.add(combined)
+    db.session.commit()
+    _finalize_stopped_recording(combined)      # its own 30-day retention deadline
+
+    # Only now, with the combined object verified as present and non-empty by
+    # concat_objects, is it safe to drop the segments. Rows are kept (status
+    # "merged") so the history of the session survives for audit.
+    for seg in segments:
+        if recording.delete_object(seg.gcs_object):
+            seg.status = "merged"
+            seg.gcs_object = None
+    db.session.commit()
+
+    log_event("recording_segments_joined", session_id=session_id,
+              user_id=combined.started_by, recording_id=combined.id,
+              segments=len(segments))
+    return combined
+
+
 def _dispatch_recording_ready(rec_id: int) -> None:
-    """Send the 'ready' email off the request path (SMTP can take seconds)."""
+    """Join any rolled-over segments, then send the 'ready' email — both off the
+    request path, since a join streams gigabytes and SMTP can take seconds."""
     if not config.RECORDING_ENABLED:
         return
 
     def _run():
         with app.app_context():
             row = db.session.get(SessionRecording, rec_id)
-            if row and row.status == "stopped":
-                _email_recording(row, "ready")
+            if not (row and row.status == "stopped"):
+                return
+            try:
+                combined = _combine_session_segments(row.session_id)
+            except Exception:
+                db.session.rollback()
+                app.logger.warning("segment join errored (sid=%s)", row.session_id)
+                combined = None
+            _email_recording(combined or row, "ready")
 
     threading.Thread(target=_run, daemon=True).start()
 
