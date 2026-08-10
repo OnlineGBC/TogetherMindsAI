@@ -384,6 +384,68 @@ def _seed_segment(sid, minutes_ago, gcs, token):
     return row.id
 
 
+def test_retention_runs_from_the_sessions_latest_recording(enc_client):
+    """One shared deadline per session, measured from the most recent stop. Per-row
+    deadlines meant an early sitting expired while the session was still running."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        early = _seed_segment(sid, 60 * 24 * 5, "day1.mp4", "tokD1")   # 5 days ago
+        late = _seed_segment(sid, 60, "today.mp4", "tokD2")            # an hour ago
+
+        tm._finalize_stopped_recording(db.session.get(SessionRecording, early))
+        tm._finalize_stopped_recording(db.session.get(SessionRecording, late))
+
+        e = db.session.get(SessionRecording, early)
+        l = db.session.get(SessionRecording, late)
+        # The older sitting inherits the newer deadline, not its own.
+        assert e.retention_expires_at == l.retention_expires_at
+        expected = l.stopped_at + timedelta(days=tm.RECORDING_RETENTION_DAYS)
+        assert abs(e.retention_expires_at - expected) < timedelta(seconds=1)
+
+
+def test_retention_never_shortens_an_existing_deadline(enc_client):
+    """An out-of-order stop must not claw back retention already granted."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        late = _seed_segment(sid, 60, "late.mp4", "tokL")
+        early = _seed_segment(sid, 60 * 24 * 5, "early.mp4", "tokE")
+
+        tm._finalize_stopped_recording(db.session.get(SessionRecording, late))
+        granted = db.session.get(SessionRecording, late).retention_expires_at
+
+        # Now finalize the OLDER one — it would compute an earlier deadline.
+        tm._finalize_stopped_recording(db.session.get(SessionRecording, early))
+        assert db.session.get(SessionRecording, late).retention_expires_at == granted
+        assert db.session.get(SessionRecording, early).retention_expires_at == granted
+
+
+def test_retention_leaves_already_deleted_recordings_alone(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+        gone = _seed_segment(sid, 60 * 24 * 5, "gone.mp4", "tokG")
+        row = db.session.get(SessionRecording, gone)
+        row.status = "deleted"
+        row.retention_expires_at = None
+        db.session.commit()
+
+        live = _seed_segment(sid, 60, "live.mp4", "tokV")
+        tm._finalize_stopped_recording(db.session.get(SessionRecording, live))
+
+        assert db.session.get(SessionRecording, gone).retention_expires_at is None
+
+
+def test_ready_email_says_the_clock_starts_at_the_last_recording(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+        _seed_recording(sid, expires_in=timedelta(days=30), token="tokClock")
+        row = SessionRecording.query.filter_by(session_id=sid).first()
+        _, plain, html = tm._recording_email_content(row, "ready")
+    for body in (plain, html):
+        # The apostrophe is HTML-escaped in the html part, so match either side of it.
+        assert "kept for 30 days after this session" in body
+        assert "last recording" in body
+
+
 def test_segments_are_joined_into_one_recording(enc_client):
     """A rolled-over session must end up as ONE downloadable file — otherwise the
     email can only link one segment and the rest are unreachable."""

@@ -2927,9 +2927,11 @@ def _recording_email_content(row, kind: str):
     else:
         subject = "TogetherMindsAI — your audio/video session is ready"
         heading = "Your audio/video session is ready"
-        lead = ("Your audio/video session is ready to download. The recording is "
-                f"kept for {RECORDING_RETENTION_DAYS} days and then permanently deleted "
-                f"on or about {expires_str}.")
+        # "30 days" is counted from the session's LAST recording, not from this
+        # email — say so, or a mail sent days later reads as if the clock starts now.
+        lead = ("Your audio/video session is ready to download. The recording is kept "
+                f"for {RECORDING_RETENTION_DAYS} days after this session's last "
+                f"recording, then permanently deleted on or about {expires_str}.")
     # Retention / download guidance — shown as bullets on BOTH the ready and reminder
     # emails, right under the lead. The video expires (30 days); the transcript +
     # analysis are the long-lived clinical record — spelled out so it's unambiguous.
@@ -3101,12 +3103,30 @@ def _dispatch_recording_ready(rec_id: int) -> None:
 
 
 def _finalize_stopped_recording(row) -> None:
-    """Stamp the 30-day retention deadline on a just-stopped recording. Does NOT
-    email — the recording email is sent only when the session ends (see
-    on_end_session), not on every consent-driven pause. Never raises."""
+    """Stamp the 30-day retention deadline across the WHOLE session, counted from
+    this stop — the latest one.
+
+    Per-recording deadlines meant a session recorded over several sittings had its
+    earliest file expire first, while the session was still going: "kept for 30
+    days" was only true of the last recording. One shared deadline, measured from
+    the most recent stop, makes it true of all of them. A session is not expected
+    to span more than a week, so the extra retention is bounded at ~37 days rather
+    than being open-ended.
+
+    Only ever extends, never shortens: an out-of-order stop must not cut short a
+    deadline already granted. Does NOT email — the email is sent once, when the
+    session ends. Never raises.
+    """
     try:
         base = row.stopped_at or datetime.now(timezone.utc)
-        row.retention_expires_at = base + timedelta(days=RECORDING_RETENTION_DAYS)
+        expires = base + timedelta(days=RECORDING_RETENTION_DAYS)
+        (SessionRecording.query
+         .filter(SessionRecording.session_id == row.session_id,
+                 SessionRecording.status != "deleted",
+                 db.or_(SessionRecording.retention_expires_at.is_(None),
+                        SessionRecording.retention_expires_at < expires))
+         .update({SessionRecording.retention_expires_at: expires},
+                 synchronize_session=False))
         db.session.commit()
     except Exception:
         db.session.rollback()
