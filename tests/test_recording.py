@@ -288,6 +288,86 @@ def test_sweep_keeps_object_if_delete_fails(enc_client):
         assert db.session.get(SessionRecording, rid).status == "stopped"   # not marked deleted
 
 
+def _seed_active_recording(sid, started_minutes_ago, gcs="seg1.mp4", token="tokRoll"):
+    """An in-progress recording that started `started_minutes_ago` minutes ago."""
+    now = datetime.now(timezone.utc)
+    row = SessionRecording(
+        session_id=sid, egress_id="EG_LIVE", gcs_object=gcs, status="active",
+        started_by="ther-1", started_at=now - timedelta(minutes=started_minutes_ago),
+        download_token=token,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row.id
+
+
+def test_rollover_closes_a_long_recording_and_starts_the_next(enc_client):
+    """Past the cap the current file is closed and a fresh one begins, so no single
+    MP4 grows unbounded (egress uploads only on stop, so size can't be measured
+    mid-recording — the time cap stands in for it)."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_active_recording(sid, started_minutes_ago=95)
+    tm.session_recording_active[sid] = rid
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(config, "RECORDING_MAX_MINUTES", 90), \
+         patch("recording.stop_recording", return_value=True) as stop, \
+         patch.object(tm, "_evaluate_recording") as evaluate:
+        tm._recording_rollover_sweep()
+
+    stop.assert_called_once_with("EG_LIVE")
+    with app.app_context():
+        row = db.session.get(SessionRecording, rid)
+        assert row.status == "stopped"
+        assert row.stopped_at is not None
+        assert row.retention_expires_at is not None      # retention stamped
+    # Handed back so the next segment starts only if consent still holds.
+    evaluate.assert_called_once_with(sid)
+    assert tm.session_recording_active[sid] is None
+
+
+def test_rollover_leaves_a_young_recording_alone(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_active_recording(sid, started_minutes_ago=20, token="tokYoung")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(config, "RECORDING_MAX_MINUTES", 90), \
+         patch("recording.stop_recording", return_value=True) as stop, \
+         patch.object(tm, "_evaluate_recording") as evaluate:
+        tm._recording_rollover_sweep()
+
+    stop.assert_not_called()
+    evaluate.assert_not_called()
+    with app.app_context():
+        assert db.session.get(SessionRecording, rid).status == "active"
+
+
+def test_rollover_does_not_email_per_segment(enc_client):
+    """Only the end of a session emails. A rollover mid-session must stay silent."""
+    with app.app_context():
+        sid = _seed("ther-1")
+        _seed_active_recording(sid, started_minutes_ago=200, token="tokQuiet")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(config, "RECORDING_MAX_MINUTES", 90), \
+         patch("recording.stop_recording", return_value=True), \
+         patch.object(tm, "_evaluate_recording"), \
+         patch.object(tm, "_email_recording") as mail:
+        tm._recording_rollover_sweep()
+    mail.assert_not_called()
+
+
+def test_rollover_is_a_no_op_when_recording_disabled(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+        rid = _seed_active_recording(sid, started_minutes_ago=200, token="tokOff")
+    with patch.object(config, "RECORDING_ENABLED", False), \
+         patch("recording.stop_recording", return_value=True) as stop:
+        tm._recording_rollover_sweep()
+    stop.assert_not_called()
+    with app.app_context():
+        assert db.session.get(SessionRecording, rid).status == "active"
+
+
 def _sweep_email_kinds(mail):
     """The email kinds the sweep sent, in order — _email_recording(row, kind)."""
     return [c.args[1] for c in mail.call_args_list]

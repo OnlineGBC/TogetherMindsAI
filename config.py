@@ -228,6 +228,16 @@ RECORDING_FRAMERATE: int = int(os.environ.get("RECORDING_FRAMERATE", "30"))
 RECORDING_VIDEO_KBPS: int = int(os.environ.get("RECORDING_VIDEO_KBPS", "1200"))
 RECORDING_AUDIO_KBPS: int = int(os.environ.get("RECORDING_AUDIO_KBPS", "96"))
 
+# Roll a recording over to a new file at this age, bounding any single file's
+# size. The egress writes on the LiveKit VM and only uploads when it stops, so
+# there is no file to measure mid-recording — but with the bitrate pinned above,
+# size is arithmetic: ~9.7 MB/min, so 90 minutes is roughly 875 MB.
+RECORDING_MAX_MINUTES: int = int(os.environ.get("RECORDING_MAX_MINUTES", "90"))
+# How often to check for recordings due to roll over. The cap is effectively
+# RECORDING_MAX_MINUTES + this interval.
+RECORDING_ROLLOVER_CHECK_MINUTES: int = int(
+    os.environ.get("RECORDING_ROLLOVER_CHECK_MINUTES", "5"))
+
 
 _admin_emails_raw: str = os.environ.get("ADMIN_EMAILS", "")
 ADMIN_EMAILS: list = [a.strip().lower() for a in _admin_emails_raw.split(",") if a.strip()]

@@ -3052,6 +3052,47 @@ def _finalize_stopped_recording(row) -> None:
         app.logger.warning("finalize recording failed (id=%s)", getattr(row, "id", "?"))
 
 
+def _recording_rollover_sweep() -> None:
+    """Roll long recordings over to a fresh file, so no single MP4 grows unbounded.
+
+    Egress writes on the LiveKit VM and uploads only when it stops, so the file
+    can't be measured while it's being written. With the bitrate pinned
+    (config.RECORDING_*_KBPS) size is arithmetic instead: ~9.7 MB/min, so a time
+    cap is a size cap.
+
+    Stops the current segment and hands back to _evaluate_recording, which starts
+    the next one only if the session is still recording and everyone still
+    consents — so a rollover can never resume a recording consent has withdrawn.
+    Never raises.
+    """
+    if not config.RECORDING_ENABLED:
+        return
+    try:
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(minutes=config.RECORDING_MAX_MINUTES)
+            due = (SessionRecording.query
+                   .filter(SessionRecording.status == "active",
+                           SessionRecording.started_at <= cutoff)
+                   .all())
+            for row in due:
+                if row.egress_id:
+                    recording.stop_recording(row.egress_id)
+                row.status = "stopped"
+                row.stopped_at = now
+                db.session.commit()
+                _finalize_stopped_recording(row)     # stamp retention; no email per segment
+                session_recording_active[row.session_id] = None
+                log_event("recording_rolled_over", session_id=row.session_id,
+                          user_id=row.started_by, recording_id=row.id,
+                          minutes=config.RECORDING_MAX_MINUTES)
+                # Start the next segment if the session is still live and consented.
+                _evaluate_recording(row.session_id)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error("recording rollover sweep error: %s", type(exc).__name__)
+
+
 def _recording_retention_sweep() -> None:
     """Hourly: send the two due warnings, then delete recordings that are past their
     deadline AND have had their final notice long enough to act on. Idempotent and
@@ -3160,6 +3201,13 @@ if not config.IS_TESTING:
     # runs and be deleted having never been warned.
     _scheduler.add_job(
         _recording_retention_sweep, "interval", hours=1, id="recording_retention_sweep",
+    )
+    # Rollover runs far more often than retention: the cap is only as tight as this
+    # interval (RECORDING_MAX_MINUTES + this is the real worst case).
+    _scheduler.add_job(
+        _recording_rollover_sweep, "interval",
+        minutes=config.RECORDING_ROLLOVER_CHECK_MINUTES,
+        id="recording_rollover_sweep",
     )
     # Catch up on any reminders/deletions that came due while the app was down.
     threading.Thread(target=_recording_retention_sweep, daemon=True).start()
