@@ -215,6 +215,20 @@ FEEDBACK_FROM_EMAIL: str = os.environ.get("FEEDBACK_FROM_EMAIL", FEEDBACK_SMTP_U
 # set the console stays unreachable, so an unconfigured deploy cannot expose it.
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Recording quality. LiveKit's default room-composite preset is 1080p at roughly
+# 3-4 Mbps, which produced ~1 GB for a 45-minute session. These are talking-head
+# sessions, so 720p at 1200 kbps is visually equivalent for faces and about 60%
+# smaller. Tunable by env without a code change.
+# ---------------------------------------------------------------------------
+
+RECORDING_WIDTH: int = int(os.environ.get("RECORDING_WIDTH", "1280"))
+RECORDING_HEIGHT: int = int(os.environ.get("RECORDING_HEIGHT", "720"))
+RECORDING_FRAMERATE: int = int(os.environ.get("RECORDING_FRAMERATE", "30"))
+RECORDING_VIDEO_KBPS: int = int(os.environ.get("RECORDING_VIDEO_KBPS", "1200"))
+RECORDING_AUDIO_KBPS: int = int(os.environ.get("RECORDING_AUDIO_KBPS", "96"))
+
+
 _admin_emails_raw: str = os.environ.get("ADMIN_EMAILS", "")
 ADMIN_EMAILS: list = [a.strip().lower() for a in _admin_emails_raw.split(",") if a.strip()]
 ADMIN_TOTP_SECRET: str = os.environ.get("ADMIN_TOTP_SECRET", "")

@@ -544,6 +544,28 @@ def test_recording_doc_404_bad_token_or_format(enc_client):
         assert enc_client.get("/recording/download/dltok/txt").status_code == 404
 
 
+def test_start_recording_pins_720p_encoding():
+    """The egress request must set encoding explicitly. LiveKit's default preset is
+    1080p at ~3-4 Mbps, which produced roughly 1 GB for a 45-minute session."""
+    import recording as rec
+    with patch("recording.requests.post") as post, \
+         patch("recording._egress_jwt", return_value="tok"), \
+         patch.object(config, "LIVEKIT_URL", "wss://rtc.example.com"), \
+         patch.object(config, "RECORDINGS_BUCKET", "bkt"):
+        post.return_value.json.return_value = {"egressId": "EG_X"}
+        post.return_value.raise_for_status.return_value = None
+        egress_id = rec.start_recording("room-1", "sess/a.mp4")
+
+    assert egress_id == "EG_X"
+    adv = post.call_args.kwargs["json"]["advanced"]
+    assert (adv["width"], adv["height"]) == (1280, 720)
+    assert adv["framerate"] == 30
+    assert adv["video_bitrate"] == 1200
+    assert adv["audio_bitrate"] == 96
+    # Codecs are deliberately left unset so LiveKit picks MP4-appropriate ones.
+    assert "video_codec" not in adv and "audio_codec" not in adv
+
+
 def test_recording_email_has_three_token_links(enc_client):
     with app.app_context():
         sid = _seed("ther-1"); _seed_recording(sid, token="tok9")

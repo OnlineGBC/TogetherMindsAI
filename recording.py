@@ -62,6 +62,16 @@ def start_recording(room_name: str, filepath: str):
                 "filepath": filepath,
                 "gcp": {"bucket": config.RECORDINGS_BUCKET, "credentials": ""},
             }],
+            # Explicit encoding instead of LiveKit's 1080p default. Codecs are left
+            # unset so LiveKit picks the right ones for MP4 (H.264 + AAC); pinning
+            # them here risks a container/codec mismatch for no benefit.
+            "advanced": {
+                "width": config.RECORDING_WIDTH,
+                "height": config.RECORDING_HEIGHT,
+                "framerate": config.RECORDING_FRAMERATE,
+                "video_bitrate": config.RECORDING_VIDEO_KBPS,
+                "audio_bitrate": config.RECORDING_AUDIO_KBPS,
+            },
         })
         return data.get("egressId") or data.get("egress_id")
     except Exception as exc:
