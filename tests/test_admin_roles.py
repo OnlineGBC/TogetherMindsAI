@@ -233,6 +233,20 @@ def test_the_row_actions_look_clickable(client):
     _as_verified_admin(client, check)
 
 
+def test_the_open_dropdown_list_is_readable(client):
+    """Regression: the dropdown fill was a translucent white. Closed, it sat on
+    the dark card and looked right; open, the browser paints the list on its own
+    white panel, where see-through white stays white and the light text vanished.
+    The fill must be solid, and the options must carry their own colours rather
+    than inherit."""
+    def check():
+        html = client.get("/accessadmin").get_data(as_text=True)
+        assert ".comp-table .form-select option" in html
+        assert "rgba(255, 255, 255, .07)" not in html   # the translucent fill
+        assert "background-color: #243430 !important;" in html
+    _as_verified_admin(client, check)
+
+
 def test_an_account_without_an_email_shows_a_hint_not_a_raw_uuid(client):
     """Accounts keep no email until their owner next logs in. The console used to
     fall back to the 36-character UUID, which read as gibberish in the table."""

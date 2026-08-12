@@ -22,15 +22,34 @@
 
   /* The role dropdown used the theme's dim --border-dk on an equally dark card,
      so it read as plain text rather than something you can open. Brighten the
-     edge and lift the fill, scoped to this page so no other screen changes. */
+     edge, scoped to this page so no other screen changes.
+
+     The fill must be a SOLID colour. A translucent white looked right on the
+     closed box, but the browser paints the open list on its own white panel,
+     where see-through white stays white and the light text vanished into it. */
   .comp-table .form-select {
-    background-color: rgba(255, 255, 255, .07) !important;
+    background-color: #243430 !important;      /* --surface-2, solid */
     border-color: rgba(255, 255, 255, .38) !important;
     cursor: pointer;
   }
   .comp-table .form-select:hover {
-    background-color: rgba(255, 255, 255, .12) !important;
+    background-color: #2c3d38 !important;
     border-color: rgba(255, 255, 255, .55) !important;
+  }
+  /* Set on the options themselves — inheriting from the select is what left the
+     open list unreadable. */
+  .comp-table .form-select option {
+    background-color: #243430;
+    color: #E8EEEC;
+  }
+
+  /* Sized to match the Disable button it stands in for, so the column that has
+     no button still lines up with the ones that do. */
+  .comp-table .comp-selfmark {
+    display: inline-block;
+    min-width: 84px;
+    text-align: center;
+    color: var(--text-muted);
   }
 </style>
 
@@ -148,6 +167,12 @@
                   {% else %}
                     <span class="badge bg-success rounded-pill">Active</span>
                   {% endif %}
+                  {# True of every admin account, not just your own — so a second
+                     admin is labelled too, even though their row keeps its
+                     Disable button. #}
+                  {% if acct.email and acct.email|lower in admin_emails %}
+                    <span class="badge bg-secondary rounded-pill ms-1">Admin</span>
+                  {% endif %}
                 </td>
                 <td class="text-end">
                   <div class="d-flex gap-2 justify-content-end align-items-center">
@@ -165,8 +190,12 @@
                       <button class="btn btn-primary btn-sm rounded-pill" type="submit">Set</button>
                     </form>
                     {# Switching yourself off would lock you out with nobody able to
-                       undo it, so your own row shows no button at all. #}
-                    {% if acct.id != self_id %}
+                       undo it, so your own row gets a label where the button would
+                       be. An empty gap there read as if it meant something. #}
+                    {% if acct.id == self_id %}
+                    <span class="comp-selfmark small"
+                          title="You cannot disable your own account.">You</span>
+                    {% else %}
                     <form method="post" action="{{ url_for('admin_access_set_disabled') }}">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <input type="hidden" name="clinician_id" value="{{ acct.id }}">

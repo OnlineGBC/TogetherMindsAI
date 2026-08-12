@@ -82,6 +82,7 @@ def register_admin_routes(app):
             role_choices=roles.choices(), role_of=roles.role_of,
             disable_notice=admin_access.DISABLE_NOTICE,
             self_id=session.get("user_id"),
+            admin_emails=[a.lower() for a in (config.ADMIN_EMAILS or [])],
             totp_available=bool(config.ADMIN_TOTP_SECRET),
             factors_required=config.ADMIN_FACTORS_REQUIRED,
         )

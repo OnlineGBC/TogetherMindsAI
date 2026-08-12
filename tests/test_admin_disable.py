@@ -220,6 +220,29 @@ def test_the_admins_own_row_has_no_disable_button(client):
     _as_verified_admin(client, check)
 
 
+def test_your_own_row_says_You_rather_than_leaving_a_gap(client):
+    """The missing button left an empty space that read as if it meant
+    something — it only ever meant "this row is you"."""
+    def check():
+        html = client.get("/accessadmin").get_data(as_text=True)
+        assert ">You</span>" in html
+        assert "You cannot disable your own account." in html
+    _as_verified_admin(client, check)
+
+
+def test_admin_accounts_are_labelled_admin(client):
+    """Written plainly in the Status column, and true of every admin account —
+    a second admin keeps their Disable button but is still labelled."""
+    def check():
+        with app.app_context():
+            _seed("plain", "notanadmin@example.com")
+        html = client.get("/accessadmin").get_data(as_text=True)
+        assert ">Admin</span>" in html
+        # One pill only: the seeded non-admin account must not get one.
+        assert html.count(">Admin</span>") == 1
+    _as_verified_admin(client, check)
+
+
 # ---------------------------------------------------------------------------
 # The block itself
 # ---------------------------------------------------------------------------
