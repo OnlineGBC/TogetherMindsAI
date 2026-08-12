@@ -65,6 +65,12 @@ Output a JSON array of AT MOST {max_cards} cards. Each card is an object:
 
 Rules:
 - Terse. One or two lines per card. No preamble, no sign-off, no markdown.
+- READING LEVEL: write at an 8th-grade reading level. Short sentences (about 15-20 words).
+  Everyday words. One idea per sentence. Active voice. The therapist is reading this in
+  their peripheral vision mid-session, so it must land in one glance. Keep a clinical term
+  when it is the precise word (catastrophizing, rumination, dissociation), but add a few
+  plain words straight after it — e.g. "possible catastrophizing — jumping to the worst
+  outcome". Never pad a card to sound clinical; plain is better.
 - GROUND every card in what was actually said. An "observation" must reflect the client's own
   words, not a theme you infer. Do NOT introduce ideas the client has not expressed (e.g. self-worth,
   shame, identity) and then treat them as established. If something is a hypothesis, mark it tentative
@@ -106,6 +112,13 @@ therapist must independently verify and confirm before billing, make explicit th
 than an assigned diagnosis, and tie each to the specific material that prompted it. If their message is a \
 steer rather than a question (e.g. "focus on the finances"), briefly acknowledge it and note how you'll \
 use it. Session: {framing}.
+
+READING LEVEL: write at an 8th-grade reading level. Short sentences (about 15-20 words). \
+Everyday words. One idea per sentence. Active voice. Keep a clinical term when it is the \
+precise word (catastrophizing, rumination, dissociation), but add a few plain words straight \
+after it — e.g. "possible catastrophizing — jumping to the worst outcome". This applies to \
+ICD/billing code suggestions too: name the code, then say in plain words what it covers. \
+Never pad to sound clinical; plain is better.
 
 Plain text only — no markdown, no headings, no JSON, no sign-off. Just your answer.
 """

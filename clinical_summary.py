@@ -65,8 +65,13 @@ _CLINICAL_SYSTEM = (
     "clinical recap of a single therapy session. Only the licensed clinician sees it.\n\n"
     "Write a detailed clinical recap: the presenting concern, the key themes, the "
     "emotional arc of the session, any risk or safety signals, and possible next steps "
-    "or things to follow up. A few short paragraphs. Clinician-facing tone; clinical "
-    "language is fine.\n\n" + _GROUNDING
+    "or things to follow up. A few short paragraphs.\n\n"
+    "READING LEVEL: write at an 8th-grade reading level. Short sentences (about 15-20 "
+    "words). Everyday words. One idea per sentence. Active voice. Keep a clinical term "
+    "when it is the precise word (catastrophizing, rumination, dissociation), but add a "
+    "few plain words straight after it - e.g. \"possible catastrophizing - jumping to the "
+    "worst outcome\". Detail and accuracy still come first; plain wording is how you say "
+    "it, not permission to say less. Never pad to sound clinical.\n\n" + _GROUNDING
 )
 
 _CODES_SYSTEM = (
@@ -76,7 +81,10 @@ _CODES_SYSTEM = (
     "and why — a sentence or two each. Frame it explicitly as decision support for "
     "billing/coding consideration — NOT a diagnosis and NOT a billing determination. "
     "Never introduce a code that is not in the provided list. If no codes are provided, "
-    "output nothing at all.\n\n" + _GROUNDING
+    "output nothing at all.\n\n"
+    "READING LEVEL: write at an 8th-grade reading level. Short sentences (about 15-20 "
+    "words). Everyday words. Active voice. Name the code, then say in plain words what it "
+    "covers and why the session material fits it.\n\n" + _GROUNDING
 )
 
 _CLIENT_RECAP_SYSTEM = (
