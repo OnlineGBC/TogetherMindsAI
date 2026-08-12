@@ -146,3 +146,49 @@ def test_a_client_sees_the_wording_of_the_practitioner_running_the_session(clien
     body = client.get("/session/s1/consent").get_data(as_text=True)
     assert "supporting your practitioner" in body
     assert "supporting your clinician" not in body
+
+
+# ---------------------------------------------------------------------------
+# The legal pages
+# ---------------------------------------------------------------------------
+
+def _flat(html: str) -> str:
+    """Collapse whitespace, so a phrase split across source lines still matches."""
+    import re
+    return re.sub(r"\s+", " ", html)
+
+
+def test_privacy_explains_that_hipaa_is_clinical_only(client):
+    """These pages are read signed out, so they stay static — a reader with no
+    account has no role. The split is explained instead of switched."""
+    body = _flat(client.get("/privacy").get_data(as_text=True))
+    assert "Accounts that are not clinical" in body
+    assert "technical protections are identical for every account" in body
+    assert "not acting as a HIPAA business associate" in body
+
+
+def test_terms_scope_the_clinical_claims(client):
+    body = _flat(client.get("/tos").get_data(as_text=True))
+    assert "Not every account is clinical" in body
+    assert "creates no clinical record" in body
+
+
+# ---------------------------------------------------------------------------
+# Emails and documents
+# ---------------------------------------------------------------------------
+
+def test_a_coachs_documents_are_not_labelled_clinical(client):
+    import documents
+    buf = documents.transcript_docx_buf(
+        "s1", [], "solo", datetime.now(timezone.utc), record_label="session notes")
+    from docx import Document as _Doc
+    import io
+    text = "\n".join(p.text for p in _Doc(io.BytesIO(buf.getvalue())).paragraphs)
+    assert "session notes" in text
+    assert "clinical record" not in text
+
+
+def test_documents_default_to_clinical_wording():
+    """An older caller that passes no label must keep the previous behaviour."""
+    import documents
+    assert documents.DEFAULT_RECORD_LABEL == "clinical record"

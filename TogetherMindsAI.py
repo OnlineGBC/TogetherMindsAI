@@ -3108,6 +3108,9 @@ def _recording_download_url(row) -> str:
 def _recording_email_content(row, kind: str):
     """Return (subject, plain, html) for the 'ready' or 'reminder' email."""
     from html import escape as h
+    # Wording follows the practitioner's role: a coach's file is "session notes",
+    # not a clinical record, and calling it one would overstate what it is.
+    _w = roles.words(roles.role_of(_session_clinician(row.session_id)))
     video_url = _recording_download_url(row)
     pdf_url   = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/pdf"
     docx_url  = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/docx"
@@ -3145,7 +3148,7 @@ def _recording_email_content(row, kind: str):
         (f"The recording will be permanently deleted on or about {expires_str}. "
          "Once deleted, it cannot be recovered and the download links below will stop "
          "working — download it before then."),
-        ("The transcript and AI analysis are the clinical record, and are retained for "
+        (f"The transcript and AI analysis are the {_w['record']}, and are retained for "
          "six years, or longer if prevailing US law requires it."),
         "Please store any downloaded copies securely, in line with your practice's requirements.",
     ]
@@ -3159,7 +3162,7 @@ def _recording_email_content(row, kind: str):
     except Exception:
         friendly = ""
     session_label_txt = f"{friendly}  (ID: {row.session_id})" if friendly else row.session_id
-    access_note = ("Only you, signed in to TogetherMindsAI as this session's clinician, "
+    access_note = (f"Only you, signed in to TogetherMindsAI as this session's {_w['practitioner']}, "
                    "can open these links. No one else can download this recording or the "
                    "documents, even if they receive this email.")
 
@@ -3530,6 +3533,7 @@ def _transcript_pdf_buf(session_id: str) -> io.BytesIO:
         friendly_label=_session_friendly_label(session_id),
         summary=_transcript_summary(session_id),
         font_regular=_FONT_REGULAR, font_bold=_FONT_BOLD,
+        record_label=roles.words(roles.role_of(_session_clinician(session_id)))["record"],
     )
 
 
@@ -3556,6 +3560,7 @@ def _transcript_docx_buf(session_id: str) -> io.BytesIO:
         session_id, messages, mode, generated_at,
         friendly_label=_session_friendly_label(session_id),
         summary=_transcript_summary(session_id),
+        record_label=roles.words(roles.role_of(_session_clinician(session_id)))["record"],
     )
 
 
@@ -3671,6 +3676,7 @@ def _session_email_content(ts):
     """Return (subject, plain, html) for the end-session transcript email — the
     transcript-only counterpart of _recording_email_content (no video)."""
     from html import escape as h
+    _w = roles.words(roles.role_of(_session_clinician(ts.id)))
     token    = ts.download_token
     pdf_url  = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/pdf"
     docx_url = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/docx"
@@ -3680,10 +3686,10 @@ def _session_email_content(ts):
     sent_at = _sent_at_line()
     plain = (
         f"{lead}\n\n"
-        "Sign in as this session's clinician to open these:\n"
+        f"Sign in as this session's {_w['practitioner']} to open these:\n"
         f"  • Transcript + AI analysis + ICD codes (PDF): {pdf_url}\n"
         f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n\n"
-        "Only you, signed in as this session's clinician, can open these links.\n"
+        f"Only you, signed in as this session's {_w['practitioner']}, can open these links.\n"
         f"\n{sent_at}\n"
     )
     _link = "color:#2e7d32;text-decoration:none;font-weight:600;"

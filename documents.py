@@ -94,7 +94,10 @@ def _group_speaker(session_id, g):
 # PDF
 # ===========================================================================
 
-def _pdf_class():
+DEFAULT_RECORD_LABEL = "clinical record"
+
+
+def _pdf_class(record_label: str = DEFAULT_RECORD_LABEL):
     """FPDF subclass adding a footer (confidentiality note + page number) on
     every page. Defined lazily so importing this module needs no fpdf."""
     from fpdf import FPDF
@@ -109,7 +112,7 @@ def _pdf_class():
             self.set_text_color(*_MUTED)
             self.set_draw_color(*_RULE)
             self.line(20, self.get_y() - 1, 190, self.get_y() - 1)
-            self.cell(0, 8, "Confidential clinical record", align="L")
+            self.cell(0, 8, f"Confidential {record_label}", align="L")
             self.set_y(-13)
             self.cell(0, 8, f"Page {self.page_no()}", align="R")
 
@@ -192,11 +195,17 @@ def render_summary_pdf(pdf, summary: dict) -> None:
 
 def transcript_pdf_buf(session_id, messages, mode, generated_at,
                        friendly_label=None, summary=None,
-                       font_regular=None, font_bold=None) -> io.BytesIO:
-    """Render a session transcript as a PDF in memory (data passed in)."""
+                       font_regular=None, font_bold=None,
+                       record_label=DEFAULT_RECORD_LABEL) -> io.BytesIO:
+    """Render a session transcript as a PDF in memory (data passed in).
+
+    `record_label` is what this file IS for the practitioner whose session it is —
+    a clinical record, session notes, or a recording. Passed in rather than
+    assumed, so a coach's file is not labelled as clinical.
+    """
     from fpdf.enums import XPos, YPos
 
-    pdf = _pdf_class()()
+    pdf = _pdf_class(record_label)()
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.set_margins(20, 20, 20)
     pdf.add_font("DejaVu",      fname=font_regular)
@@ -372,7 +381,8 @@ def render_summary_docx(doc, summary: dict) -> None:
 
 
 def transcript_docx_buf(session_id, messages, mode, generated_at,
-                        friendly_label=None, summary=None) -> io.BytesIO:
+                        friendly_label=None, summary=None,
+                        record_label=DEFAULT_RECORD_LABEL) -> io.BytesIO:
     """Render a session transcript as a DOCX in memory (data passed in)."""
     from docx import Document
     from docx.shared import Pt, RGBColor
@@ -384,7 +394,7 @@ def transcript_docx_buf(session_id, messages, mode, generated_at,
     for r in title.runs:
         r.font.color.rgb = RGBColor(*_BRAND)
     sub = doc.add_paragraph()
-    sr = sub.add_run("Confidential clinical record — encrypted; never sold or used to train AI.")
+    sr = sub.add_run(f"Confidential {record_label} — encrypted; never sold or used to train AI.")
     sr.italic = True
     sr.font.size = Pt(9)
     sr.font.color.rgb = RGBColor(*_MUTED)
