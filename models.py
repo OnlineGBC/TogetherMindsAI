@@ -468,6 +468,31 @@ class HoursGrant(db.Model):
                 f"{self.used_minutes}/{self.minutes}m>")
 
 
+class RecordAuthorisation(db.Model):
+    """A caregiver's confirmation that they may record the person in a session.
+
+    The person being recorded — a baby, a patient — often cannot consent for
+    themselves, so the caregiver attests that they hold the authority instead.
+    Stored rather than kept in the browser session because it is a legal
+    attestation: who confirmed what, and when, has to survive.
+
+    One row per session; recording is refused until it exists.
+    """
+    __tablename__ = "record_authorisations"
+
+    id           = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    session_id   = db.Column(db.String(36), index=True, nullable=False)
+    clinician_id = db.Column(db.String(36), nullable=False)
+    confirmed_at = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("session_id", name="uq_record_auth_session"),
+    )
+
+    def __repr__(self):
+        return f"<RecordAuthorisation session={self.session_id}>"
+
+
 class CompAccess(db.Model):
     """An email granted full (premium) access without paying.
 

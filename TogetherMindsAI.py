@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, HoursGrant, init_encryption, friendly_name_key
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, HoursGrant, RecordAuthorisation, init_encryption, friendly_name_key
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis
 import copilot
@@ -1441,6 +1441,20 @@ def _has_recording_time(clinician) -> bool:
     return not _hours_metered(clinician) or _recording_minutes_left(clinician) > 0
 
 
+def _needs_record_authorisation(session_id: str) -> bool:
+    """Whether this role must attest they may record the person, and has not yet.
+
+    Only caregivers: the person being recorded — a baby, a patient — often cannot
+    consent for themselves, so the caregiver confirms they hold the authority. The
+    other roles use the all-party consent flow instead, where the participants
+    speak for themselves.
+    """
+    clin = _session_clinician(session_id)
+    if roles.role_of(clin) != roles.CAREGIVER:
+        return False
+    return RecordAuthorisation.query.filter_by(session_id=session_id).first() is None
+
+
 def _licence_gate_applies(session_id: str) -> bool:
     """Whether this session's clinician must certify they may practise in the
     client's state. Clinical work only — a coach or a caregiver holds no such
@@ -1718,6 +1732,12 @@ def _render_session_room(session_id, mode):
                               roles.CHAT, paid=True),
         has_transcript=roles.allows(roles.role_of(_session_clinician(session_id)),
                                     roles.TRANSCRIPT, paid=True),
+        # Metered roles see how much recording time is left, in the room where
+        # they are actually recording — not only on the billing page.
+        hours_left=(hours.describe(_recording_minutes_left(_session_clinician(session_id)))
+                    if is_therapist and _hours_metered(_session_clinician(session_id))
+                    else None),
+        needs_record_auth=(is_therapist and _needs_record_authorisation(session_id)),
         in_live_session=True,   # navbar/footer: open other links in a new tab (C),
                                 # and Home/Sign out get a leave-confirm modal (A)
     )
@@ -3042,6 +3062,30 @@ def session_summary(session_id):
 # bucket. Step 2 adds the all-party consent gate; Step 3 adds 30-day retention.
 # ---------------------------------------------------------------------------
 
+@app.route("/session/<session_id>/record-authorise", methods=["POST"])
+def record_authorise(session_id):
+    """A caregiver attests they may record the person in this session.
+
+    Stored, not kept in the cookie: this is a legal attestation, so who confirmed
+    it and when has to survive a sign-out and a server restart.
+    """
+    ts = _is_session_therapist(session_id)
+    if ts is None:
+        return jsonify({"error": "Forbidden"}), 403
+    if not request.form.get("authorised"):
+        flash("Tick the box to confirm before recording.", "warning")
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+    existing = RecordAuthorisation.query.filter_by(session_id=session_id).first()
+    if existing is None:
+        db.session.add(RecordAuthorisation(
+            session_id=session_id, clinician_id=session.get("user_id") or "",
+            confirmed_at=datetime.now(timezone.utc)))
+        db.session.commit()
+        log_event("record_authorised", session_id=session_id,
+                  user_id=session.get("user_id"))
+    return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+
+
 @app.route("/session/<session_id>/recording/start", methods=["POST"])
 def recording_start(session_id):
     if not config.RECORDING_ENABLED:
@@ -3055,6 +3099,10 @@ def recording_start(session_id):
         return jsonify({"error": "no_recording_time",
                         "message": "You have used all your recording hours. "
                                    "Add 40 more for $9.99."}), 402
+    if _needs_record_authorisation(session_id):
+        return jsonify({"error": "authorisation_required",
+                        "message": "Confirm you are authorised to record this "
+                                   "person before starting."}), 403
     # NOTE: all-party consent gating is added in Phase 4 Step 2.
     now = datetime.now(timezone.utc)
     filepath = f"{session_id}/{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
@@ -4460,8 +4508,18 @@ def on_recording_request(data):
         return
     if not user_id or session_therapist_id.get(session_id) != user_id:
         return   # only the session's clinician may start recording
-    if not _has_recording(_session_clinician(session_id)):
+    _clin = _session_clinician(session_id)
+    if not _has_recording(_clin):
         emit("recording_unavailable", {"message": "Recording is a Premium-plan feature. Upgrade in Plans & billing."})
+        return
+    if not _has_recording_time(_clin):
+        emit("recording_unavailable",
+             {"message": "You have used all your recording hours. "
+                         "Add 40 more for $9.99 in Plans & billing."})
+        return
+    if _needs_record_authorisation(session_id):
+        emit("recording_unavailable",
+             {"message": "Confirm you are authorised to record this person first."})
         return
     session_recording_requested[session_id] = True
     session_recording_consent[session_id][user_id] = True   # the clinician consents by requesting

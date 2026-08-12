@@ -443,6 +443,13 @@ function initRecordingControls(sessionId, userId, isTherapist) {
         if (statusText) statusText.textContent = (data && data.message) || "Recording is not available.";
     });
 
+    // Recording time left, for metered accounts. Sent when a warning threshold is
+    // crossed, so the pill in the control strip stays honest without polling.
+    socket.on("recording_hours", function (data) {
+        var pill = document.getElementById("hoursLeftText");
+        if (pill && data && data.text) { pill.textContent = data.text; }
+    });
+
     socket.on("recording_consent_prompt", function () {
         // Prompt this client to consent — once — unless they've already answered.
         if (isTherapist || _answered) return;

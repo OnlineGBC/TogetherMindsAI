@@ -111,6 +111,14 @@
             </button>
             {% endif %}
             {% endif %}
+            {% if hours_left %}
+            {# Metered roles see their balance where they record, not only on the
+               billing page — someone monitoring overnight never opens billing. #}
+            <span class="badge rounded-pill text-bg-light border" id="hoursLeftPill"
+                  title="Recording time left this month">
+                <i class="bi bi-hourglass-split"></i> <span id="hoursLeftText">{{ hours_left }}</span>
+            </span>
+            {% endif %}
             {% if recording_enabled %}
             <span class="d-inline-flex align-items-center gap-2" id="recBar" role="region" aria-label="Recording controls">
                 {% if is_therapist %}
@@ -133,6 +141,28 @@
 
         <!-- Work area: chat (left, scrollable) | divider | video (center).
              Panes sit side-by-side on desktop and stack on phone/tablet. -->
+        {% if needs_record_auth %}
+        {# The person being recorded — a baby, a patient — often cannot consent for
+           themselves, so the caregiver attests they hold the authority. Recording
+           is refused server-side until this is stored. #}
+        <div class="alert alert-warning rounded-4" id="recordAuthBox">
+            <form method="post" action="{{ url_for('record_authorise', session_id=session_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="recordAuthCheck"
+                           name="authorised" value="1" required>
+                    <label class="form-check-label" for="recordAuthCheck">
+                        {{ words.attestation }}
+                    </label>
+                </div>
+                <button class="btn btn-sm btn-primary rounded-pill" type="submit">
+                    Confirm
+                </button>
+                <span class="ms-2 small text-muted">Recording stays off until you confirm.</span>
+            </form>
+        </div>
+        {% endif %}
+
         {# A caregiver session has no chat at all, so the video pane takes the whole
            width — `chat-hidden` is the same class the client view already uses. #}
         <div class="session-work{% if rtc_enabled %} has-video{% endif %}{% if rtc_enabled and (not is_therapist or not has_chat) %} chat-hidden{% endif %}">
