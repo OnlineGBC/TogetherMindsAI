@@ -30,7 +30,7 @@ import admin_access
 import config
 import roles
 from TogetherMindsAI import app
-from models import db, init_encryption, Clinician
+from models import db, init_encryption, Clinician, CompAccess
 
 init_encryption(TEST_KEY)
 
@@ -198,6 +198,24 @@ def test_the_console_lists_accounts_with_a_role_selector(client):
         assert "Change someone&#39;s role" in html or "Change someone's role" in html
         for _value, label, _blurb in roles.choices():
             assert label in html
+    _as_verified_admin(client, check)
+
+
+def test_the_row_actions_look_clickable(client):
+    """Set used the outline style, which on this dark theme has a dim border and
+    grey text — it read as a label, not a button. It is now solid blue like Add,
+    and the action column carries a heading so the column is labelled."""
+    def check():
+        with app.app_context():
+            _seed("target", "listed@example.com", role=roles.HYPNOTHERAPIST)
+            # Seed a grant too: the Current grants table (and so its heading)
+            # only renders when at least one grant exists.
+            admin_access.grant(db, CompAccess, "granted@example.com", "note", ADMIN)
+        html = client.get("/accessadmin").get_data(as_text=True)
+        assert 'class="btn btn-primary btn-sm rounded-pill" type="submit">Set<' in html
+        assert "btn-outline-secondary btn-sm rounded-pill\" type=\"submit\">Set<" not in html
+        # Both tables label their action column (roles, and current grants).
+        assert html.count('<th class="text-end">Action</th>') == 2
     _as_verified_admin(client, check)
 
 

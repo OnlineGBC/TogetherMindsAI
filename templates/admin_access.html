@@ -19,6 +19,19 @@
   .comp-table thead th { color: var(--text-muted); font-weight: 700; }
   /* Applies to whole cells and to spans inside them (the "no email yet" hint). */
   .comp-table .comp-muted { color: var(--text-muted); }
+
+  /* The role dropdown used the theme's dim --border-dk on an equally dark card,
+     so it read as plain text rather than something you can open. Brighten the
+     edge and lift the fill, scoped to this page so no other screen changes. */
+  .comp-table .form-select {
+    background-color: rgba(255, 255, 255, .07) !important;
+    border-color: rgba(255, 255, 255, .38) !important;
+    cursor: pointer;
+  }
+  .comp-table .form-select:hover {
+    background-color: rgba(255, 255, 255, .12) !important;
+    border-color: rgba(255, 255, 255, .55) !important;
+  }
 </style>
 
 <div class="row justify-content-center">
@@ -114,7 +127,9 @@
         <div class="table-responsive">
           <table class="table align-middle mb-0 comp-table">
             <thead>
-              <tr class="small"><th>Account</th><th>Role</th><th></th></tr>
+              <tr class="small">
+                <th>Account</th><th>Role</th><th class="text-end">Action</th>
+              </tr>
             </thead>
             <tbody>
             {% for acct in accounts %}
@@ -139,7 +154,9 @@
                       <option value="{{ value }}" {% if acct.role == value %}selected{% endif %}>{{ label }}</option>
                       {% endfor %}
                     </select>
-                    <button class="btn btn-outline-secondary btn-sm rounded-pill" type="submit">Set</button>
+                    {# Solid blue, matching the Add button: the outline style used
+                       the theme's dim border and read as a label, not a button. #}
+                    <button class="btn btn-primary btn-sm rounded-pill" type="submit">Set</button>
                   </form>
                 </td>
               </tr>
@@ -167,7 +184,8 @@
           <table class="table align-middle mb-0 comp-table">
             <thead>
               <tr class="small">
-                <th>Email</th><th>Note</th><th>Added</th><th>Status</th><th></th>
+                <th>Email</th><th>Note</th><th>Added</th><th>Status</th>
+                <th class="text-end">Action</th>
               </tr>
             </thead>
             <tbody>
