@@ -43,14 +43,19 @@
     color: #E8EEEC;
   }
 
-  /* Sized to match the Disable button it stands in for, so the column that has
-     no button still lines up with the ones that do. */
-  .comp-table .comp-selfmark {
-    display: inline-block;
-    min-width: 84px;
-    text-align: center;
-    color: var(--text-muted);
+  /* One fixed-width slot for whatever ends the row — Disable, Enable, or the
+     "You" label. Sizing each to match the others by eye never held: "Disable" is
+     a longer word than "Enable", and a button carries border and padding that
+     plain text does not, so all three ended up at different widths and dragged
+     the dropdown and Set to three different positions. Fixing the slot means the
+     row lines up whatever sits in it. */
+  .comp-table .comp-switch {
+    flex: 0 0 auto;
+    width: 6rem;                /* fits "Disable" with its padding and border */
+    display: flex;
+    justify-content: flex-end;
   }
+  .comp-table .comp-selfmark { color: var(--text-muted); }
 </style>
 
 <div class="row justify-content-center">
@@ -189,21 +194,25 @@
                          the theme's dim border and read as a label, not a button. #}
                       <button class="btn btn-primary btn-sm rounded-pill" type="submit">Set</button>
                     </form>
-                    {# Switching yourself off would lock you out with nobody able to
-                       undo it, so your own row gets a label where the button would
-                       be. An empty gap there read as if it meant something. #}
-                    {% if acct.id == self_id %}
-                    <span class="comp-selfmark small"
-                          title="You cannot disable your own account.">You</span>
-                    {% else %}
-                    <form method="post" action="{{ url_for('admin_access_set_disabled') }}">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="clinician_id" value="{{ acct.id }}">
-                      <input type="hidden" name="disabled" value="{{ '0' if acct.disabled_at else '1' }}">
-                      <button class="btn btn-sm rounded-pill {{ 'btn-success' if acct.disabled_at else 'btn-outline-danger' }}"
-                              type="submit">{{ 'Enable' if acct.disabled_at else 'Disable' }}</button>
-                    </form>
-                    {% endif %}
+                    {# Every row ends in this same fixed-width slot, whatever goes
+                       in it. Switching yourself off would lock you out with nobody
+                       able to undo it, so your own row carries a label here
+                       instead of a button — an empty gap read as if it meant
+                       something. #}
+                    <div class="comp-switch">
+                      {% if acct.id == self_id %}
+                      <span class="comp-selfmark small align-self-center"
+                            title="You cannot disable your own account.">You</span>
+                      {% else %}
+                      <form method="post" action="{{ url_for('admin_access_set_disabled') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <input type="hidden" name="clinician_id" value="{{ acct.id }}">
+                        <input type="hidden" name="disabled" value="{{ '0' if acct.disabled_at else '1' }}">
+                        <button class="btn btn-sm rounded-pill {{ 'btn-success' if acct.disabled_at else 'btn-outline-danger' }}"
+                                type="submit">{{ 'Enable' if acct.disabled_at else 'Disable' }}</button>
+                      </form>
+                      {% endif %}
+                    </div>
                   </div>
                 </td>
               </tr>

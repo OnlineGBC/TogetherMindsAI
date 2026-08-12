@@ -230,6 +230,24 @@ def test_your_own_row_says_You_rather_than_leaving_a_gap(client):
     _as_verified_admin(client, check)
 
 
+def test_every_row_ends_in_the_same_fixed_width_slot(client):
+    """Regression: the row-ending control was sized to match its neighbours by
+    eye. "Disable" is a longer word than "Enable", and a button carries border
+    and padding that plain text does not, so all three widths differed and
+    dragged the dropdown and Set to three different positions."""
+    def check():
+        with app.app_context():
+            _seed("on", "active@example.com")
+            _seed("off", "switched@example.com", disabled=True)
+        html = client.get("/accessadmin").get_data(as_text=True)
+        # One slot per account row: Disable, Enable and You alike.
+        assert html.count('<div class="comp-switch">') == 3
+        assert ".comp-table .comp-switch" in html      # the rule that fixes it
+        # The old approach sized the label on its own; it must not come back.
+        assert "min-width: 84px" not in html
+    _as_verified_admin(client, check)
+
+
 def test_admin_accounts_are_labelled_admin(client):
     """Written plainly in the Status column, and true of every admin account —
     a second admin keeps their Disable button but is still labelled."""
