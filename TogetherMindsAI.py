@@ -1250,6 +1250,32 @@ def _current_client_account_id():
 
 
 @app.context_processor
+def _inject_role_words():
+    """Expose `words` — the role-appropriate wording — to every template.
+
+    Which role's wording applies:
+      * inside a session, the practitioner RUNNING it, so a client sees language
+        that matches who they are actually seeing, not their own account type;
+      * otherwise the signed-in practitioner's own;
+      * otherwise the clinical wording, which is how the app read before roles.
+
+    Best-effort: a lookup problem falls back to the clinical wording rather than
+    rendering a page with no words at all.
+    """
+    role = roles.DEFAULT_ROLE
+    try:
+        sid = (request.view_args or {}).get("session_id") if request else None
+        clin = _session_clinician(sid) if sid else None
+        if clin is None:
+            cid = session.get("clinician_id")
+            clin = db.session.get(Clinician, cid) if cid else None
+        role = roles.role_of(clin)
+    except Exception:
+        pass
+    return {"words": roles.words(role), "role_name": role}
+
+
+@app.context_processor
 def _inject_auth_state():
     """Expose login state to every template (drives the navbar + account menu).
 

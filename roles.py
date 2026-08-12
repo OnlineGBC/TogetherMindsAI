@@ -114,6 +114,61 @@ def is_clinical(role: str) -> bool:
     return bool(spec(role)["clinical"])
 
 
+# ---------------------------------------------------------------------------
+# Wording. One table, read by every screen, so the language cannot drift apart.
+# A word only appears here when it would be WRONG for some role — "session" is
+# right for everyone, so it is not here.
+# ---------------------------------------------------------------------------
+
+_CRISIS = ("In a crisis, contact your {practitioner}; if they are unavailable")
+
+WORDING = {
+    PSYCHOTHERAPIST: {
+        "practitioner": "clinician",
+        "practitioner_plural": "clinicians",
+        "console_title": "Therapist Co-Pilot",
+        "record": "clinical record",
+        "service": "professional care",
+        "attestation": ("I am a licensed professional. The AI co-pilot is an assistive "
+                        "aid only — it does not diagnose, treat, or replace my clinical "
+                        "judgement, and I remain responsible for the session."),
+        "disclaimer_lead": ("TogetherMindsAI is an AI assistant supporting your clinician"),
+        "disclaimer_rest": ("not a replacement for their professional care. "
+                            "In a crisis, contact your clinician; if they are unavailable"),
+    },
+    HYPNOTHERAPIST: {
+        "practitioner": "practitioner",
+        "practitioner_plural": "practitioners",
+        "console_title": "Session Co-Pilot",
+        "record": "session notes",
+        "service": "their service",
+        "attestation": ("I am a qualified practitioner. The AI co-pilot is an assistive "
+                        "aid only — it does not diagnose or treat, and I remain "
+                        "responsible for the session."),
+        "disclaimer_lead": ("TogetherMindsAI is an AI assistant supporting your practitioner"),
+        "disclaimer_rest": ("it is not mental-health care and does not replace it. "
+                            "In a crisis"),
+    },
+    CAREGIVER: {
+        "practitioner": "caregiver",
+        "practitioner_plural": "caregivers",
+        "console_title": "Monitor",
+        "record": "recording",
+        "service": "care",
+        "attestation": ("I confirm I am authorised to record this person. I am their "
+                        "parent or guardian, or I have their permission."),
+        "disclaimer_lead": ("TogetherMindsAI helps you watch and record"),
+        "disclaimer_rest": ("it is not medical advice and does not replace a doctor. "
+                            "In an emergency, call 911"),
+    },
+}
+
+
+def words(role: str) -> dict:
+    """The wording for this role, falling back to the clinical set."""
+    return WORDING.get(role) or WORDING[DEFAULT_ROLE]
+
+
 def price_key(role: str) -> str:
     """Which config price ID sells this role's paid plan. The two clinical roles
     share one $16 price — the difference between them is ICD codes and the licence
