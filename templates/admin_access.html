@@ -99,6 +99,56 @@
       </div>
     </div>
 
+    {# ---- Roles ----------------------------------------------------------- #}
+    <div class="card rounded-4 border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-1">Change someone's role</h5>
+        <p class="text-muted small mb-3">
+          A role decides which features exist for an account. Changing it can take
+          away ICD codes, or remove the state licence check from their sessions.
+          People cannot change their own.
+        </p>
+
+        {% if not accounts %}
+          <p class="text-muted mb-0">No accounts yet.</p>
+        {% else %}
+        <div class="table-responsive">
+          <table class="table align-middle mb-0 comp-table">
+            <thead>
+              <tr class="small"><th>Account</th><th>Role</th><th></th></tr>
+            </thead>
+            <tbody>
+            {% for acct in accounts %}
+              <tr>
+                <td class="small">{{ acct.email or acct.id }}</td>
+                <td class="small comp-muted">{{ acct.role or 'not chosen yet' }}</td>
+                <td class="text-end">
+                  <form method="post" action="{{ url_for('admin_access_set_role') }}"
+                        class="d-flex gap-2 justify-content-end">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="clinician_id" value="{{ acct.id }}">
+                    <select name="role" class="form-select form-select-sm w-auto">
+                      {% for value, label, _blurb in role_choices %}
+                      <option value="{{ value }}" {% if acct.role == value %}selected{% endif %}>{{ label }}</option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-outline-secondary btn-sm rounded-pill" type="submit">Set</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if account_total > accounts|length %}
+        <p class="text-muted small mb-0 mt-2">
+          Showing the {{ accounts|length }} most recent of {{ account_total }} accounts.
+        </p>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
     {# ---- Existing grants ------------------------------------------------- #}
     <div class="card rounded-4 border-0 shadow-sm">
       <div class="card-body">

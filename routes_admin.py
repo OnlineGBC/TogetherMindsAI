@@ -20,6 +20,7 @@ from flask import (session, request, redirect, url_for, render_template, flash,
 
 import admin_access
 import config
+import roles
 import TogetherMindsAI as _tm
 
 _VERIFIED_UNTIL = "_admin_verified_until"
@@ -72,9 +73,13 @@ def register_admin_routes(app):
                 totp_available=bool(config.ADMIN_TOTP_SECRET),
                 factors_required=config.ADMIN_FACTORS_REQUIRED,
             )
+        accounts, total = admin_access.list_accounts(_tm.Clinician)
         return render_template(
             "admin_access.html", verified=True, admin_email=email,
             grants=admin_access.active_grants(_tm.CompAccess),
+            accounts=accounts, account_total=total,
+            account_limit=admin_access.ACCOUNT_LIST_LIMIT,
+            role_choices=roles.choices(), role_of=roles.role_of,
             totp_available=bool(config.ADMIN_TOTP_SECRET),
             factors_required=config.ADMIN_FACTORS_REQUIRED,
         )
@@ -128,6 +133,29 @@ def register_admin_routes(app):
             _tm.log_event("comp_access_granted", user_id=session.get("user_id"),
                           comp_id=row.id)
             flash(f"{target} now has full access.", "info")
+        return redirect(url_for("admin_access_page"))
+
+    @app.route("/accessadmin/role", methods=["POST"])
+    def admin_access_set_role():
+        """Change an account's role — admin only, deliberately not self-serve.
+
+        A role decides what the app may claim and store about someone's work, so
+        moving one is a real change: it can take away ICD codes, or remove the
+        state licence gate from their sessions.
+        """
+        _require_admin()
+        if not _is_verified():
+            abort(403)
+        target = (request.form.get("clinician_id") or "").strip()
+        new_role = (request.form.get("role") or "").strip()
+        changed = admin_access.set_role(_tm.db, _tm.Clinician, target, new_role)
+        if changed is None:
+            flash("No change made — unknown account, or already that role.", "error")
+        else:
+            old_role, set_to = changed
+            _tm.log_event("role_changed", user_id=session.get("user_id"),
+                          target_id=target, old_role=old_role, new_role=set_to)
+            flash(f"Role changed to {roles.spec(set_to)['label']}.", "info")
         return redirect(url_for("admin_access_page"))
 
     @app.route("/accessadmin/revoke", methods=["POST"])

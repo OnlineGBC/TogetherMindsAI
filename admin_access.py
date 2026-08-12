@@ -235,6 +235,47 @@ def revoke(db, CompAccess, row_id: int) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Role administration. A role decides what the app may claim and store about
+# someone's work, so it is set once at sign-up and only an admin may change it.
+# ---------------------------------------------------------------------------
+
+ACCOUNT_LIST_LIMIT = 200
+
+
+def list_accounts(Clinician, limit: int = ACCOUNT_LIST_LIMIT):
+    """(rows, total) — the newest accounts, plus how many exist in all.
+
+    Returns the total as well as the page so the console can say plainly when it
+    is not showing everything. Silently truncating would read as "this is all of
+    them", which is exactly the wrong impression on an admin screen.
+    """
+    total = Clinician.query.count()
+    rows = (Clinician.query
+            .order_by(Clinician.last_login_at.desc().nullslast(),
+                      Clinician.created_at.desc())
+            .limit(limit)
+            .all())
+    return rows, total
+
+
+def set_role(db, Clinician, clinician_id: str, new_role: str):
+    """Change an account's role. Returns (old_role, new_role) on success, or None
+    if the account is unknown, the role is invalid, or it is already set to that."""
+    import roles
+    if not roles.is_valid(new_role):
+        return None
+    clin = db.session.get(Clinician, clinician_id)
+    if clin is None:
+        return None
+    old_role = clin.role
+    if old_role == new_role:
+        return None
+    clin.role = new_role
+    db.session.commit()
+    return (old_role, new_role)
+
+
 def active_grants(CompAccess):
     """All grants, newest first — active and revoked (the list shows both)."""
     return CompAccess.query.order_by(CompAccess.id.desc()).all()
