@@ -199,3 +199,20 @@ def test_the_console_lists_accounts_with_a_role_selector(client):
         for _value, label, _blurb in roles.choices():
             assert label in html
     _as_verified_admin(client, check)
+
+
+def test_an_account_without_an_email_shows_a_hint_not_a_raw_uuid(client):
+    """Accounts keep no email until their owner next logs in. The console used to
+    fall back to the 36-character UUID, which read as gibberish in the table."""
+    uid = "cfc74874-596b-41ca-909b-16d90a71b2fb"
+
+    def check():
+        with app.app_context():
+            _seed(uid, None, role=roles.HYPNOTHERAPIST)
+        html = client.get("/accessadmin").get_data(as_text=True)
+        assert "no email yet" in html
+        assert uid[:8] in html            # enough to tell two such rows apart
+        assert ">" + uid + "<" not in html   # never the whole UUID as the label
+        # The role form still posts the full id, so Set keeps working.
+        assert 'value="{}"'.format(uid) in html
+    _as_verified_admin(client, check)

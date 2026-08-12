@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Comp access — TogetherMindsAI{% endblock %}
+{% block title %}Access admin — TogetherMindsAI{% endblock %}
 
 {% block content %}
 <style>
@@ -17,16 +17,17 @@
     color: inherit;
   }
   .comp-table thead th { color: var(--text-muted); font-weight: 700; }
-  .comp-table td.comp-muted { color: var(--text-muted); }
+  /* Applies to whole cells and to spans inside them (the "no email yet" hint). */
+  .comp-table .comp-muted { color: var(--text-muted); }
 </style>
 
 <div class="row justify-content-center">
   <div class="col-12 col-lg-9">
 
     <div class="mb-3">
-      <h3 class="fw-bold mb-1">Comp access</h3>
-      <p class="text-muted mb-0">
-        Grant full access without payment. Signed in as <strong>{{ admin_email }}</strong>.
+      <h3 class="fw-bold mb-1 fs-4">Access admin</h3>
+      <p class="text-muted small mb-0">
+        Signed in as <strong>{{ admin_email }}</strong>.
       </p>
     </div>
 
@@ -40,9 +41,8 @@
     {# ---- 2-of-3 challenge ------------------------------------------------ #}
     <div class="card rounded-4 border-0 shadow-sm mb-3">
       <div class="card-body">
-        <h5 class="fw-bold mb-1">Confirm it's you</h5>
+        <h5 class="fw-bold mb-1 fs-6">Confirm it's you</h5>
         <p class="text-muted small mb-3">
-          Use <strong>either</strong> your authenticator app or a code emailed to you.
           Emailed codes expire and can be used once.
         </p>
 
@@ -78,23 +78,23 @@
     {# ---- Grant a new comp ------------------------------------------------ #}
     <div class="card rounded-4 border-0 shadow-sm mb-3">
       <div class="card-body">
-        <h5 class="fw-bold mb-3">Give someone full access</h5>
+        <h5 class="fw-bold mb-3 fs-6">Give someone full access</h5>
         <form method="post" action="{{ url_for('admin_access_add') }}" class="row g-2 align-items-end">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="col-12 col-md-5">
             <label class="form-label small fw-semibold">Email address</label>
-            <input class="form-control" name="email" type="email" required placeholder="name@example.com">
+            <input class="form-control form-control-sm" name="email" type="email" required placeholder="name@example.com">
           </div>
           <div class="col-12 col-md-5">
             <label class="form-label small fw-semibold">Note (optional)</label>
-            <input class="form-control" name="note" maxlength="200" placeholder="Why, or who they are">
+            <input class="form-control form-control-sm" name="note" maxlength="200" placeholder="Why, or who they are">
           </div>
           <div class="col-12 col-md-2 d-grid">
-            <button class="btn btn-primary rounded-pill" type="submit">Add</button>
+            <button class="btn btn-primary btn-sm rounded-pill" type="submit">Add</button>
           </div>
         </form>
         <p class="text-muted small mb-0 mt-2">
-          Works before they sign up — access applies the moment they first log in.
+          Works before they sign up.
         </p>
       </div>
     </div>
@@ -102,11 +102,10 @@
     {# ---- Roles ----------------------------------------------------------- #}
     <div class="card rounded-4 border-0 shadow-sm mb-3">
       <div class="card-body">
-        <h5 class="fw-bold mb-1">Change someone's role</h5>
+        <h5 class="fw-bold mb-1 fs-6">Change someone's role</h5>
         <p class="text-muted small mb-3">
-          A role decides which features exist for an account. Changing it can take
-          away ICD codes, or remove the state licence check from their sessions.
-          People cannot change their own.
+          A role decides which features an account gets, such as ICD codes and the
+          state licence check. People cannot change their own.
         </p>
 
         {% if not accounts %}
@@ -120,7 +119,15 @@
             <tbody>
             {% for acct in accounts %}
               <tr>
-                <td class="small">{{ acct.email or acct.id }}</td>
+                {# An account has no email until its owner next logs in (the column
+                   is filled from the OAuth claim). Showing the raw 36-character
+                   UUID there was unreadable, so say plainly that the email is
+                   missing and add a short id so two such rows stay tellable
+                   apart. The Set form below posts the full id regardless. #}
+                <td class="small">
+                  {% if acct.email %}{{ acct.email }}
+                  {% else %}<span class="comp-muted">no email yet · {{ acct.id[:8] }}</span>{% endif %}
+                </td>
                 <td class="small comp-muted">{{ acct.role or 'not chosen yet' }}</td>
                 <td class="text-end">
                   <form method="post" action="{{ url_for('admin_access_set_role') }}"
@@ -152,7 +159,7 @@
     {# ---- Existing grants ------------------------------------------------- #}
     <div class="card rounded-4 border-0 shadow-sm">
       <div class="card-body">
-        <h5 class="fw-bold mb-3">Current grants</h5>
+        <h5 class="fw-bold mb-3 fs-6">Current grants</h5>
         {% if not grants %}
           <p class="text-muted mb-0">Nobody has comp access yet.</p>
         {% else %}
