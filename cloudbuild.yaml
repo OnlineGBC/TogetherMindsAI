@@ -151,6 +151,15 @@ steps:
       - STRIPE_PRICE_PRO=STRIPE_PRICE_PRO:2
       - --set-secrets
       - STRIPE_PRICE_PREMIUM=STRIPE_PRICE_PREMIUM:2
+      # Role-based pricing: one paid plan per role. Not pinned to a version —
+      # these are price IDs, not credentials, and a new version means a new price
+      # was deliberately created.
+      - --set-secrets
+      - STRIPE_PRICE_CLINICAL=STRIPE_PRICE_CLINICAL:latest
+      - --set-secrets
+      - STRIPE_PRICE_CAREGIVER=STRIPE_PRICE_CAREGIVER:latest
+      - --set-secrets
+      - STRIPE_PRICE_HOURS_TOPUP=STRIPE_PRICE_HOURS_TOPUP:latest
       # min-instances must always be 1 — keeps a warm worker so couple/group
       # SocketIO sessions don't pay a 10-15s cold-start penalty on first message.
       - --min-instances

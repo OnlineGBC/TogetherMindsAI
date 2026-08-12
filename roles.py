@@ -114,6 +114,50 @@ def is_clinical(role: str) -> bool:
     return bool(spec(role)["clinical"])
 
 
+def price_key(role: str) -> str:
+    """Which config price ID sells this role's paid plan. The two clinical roles
+    share one $16 price — the difference between them is ICD codes and the licence
+    check, not the money."""
+    return ("STRIPE_PRICE_CAREGIVER" if role == CAREGIVER
+            else "STRIPE_PRICE_CLINICAL")
+
+
+def price_label(role: str) -> str:
+    """What the paid plan costs, for display."""
+    return "$9.99" if role == CAREGIVER else "$16"
+
+
+def paid_features(role: str) -> list:
+    """Plain-language list of what paying unlocks, for the plans page."""
+    return {
+        PSYCHOTHERAPIST: ["AI co-pilot suggestions",
+                          "AI session recap",
+                          "ICD and billing codes",
+                          "Audio and video recording"],
+        HYPNOTHERAPIST:  ["AI co-pilot suggestions",
+                          "AI session recap",
+                          "Audio and video recording"],
+        CAREGIVER:       ["Audio and video recording",
+                          "40 hours a month",
+                          "Recordings kept 30 days"],
+    }.get(role, [])
+
+
+def free_features(role: str) -> list:
+    """Plain-language list of what the free tier gives, for the plans page."""
+    return {
+        PSYCHOTHERAPIST: ["Live audio and video",
+                          "Guided reflections chat",
+                          "Full session transcript",
+                          "Safety and risk alerts"],
+        HYPNOTHERAPIST:  ["Live audio and video",
+                          "Guided reflections chat",
+                          "Full session transcript",
+                          "Safety and risk alerts"],
+        CAREGIVER:       ["Live audio and video, unlimited"],
+    }.get(role, [])
+
+
 def choices() -> list:
     """(value, label, blurb) for the sign-up picker, in display order."""
     return [(r, ROLES[r]["label"], ROLES[r]["blurb"])

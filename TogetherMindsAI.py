@@ -1332,56 +1332,58 @@ def _safe_next(target):
 
 
 # ---------------------------------------------------------------------------
-# Subscription entitlements (Phase 4 Step 4). While BILLING_ENABLED is OFF every
-# clinician keeps full access. When ON, only an active/trialing paid plan grants
-# the tier: "pro" -> AI analysis, "premium" -> AI analysis + recording.
+# Entitlements. Two switches, both of which must say yes:
+#   PLAN — free or paid. "Have they paid."
+#   ROLE — psychotherapist / hypnotherapist / caregiver. "Is this part of their
+#          product at all." A coach can pay for everything their plan offers and
+#          still never get ICD codes, because coding is clinical work.
+# While BILLING_ENABLED is OFF, every account counts as paid.
 # ---------------------------------------------------------------------------
 
-def _effective_plan(clinician):
-    """The clinician's currently-entitled tier ("free"|"pro"|"premium")."""
+def _is_paid(clinician) -> bool:
+    """Whether this account is currently paying (or is treated as paying)."""
     if not config.BILLING_ENABLED:
-        return "premium"                   # billing disabled -> full access
+        return True                        # billing disabled -> full access
     if clinician is None:
-        return "free"
+        return False
     # Comp access granted from the admin console outranks Stripe: these are
     # accounts we have decided get full access without paying. Best-effort — a
     # lookup problem must fall through to the normal subscription check, never
     # hand out access and never break the session.
     try:
         if admin_access.has_comp_access(CompAccess, getattr(clinician, "email", "") or ""):
-            return "premium"
+            return True
     except Exception:
         app.logger.warning("comp access lookup failed for clinician %s",
                            getattr(clinician, "id", "?"))
     if (clinician.subscription_status or "").lower() not in ("active", "trialing"):
-        return "free"
-    return clinician.plan or "free"
+        return False
+    # Anything other than "paid" is a retired Pro/Premium value from before the
+    # role pricing. Those tiers no longer exist, so they grant nothing.
+    return (clinician.plan or "") == billing.PAID
 
 
-def _role_offers(clinician, capability) -> bool:
-    """Whether this account's ROLE includes the capability at all, ignoring plan.
+def _effective_plan(clinician):
+    """The account's current plan name: "paid" or "free"."""
+    return billing.PAID if _is_paid(clinician) else billing.FREE
 
-    Role and plan are separate switches and both must say yes. Plan answers "have
-    they paid"; role answers "is this feature part of their product". A coach who
-    pays still gets no ICD codes, because coding is clinical work.
-    """
-    return roles.allows(roles.role_of(clinician), capability, paid=True)
+
+def _capability(clinician, capability) -> bool:
+    """Whether this account can reach `capability` right now — role and plan."""
+    return roles.allows(roles.role_of(clinician), capability, paid=_is_paid(clinician))
 
 
 def _has_ai_analysis(clinician):
-    return (_effective_plan(clinician) in ("pro", "premium")
-            and _role_offers(clinician, roles.AI))
+    return _capability(clinician, roles.AI)
 
 
 def _has_recording(clinician):
-    return (_effective_plan(clinician) == "premium"
-            and _role_offers(clinician, roles.RECORDING))
+    return _capability(clinician, roles.RECORDING)
 
 
 def _has_icd_codes(clinician):
-    """ICD reference cards and billing-code support. Sits on top of AI analysis:
-    it is the same paid tier, narrowed to the one role that does clinical coding."""
-    return _has_ai_analysis(clinician) and _role_offers(clinician, roles.ICD)
+    """ICD reference cards and billing-code support — paid psychotherapists only."""
+    return _capability(clinician, roles.ICD)
 
 
 def _licence_gate_applies(session_id: str) -> bool:

@@ -69,11 +69,25 @@ def _login(client, cid="clin-1"):
 # ---- pure helpers ---------------------------------------------------------
 
 def test_plan_for_price_mapping():
-    with patch.object(config, "STRIPE_PRICE_PRO", "price_pro"), \
-         patch.object(config, "STRIPE_PRICE_PREMIUM", "price_premium"):
-        assert billing.plan_for_price("price_premium") == "premium"
-        assert billing.plan_for_price("price_pro") == "pro"
+    """One paid plan now — which features it unlocks is decided by the role."""
+    with patch.object(config, "STRIPE_PRICE_CLINICAL", "price_clinical"), \
+         patch.object(config, "STRIPE_PRICE_CAREGIVER", "price_caregiver"):
+        assert billing.plan_for_price("price_clinical") == "paid"
+        assert billing.plan_for_price("price_caregiver") == "paid"
         assert billing.plan_for_price("price_other") == "free"
+        assert billing.plan_for_price("") == "free"
+
+
+def test_retired_prices_no_longer_grant_anything():
+    """The old Pro/Premium tiers are gone. An old subscription against one of
+    those prices must map to free, not keep granting access under a name nothing
+    recognises."""
+    with patch.object(config, "STRIPE_PRICE_PRO", "price_pro"), \
+         patch.object(config, "STRIPE_PRICE_PREMIUM", "price_premium"), \
+         patch.object(config, "STRIPE_PRICE_CLINICAL", "price_clinical"), \
+         patch.object(config, "STRIPE_PRICE_CAREGIVER", "price_caregiver"):
+        assert billing.plan_for_price("price_pro") == "free"
+        assert billing.plan_for_price("price_premium") == "free"
 
 
 def test_verify_webhook_returns_plain_dict():
@@ -92,25 +106,24 @@ def test_verify_webhook_returns_plain_dict():
 
 
 def test_subscription_plan_and_status_from_dict():
-    with patch.object(config, "STRIPE_PRICE_PREMIUM", "price_premium"):
-        sub = {"status": "active", "items": {"data": [{"price": {"id": "price_premium"}}]}}
-        assert billing.subscription_plan_and_status(sub) == ("premium", "active")
+    with patch.object(config, "STRIPE_PRICE_CLINICAL", "price_clinical"):
+        sub = {"status": "active", "items": {"data": [{"price": {"id": "price_clinical"}}]}}
+        assert billing.subscription_plan_and_status(sub) == ("paid", "active")
 
 
 # ---- billing page ---------------------------------------------------------
 
 def test_billing_page_is_public_without_login(client):
     """Pricing is public: an anonymous visitor gets the page (200), not a redirect.
-    The 'Choose' buttons send them to clinician sign-in rather than checkout."""
+    The subscribe button sends them to clinician sign-in rather than checkout."""
     rv = client.get("/billing")
     assert rv.status_code == 200
-    assert b"Choose Pro" in rv.data
-    assert b'href="/login?next=' in rv.data
+    assert b"Sign in to subscribe" in rv.data
 
 
 def test_billing_page_shows_current_plan(client):
     with app.app_context():
-        _clinician(plan="pro", status="active")
+        _clinician(plan="paid", status="active")
     _login(client)
     rv = client.get("/billing")
     assert rv.status_code == 200
@@ -119,25 +132,29 @@ def test_billing_page_shows_current_plan(client):
 
 def test_success_banner_confirms_when_plan_active(client):
     with app.app_context():
-        _clinician(plan="pro", status="active")
+        _clinician(plan="paid", status="active")
     _login(client)
     body = client.get("/billing?success=1").data.decode()
-    assert "You're on" in body and "Pro" in body
+    assert "You're subscribed" in body
     assert "being activated" not in body      # no stale "activating" message
     assert "Current plan" in body             # current-plan button, not "Your plan"
 
 
 def test_success_banner_pending_when_still_free(client):
+    """Back from checkout but the webhook has not landed yet — keep the waiting
+    message rather than claiming they are subscribed. Needs billing ON, since with
+    it off every account counts as paid."""
     with app.app_context():
         _clinician(plan="free", status=None)
     _login(client)
-    body = client.get("/billing?success=1").data.decode()
-    assert "being activated" in body          # genuinely pending → keep waiting message
+    with patch.object(config, "BILLING_ENABLED", True):
+        body = client.get("/billing?success=1").data.decode()
+    assert "being activated" in body
 
 
 def test_billing_shows_renewal_date(client):
     with app.app_context():
-        _clinician(plan="pro", status="active")
+        _clinician(plan="paid", status="active")
         c = db.session.get(Clinician, "clin-1")
         c.current_period_end = datetime(2026, 7, 15, tzinfo=timezone.utc)
         db.session.commit()
@@ -149,7 +166,7 @@ def test_billing_shows_renewal_date(client):
 # ---- checkout -------------------------------------------------------------
 
 def test_checkout_requires_login(client):
-    assert client.post("/billing/checkout/pro").status_code == 403
+    assert client.post("/billing/checkout/paid").status_code == 403
 
 
 def test_checkout_404_when_billing_disabled(client):
@@ -157,7 +174,7 @@ def test_checkout_404_when_billing_disabled(client):
         _clinician()
     _login(client)
     with patch.object(config, "BILLING_ENABLED", False):
-        assert client.post("/billing/checkout/pro").status_code == 404
+        assert client.post("/billing/checkout/paid").status_code == 404
 
 
 def test_checkout_404_for_unknown_plan(client):
@@ -174,7 +191,7 @@ def test_checkout_redirects_to_stripe(client):
     _login(client)
     with patch.object(config, "BILLING_ENABLED", True), \
          patch("billing.create_checkout_url", return_value="https://checkout.stripe.test/abc") as mk:
-        rv = client.post("/billing/checkout/pro")
+        rv = client.post("/billing/checkout/paid")
     assert rv.status_code == 303
     assert rv.headers["Location"] == "https://checkout.stripe.test/abc"
     mk.assert_called_once()
@@ -196,7 +213,7 @@ def test_webhook_checkout_completed_sets_plan(client):
         "type": "checkout.session.completed",
         "data": {"object": {"customer": "cus_1",
                             "client_reference_id": "clin-1",
-                            "metadata": {"clinician_id": "clin-1", "plan": "pro"}}},
+                            "metadata": {"clinician_id": "clin-1", "plan": "paid"}}},
     }
     with patch("billing.verify_webhook", return_value=event):
         rv = client.post("/stripe/webhook", data=b"{}",
@@ -204,13 +221,13 @@ def test_webhook_checkout_completed_sets_plan(client):
     assert rv.status_code == 200
     with app.app_context():
         clin = db.session.get(Clinician, "clin-1")
-        assert clin.plan == "pro"
+        assert clin.plan == "paid"
         assert clin.subscription_status == "active"
 
 
 def test_webhook_subscription_deleted_downgrades_to_free(client):
     with app.app_context():
-        _clinician(plan="pro", status="active", customer="cus_9")
+        _clinician(plan="paid", status="active", customer="cus_9")
     event = {
         "type": "customer.subscription.deleted",
         "data": {"object": {"customer": "cus_9"}},
@@ -227,18 +244,36 @@ def test_webhook_subscription_deleted_downgrades_to_free(client):
 
 def test_webhook_subscription_updated_sets_plan_from_price(client):
     with app.app_context():
-        _clinician(plan="pro", status="active", customer="cus_5")
+        _clinician(plan="free", status=None, customer="cus_5")
     event = {
         "type": "customer.subscription.updated",
         "data": {"object": {"customer": "cus_5", "status": "active",
-                            "items": {"data": [{"price": {"id": "price_premium"}}]}}},
+                            "items": {"data": [{"price": {"id": "price_clinical"}}]}}},
     }
-    with patch.object(config, "STRIPE_PRICE_PREMIUM", "price_premium"), \
+    with patch.object(config, "STRIPE_PRICE_CLINICAL", "price_clinical"), \
          patch("billing.verify_webhook", return_value=event):
         rv = client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
     assert rv.status_code == 200
     with app.app_context():
-        assert db.session.get(Clinician, "clin-1").plan == "premium"
+        assert db.session.get(Clinician, "clin-1").plan == "paid"
+
+
+def test_webhook_on_a_retired_price_downgrades_to_free(client):
+    """Someone still on an old Pro/Premium subscription must not keep access when
+    Stripe next reports on it — that tier no longer exists."""
+    with app.app_context():
+        _clinician(plan="paid", status="active", customer="cus_old")
+    event = {
+        "type": "customer.subscription.updated",
+        "data": {"object": {"customer": "cus_old", "status": "active",
+                            "items": {"data": [{"price": {"id": "price_premium"}}]}}},
+    }
+    with patch.object(config, "STRIPE_PRICE_PREMIUM", "price_premium"), \
+         patch.object(config, "STRIPE_PRICE_CLINICAL", "price_clinical"), \
+         patch("billing.verify_webhook", return_value=event):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with app.app_context():
+        assert db.session.get(Clinician, "clin-1").plan == "free"
 
 
 # ---- migration DDL safety -------------------------------------------------
@@ -264,26 +299,50 @@ def test_billing_off_grants_full_access(client):
         _clinician(plan="free", status=None)
         c = db.session.get(Clinician, "clin-1")
         with patch.object(config, "BILLING_ENABLED", False):
-            assert tm._effective_plan(c) == "premium"
+            assert tm._effective_plan(c) == "paid"
             assert tm._has_ai_analysis(c) and tm._has_recording(c)
 
 
 def test_entitlements_enforced_when_billing_on(client):
+    """One paid plan unlocks everything the ROLE offers — for a psychotherapist
+    that is the co-pilot, the recap, recording and ICD codes together."""
     with app.app_context():
-        _clinician(plan="pro", status="active")
+        _clinician(plan="paid", status="active")
         c = db.session.get(Clinician, "clin-1")
         with patch.object(config, "BILLING_ENABLED", True):
-            assert tm._effective_plan(c) == "pro"
-            assert tm._has_ai_analysis(c)          # Pro ($10) has AI analysis
-            assert not tm._has_recording(c)        # but not recording
+            assert tm._effective_plan(c) == "paid"
+            assert tm._has_ai_analysis(c)
+            assert tm._has_recording(c)
+            assert tm._has_icd_codes(c)
+
+
+def test_free_plan_grants_nothing_paid(client):
+    with app.app_context():
+        _clinician(plan="free", status=None)
+        c = db.session.get(Clinician, "clin-1")
+        with patch.object(config, "BILLING_ENABLED", True):
+            assert tm._has_ai_analysis(c) is False
+            assert tm._has_recording(c) is False
+            assert tm._has_icd_codes(c) is False
 
 
 def test_canceled_paid_plan_is_free(client):
     with app.app_context():
-        _clinician(plan="premium", status="canceled")
+        _clinician(plan="paid", status="canceled")
         c = db.session.get(Clinician, "clin-1")
         with patch.object(config, "BILLING_ENABLED", True):
             assert tm._effective_plan(c) == "free"
+
+
+def test_a_retired_plan_value_grants_nothing(client):
+    """An account still carrying "premium" from the old tiers must not keep
+    access — that plan name no longer means anything."""
+    with app.app_context():
+        _clinician(plan="premium", status="active")
+        c = db.session.get(Clinician, "clin-1")
+        with patch.object(config, "BILLING_ENABLED", True):
+            assert tm._effective_plan(c) == "free"
+            assert tm._has_recording(c) is False
 
 
 def _seed_session(sid="s1", therapist="doc"):
@@ -307,9 +366,9 @@ def test_summary_locked_for_free_clinician(client):
     assert rv.get_json()["locked"] is True
 
 
-def test_summary_available_for_pro_clinician(client):
+def test_summary_available_for_a_paid_clinician(client):
     with app.app_context():
-        _clinician("doc", plan="pro", status="active")
+        _clinician("doc", plan="paid", status="active")
         _seed_session("s1", "doc")
     _login(client, "doc")
     with patch.object(config, "BILLING_ENABLED", True), \
@@ -336,9 +395,9 @@ def test_copilot_gates_ai_but_keeps_safety_for_free(client):
     sug.assert_not_called()
 
 
-def test_copilot_runs_ai_for_pro(client):
+def test_copilot_runs_ai_for_a_paid_clinician(client):
     with app.app_context():
-        _clinician("doc", plan="pro", status="active")
+        _clinician("doc", plan="paid", status="active")
         _seed_session("s1", "doc")
     with patch.object(config, "BILLING_ENABLED", True), \
          patch("copilot.build_risk_cards", return_value=[]), \

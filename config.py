@@ -185,8 +185,16 @@ PUBLIC_BASE_URL: str = os.environ.get("PUBLIC_BASE_URL", "https://tm.onlinegbc.c
 BILLING_ENABLED: bool       = os.environ.get("BILLING_ENABLED", "false").lower() in ("1", "true", "yes")
 STRIPE_SECRET_KEY: str      = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET: str  = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-# Stripe recurring Price IDs (created in the Stripe dashboard) for each paid tier.
-# Product names: "TogetherMindsAI Pro" ($10) and "TogetherMindsAI Premium" ($25).
+# Stripe Price IDs. Price now follows the ROLE, not a feature tier: one paid
+# plan per role, and paying unlocks everything that role offers.
+#   clinical  $16/mo  — psychotherapists and hypnotherapists/coaches
+#   caregiver $9.99/mo — recording, 40 hours a month
+#   top-up    $9.99 ONE TIME — another 40 recording hours
+STRIPE_PRICE_CLINICAL: str    = os.environ.get("STRIPE_PRICE_CLINICAL", "")
+STRIPE_PRICE_CAREGIVER: str   = os.environ.get("STRIPE_PRICE_CAREGIVER", "")
+STRIPE_PRICE_HOURS_TOPUP: str = os.environ.get("STRIPE_PRICE_HOURS_TOPUP", "")
+# Retired Pro/Premium tiers. Kept only so an old stored plan can still be
+# recognised and mapped to "free"; nothing new is ever sold at these prices.
 STRIPE_PRICE_PRO: str       = os.environ.get("STRIPE_PRICE_PRO", "")
 STRIPE_PRICE_PREMIUM: str   = os.environ.get("STRIPE_PRICE_PREMIUM", "")
 

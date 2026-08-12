@@ -1,4 +1,4 @@
-﻿"""
+"""
 tests/test_admin_access.py
 --------------------------
 Comp access (full access without paying) and the admin second-factor challenge
@@ -95,7 +95,7 @@ def test_comped_email_gets_premium_while_billing_is_on(client):
         with patch.object(config, "BILLING_ENABLED", True):
             assert tm._effective_plan(clin) == "free"    # before the grant
             admin_access.grant(db, CompAccess, "friend@example.com", "beta tester", ADMIN)
-            assert tm._effective_plan(clin) == "premium"
+            assert tm._effective_plan(clin) == "paid"
             assert tm._has_recording(clin) is True
             assert tm._has_ai_analysis(clin) is True
 
@@ -115,7 +115,7 @@ def test_revoked_comp_loses_access(client):
         clin = _seed_clinician("c3", "expired@example.com")
         row = admin_access.grant(db, CompAccess, "expired@example.com", "", ADMIN)
         with patch.object(config, "BILLING_ENABLED", True):
-            assert tm._effective_plan(clin) == "premium"
+            assert tm._effective_plan(clin) == "paid"
             assert admin_access.revoke(db, CompAccess, row.id) is True
             assert tm._effective_plan(clin) == "free"
         # The row survives for audit rather than being deleted.
@@ -136,7 +136,7 @@ def test_comp_can_be_granted_before_the_person_signs_up(client):
         admin_access.grant(db, CompAccess, "future@example.com", "pre-paid", ADMIN)
         clin = _seed_clinician("c5", "future@example.com")
         with patch.object(config, "BILLING_ENABLED", True):
-            assert tm._effective_plan(clin) == "premium"
+            assert tm._effective_plan(clin) == "paid"
 
 
 # ---------------------------------------------------------------------------

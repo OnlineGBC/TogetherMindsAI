@@ -54,7 +54,7 @@ def client():
         db.drop_all()
 
 
-def _clinician(uid="doc", role=roles.PSYCHOTHERAPIST, plan="premium", status="active"):
+def _clinician(uid="doc", role=roles.PSYCHOTHERAPIST, plan="paid", status="active"):
     db.session.add(Clinician(
         id=uid, provider="google", provider_subject=uid,
         email=f"{uid}@example.com", created_at=datetime.now(timezone.utc),

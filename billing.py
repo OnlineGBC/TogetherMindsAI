@@ -20,25 +20,34 @@ import config
 
 logger = logging.getLogger(__name__)
 
-PAID_PLANS = ("pro", "premium")
-ALL_PLANS = ("free", "pro", "premium")
+# There is now ONE paid plan. Which features it unlocks is decided by the
+# account's role, not by which tier they bought (see roles.py). "pro" and
+# "premium" are retired and only appear when reading an old stored value.
+PAID = "paid"
+FREE = "free"
+PAID_PLANS = (PAID,)
+ALL_PLANS = (FREE, PAID)
+RETIRED_PLANS = ("pro", "premium")
 
 
-def _price_for_plan(plan: str) -> str:
-    """Stripe Price ID for a paid plan, or "" if unknown/unconfigured."""
-    return {
-        "pro":     config.STRIPE_PRICE_PRO,        # $10 — AI analysis
-        "premium": config.STRIPE_PRICE_PREMIUM,    # $25 — + recording
-    }.get(plan, "")
+def price_for_role(role: str) -> str:
+    """Stripe Price ID that sells this role's paid plan, or "" if unconfigured."""
+    import roles
+    return getattr(config, roles.price_key(role), "") or ""
 
 
 def plan_for_price(price_id: str) -> str:
-    """Reverse map a Stripe Price ID back to our plan name, or "free"."""
-    if price_id and price_id == config.STRIPE_PRICE_PREMIUM:
-        return "premium"
-    if price_id and price_id == config.STRIPE_PRICE_PRO:
-        return "pro"
-    return "free"
+    """Reverse map a Stripe Price ID to a plan name.
+
+    Any price we currently sell means "paid". The retired Pro/Premium prices map
+    to free: those tiers no longer exist, so an old subscription must not keep
+    granting access under a plan name nothing recognises.
+    """
+    if not price_id:
+        return FREE
+    if price_id in (config.STRIPE_PRICE_CLINICAL, config.STRIPE_PRICE_CAREGIVER):
+        return PAID
+    return FREE
 
 
 def _init():
@@ -77,13 +86,18 @@ def ensure_customer(clinician) -> "str | None":
         return None
 
 
-def create_checkout_url(clinician, plan: str, success_url: str, cancel_url: str) -> "str | None":
-    """Create a Stripe Checkout (subscription) session for `plan` and return its
-    URL, or None on failure. The customer is reused so plan changes/cancels show
-    up under one account."""
-    if plan not in PAID_PLANS:
+def create_checkout_url(clinician, role: str, success_url: str, cancel_url: str) -> "str | None":
+    """Create a Stripe Checkout (subscription) session for this ROLE's paid plan
+    and return its URL, or None on failure.
+
+    The price follows the role rather than a chosen tier, so there is nothing for
+    the caller to pick — and nothing a crafted request can ask to be charged.
+    The customer is reused so changes and cancels show under one account.
+    """
+    import roles
+    if not roles.is_valid(role):
         return None
-    price = _price_for_plan(plan)
+    price = price_for_role(role)
     if not price:
         return None
     stripe = _init()
@@ -98,7 +112,7 @@ def create_checkout_url(clinician, plan: str, success_url: str, cancel_url: str)
             success_url=success_url,
             cancel_url=cancel_url,
             client_reference_id=clinician.id,
-            metadata={"clinician_id": clinician.id, "plan": plan},
+            metadata={"clinician_id": clinician.id, "plan": PAID, "role": role},
         )
         return sess.url
     except Exception as exc:

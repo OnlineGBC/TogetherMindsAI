@@ -781,17 +781,17 @@ def test_download_url_has_no_session_id(enc_client):
 # Entitlement gating (Step 4): recording requires the Pro plan once billing is on.
 # ---------------------------------------------------------------------------
 
-def _seed_clinician(cid, plan, status="active"):
+def _seed_clinician(cid, plan, status="active", role="psychotherapist"):
     db.session.add(Clinician(
-        id=cid, provider="google", provider_subject="s-" + cid,
+        id=cid, provider="google", provider_subject="s-" + cid, role=role,
         created_at=datetime.now(timezone.utc), plan=plan, subscription_status=status))
     db.session.commit()
 
 
-def test_recording_start_requires_premium_when_billing_on(enc_client):
+def test_recording_start_refused_on_the_free_plan(enc_client):
     with app.app_context():
         sid = _seed("doc")
-        _seed_clinician("doc", plan="pro")      # has AI analysis but not recording
+        _seed_clinician("doc", plan="free", status=None)
     with enc_client.session_transaction() as s:
         s["user_id"] = "doc"
     with patch.object(config, "RECORDING_ENABLED", True), \
@@ -802,10 +802,10 @@ def test_recording_start_requires_premium_when_billing_on(enc_client):
     start.assert_not_called()
 
 
-def test_recording_start_allowed_for_premium(enc_client):
+def test_recording_start_allowed_on_the_paid_plan(enc_client):
     with app.app_context():
         sid = _seed("doc")
-        _seed_clinician("doc", plan="premium")
+        _seed_clinician("doc", plan="paid")
     with enc_client.session_transaction() as s:
         s["user_id"] = "doc"
     with patch.object(config, "RECORDING_ENABLED", True), \

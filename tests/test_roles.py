@@ -174,7 +174,7 @@ def test_backfill_clears_the_old_billing_fields(client):
     """The old Free/Pro/Premium prices are gone, so a stored plan points at a
     price that no longer exists — including test-mode ids live Stripe cannot see."""
     with app.app_context():
-        _seed("paid", "paid@example.com", plan="premium", status="active",
+        _seed("paid", "paid@example.com", plan="paid", status="active",
               customer="cus_test_123")
         with patch.object(config, "ADMIN_EMAILS", [ADMIN]):
             tm._backfill_clinician_roles()

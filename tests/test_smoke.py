@@ -186,15 +186,18 @@ def test_privacy_and_terms_linked_on_every_page(client):
 
 def test_billing_page_is_public(client):
     """The pricing page must be viewable WITHOUT signing in (it's public pricing).
-    Anonymous visitors see the plans and prices; the 'Choose' buttons point them to
-    clinician sign-in rather than 403-ing on checkout."""
+    Anonymous visitors see a plan and its price, and are pointed at sign-in rather
+    than 403-ing on checkout."""
     rv = client.get("/billing")
     assert rv.status_code == 200, "GET /billing must not redirect to login"
     body = rv.data
-    assert b"$10" in body and b"$25" in body          # Pro + Premium prices
-    assert b"Choose Pro" in body and b"Choose Premium" in body
-    # Anonymous 'Choose' buttons lead to clinician sign-in, not the checkout POST.
-    assert b'href="/login?next=' in body
+    # Price follows the role now. A signed-out visitor sees the default view:
+    # the clinical price, and an invitation to sign in rather than a checkout.
+    assert b"$16" in body
+    assert b"$0" in body                       # the free tier is still shown
+    # The subscribe control leads to sign-in, not straight to a checkout POST.
+    assert b"Sign in to subscribe" in body
+    assert b"/billing/checkout" not in body
 
 
 def test_nda_route_removed_returns_404(client):
