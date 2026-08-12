@@ -163,6 +163,12 @@ class Clinician(db.Model):
     email            = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
     created_at       = db.Column(db.DateTime, nullable=False)
     last_login_at    = db.Column(db.DateTime, nullable=True)
+    # What kind of practitioner this is: psychotherapist | hypnotherapist | caregiver.
+    # Decides which features exist for them at all, before plan is even considered
+    # (see roles.py). NULL means "not chosen yet" — such an account behaves as a
+    # psychotherapist, which is how the app worked before roles existed, so a missing
+    # role can never quietly take something away. Only an admin may change it.
+    role             = db.Column(db.String(32), nullable=True)
     # Subscription billing (Phase 4 Step 4 — Stripe). plan is the entitlement tier:
     # "free" | "pro" ($10, AI analysis) | "premium" ($25, + recording). A NULL/absent
     # plan is treated as "free". subscription_status mirrors Stripe (active,

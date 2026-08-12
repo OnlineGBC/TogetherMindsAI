@@ -37,6 +37,7 @@ import clinical_summary
 import recording
 import billing
 import admin_access
+import roles
 import documents
 import feedback_email
 from audit import log_event
@@ -759,6 +760,40 @@ def _purge_expired_sessions():
         app.logger.error("Session purge job failed: %s", exc)
 
 
+def _backfill_clinician_roles() -> None:
+    """Give every existing account a role, once.
+
+    Admin addresses become psychotherapists; everyone else becomes a
+    hypnotherapist. Their billing fields are cleared at the same time, because the
+    old Free/Pro/Premium tiers are being replaced and any stored plan refers to a
+    price that no longer exists. Nobody is subscribed, so nothing of value is lost
+    — and it also clears test-mode Stripe ids that live Stripe cannot see.
+
+    Only touches rows where role IS NULL, so it runs once per account and is safe
+    on every later boot. Matching is done in Python, not SQL: Clinician.email is
+    encrypted with a non-deterministic cipher, so an equality query can never
+    match it. Never raises — a failed backfill must not stop the app booting.
+    """
+    try:
+        pending = Clinician.query.filter(Clinician.role.is_(None)).all()
+        if not pending:
+            return
+        admins = set(config.ADMIN_EMAILS or [])
+        for clin in pending:
+            email = (getattr(clin, "email", "") or "").strip().lower()
+            clin.role = (roles.PSYCHOTHERAPIST if email and email in admins
+                         else roles.HYPNOTHERAPIST)
+            clin.plan = "free"
+            clin.subscription_status = None
+            clin.stripe_customer_id = None
+            clin.current_period_end = None
+        db.session.commit()
+        app.logger.info("Backfilled role for %d clinician account(s).", len(pending))
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.error("clinician role backfill failed: %s", type(exc).__name__)
+
+
 if not config.IS_TESTING:
     config.secure_env_file()
     config.validate_config()
@@ -852,6 +887,16 @@ if not config.IS_TESTING:
                 db.session.commit()
             except Exception:
                 db.session.rollback()  # column already exists
+
+    # Practitioner role (roles.py). Idempotent.
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text("ALTER TABLE clinicians ADD COLUMN role VARCHAR(32)"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
+        _backfill_clinician_roles()
 
     # Add the recording 24h-before-deletion reminder timestamp (Phase 4 Step 3).
     with app.app_context():
