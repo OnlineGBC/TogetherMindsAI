@@ -124,8 +124,21 @@ Plain text only — no markdown, no headings, no JSON, no sign-off. Just your an
 """
 
 
-def answer_therapist(question: str, transcript: str = "", notes: str = "", mode: str = "solo") -> str:
+NO_ICD_RULE = (
+    "\n\nThis practitioner does NOT do clinical coding. Never offer ICD or DSM codes, "
+    "diagnostic labels, or billing codes, even if asked directly. If they ask for them, "
+    "say plainly that coding is not part of their plan and answer the rest of their "
+    "question.\n"
+)
+
+
+def answer_therapist(question: str, transcript: str = "", notes: str = "", mode: str = "solo",
+                     allow_icd: bool = True) -> str:
     """Return a short, private co-pilot answer to the therapist's note/question.
+
+    `allow_icd` is False for roles that do not do clinical coding (coaches). The
+    base prompt invites ICD suggestions when asked, so it has to be told not to —
+    otherwise a coach could simply ask for codes and get them.
 
     Never raises — any API failure yields "" so the live session is undisturbed.
     """
@@ -135,6 +148,8 @@ def answer_therapist(question: str, transcript: str = "", notes: str = "", mode:
     system_prompt = ADVISOR_REPLY_SYSTEM_PROMPT.format(
         framing=_MODE_FRAMING.get(mode, _MODE_FRAMING["solo"]),
     )
+    if not allow_icd:
+        system_prompt += NO_ICD_RULE
     user_content = f"Therapist's question or note:\n{question.strip()}"
     if transcript and transcript.strip():
         user_content += f"\n\nRecent session transcript (for context):\n{transcript}"

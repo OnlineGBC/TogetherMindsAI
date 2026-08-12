@@ -40,6 +40,12 @@
 
                 <form method="post" action="{{ url_for('session_consent_post', session_id=session_id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                    {# The location question exists so a licensed clinician can confirm
+                       they may lawfully see a client in that place. A coach or a
+                       caregiver holds no such licence, so the whole block is dropped —
+                       these fields are `required`, and leaving them on screen while the
+                       server ignored them would trap the client on this page. #}
+                    {% if licence_required %}
                     <hr class="my-3">
                     <div class="mb-3">
                         <label for="stateSelect" class="form-label fw-semibold mb-1">
@@ -83,6 +89,7 @@
                             provide services to clients in that location.
                         </label>
                     </div>
+                    {% endif %}
                     <div class="d-grid">
                         <button type="submit" class="btn btn-primary-green btn-lg rounded-pill">
                             <i class="bi bi-check-circle me-1"></i>I understand and agree
@@ -101,6 +108,8 @@
 {% endblock %}
 
 {% block scripts %}
+{# Only emitted alongside the location fields it drives. #}
+{% if licence_required %}
 <script nonce="{{ csp_nonce }}">
 (function () {
     var state = document.getElementById("stateSelect");
@@ -118,4 +127,5 @@
     sync();
 })();
 </script>
+{% endif %}
 {% endblock %}

@@ -453,8 +453,13 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
             cards.extend(copilot.build_risk_cards(trigger_text))
         # The AI advisory (reference + LLM suggestions) is the paid "AI analysis"
         # tier — Pro or Premium. Free clinicians still get the safety alerts above.
-        if _has_ai_analysis(_session_clinician(session_id)):
-            cards.extend(copilot.build_reference_cards(transcript))
+        clinician = _session_clinician(session_id)
+        if _has_ai_analysis(clinician):
+            # Reference cards ARE the ICD codes — that is what they cite. So they
+            # follow the ICD gate, not the AI one: a paying coach gets suggestions
+            # but never a code.
+            if _has_icd_codes(clinician):
+                cards.extend(copilot.build_reference_cards(transcript))
             cards.extend(copilot.generate_suggestions(transcript, mode=mode, therapist_notes=notes))
 
         recent = session_recent_cards.setdefault(session_id, [])
@@ -501,7 +506,8 @@ def _answer_therapist_note(session_id: str, user_id: str, question: str) -> None
         transcript = _build_transcript(session_id)
         notes = "\n".join(session_therapist_notes.get(session_id, []))
         answer = copilot.answer_therapist(
-            question, transcript, notes, mode=room_mode.get(session_id, "solo"))
+            question, transcript, notes, mode=room_mode.get(session_id, "solo"),
+            allow_icd=_has_icd_codes(_session_clinician(session_id)))
         # Deterministic stand-down: once the therapist has acknowledged a flagged
         # safety concern, strip any sentence that re-raises crisis language from
         # the reply, so the co-pilot cannot keep bringing it up.
@@ -1317,12 +1323,37 @@ def _effective_plan(clinician):
     return clinician.plan or "free"
 
 
+def _role_offers(clinician, capability) -> bool:
+    """Whether this account's ROLE includes the capability at all, ignoring plan.
+
+    Role and plan are separate switches and both must say yes. Plan answers "have
+    they paid"; role answers "is this feature part of their product". A coach who
+    pays still gets no ICD codes, because coding is clinical work.
+    """
+    return roles.allows(roles.role_of(clinician), capability, paid=True)
+
+
 def _has_ai_analysis(clinician):
-    return _effective_plan(clinician) in ("pro", "premium")
+    return (_effective_plan(clinician) in ("pro", "premium")
+            and _role_offers(clinician, roles.AI))
 
 
 def _has_recording(clinician):
-    return _effective_plan(clinician) == "premium"
+    return (_effective_plan(clinician) == "premium"
+            and _role_offers(clinician, roles.RECORDING))
+
+
+def _has_icd_codes(clinician):
+    """ICD reference cards and billing-code support. Sits on top of AI analysis:
+    it is the same paid tier, narrowed to the one role that does clinical coding."""
+    return _has_ai_analysis(clinician) and _role_offers(clinician, roles.ICD)
+
+
+def _licence_gate_applies(session_id: str) -> bool:
+    """Whether this session's clinician must certify they may practise in the
+    client's state. Clinical work only — a coach or a caregiver holds no such
+    licence, so asking would be meaningless and the gate would never clear."""
+    return roles.needs_licence_check(roles.role_of(_session_clinician(session_id)))
 
 
 def _session_clinician(session_id):
@@ -1536,7 +1567,7 @@ def _render_session_room(session_id, mode):
     # they're authorised to see clients in the client's attested state. Enforced
     # here too (not just at consent) so a direct room URL can't bypass it. Only
     # applies to therapist-led sessions (no clinician → no licensure to verify).
-    if not is_therapist and ts and ts.therapist_id \
+    if not is_therapist and ts and ts.therapist_id and _licence_gate_applies(session_id) \
             and _state_decision(session_id, _client_declared_state(session_id)) != "certified":
         return redirect(url_for("session_state_gate", session_id=session_id))
 
@@ -1728,8 +1759,11 @@ def _may_enter_room(session_id: str, user_id: str) -> bool:
     # A client must have cleared the consent gate this browser-session…
     if session_id not in (session.get("consented_sessions") or []):
         return False
-    # …and, for a clinician-led session, be licensure-certified for their state.
-    if ts.therapist_id and _state_decision(session_id, _client_declared_state(session_id)) != "certified":
+    # …and, for a clinician-led session whose practitioner holds a licence, be
+    # licensure-certified for their state. Coaches and caregivers hold no such
+    # licence, so the gate does not apply and would never clear.
+    if ts.therapist_id and _licence_gate_applies(session_id) \
+            and _state_decision(session_id, _client_declared_state(session_id)) != "certified":
         return False
     return True
 
@@ -1821,7 +1855,11 @@ def session_consent_get(session_id):
     states = sorted(US_STATES.items(), key=lambda kv: kv[1])
     countries = sorted(COUNTRIES.items(), key=lambda kv: kv[1])
     return render_template("consent_gate.html", session_id=session_id, mode=ts.mode,
-                           states=states, countries=countries)
+                           states=states, countries=countries,
+                           # Hide the location question for practitioners who hold no
+                           # state licence. The fields are `required`, so leaving them
+                           # on screen while ignoring them would trap the client.
+                           licence_required=_licence_gate_applies(session_id))
 
 
 @app.route("/session/<session_id>/consent", methods=["POST"])
@@ -1841,6 +1879,18 @@ def session_consent_post(session_id):
         return redirect(url_for("auth_get", therapy_mode=ts.mode))
     is_therapist = bool(ts.therapist_id and ts.therapist_id == user_id)
     if is_therapist:
+        return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
+
+    # Location is only asked for when the practitioner holds a licence tied to
+    # where the client is. A coach or caregiver has none, so the question is not
+    # shown and consent alone admits them.
+    licence_applies = _licence_gate_applies(session_id)
+    if not licence_applies:
+        _record_consent(session_id, user_id)
+        consented = session.get("consented_sessions", [])
+        if session_id not in consented:
+            consented.append(session_id)
+            session["consented_sessions"] = consented
         return redirect(url_for(f"therapy_{ts.mode}", session_id=session_id))
 
     # Resolve the client's location: a U.S. state, or (if they picked "outside
@@ -2685,8 +2735,15 @@ def _surfaced_codes(session_id: str) -> list:
 
     Read from the persisted reference cards (grounded — the codes came from the
     curated corpus, never the model), deduped by code, in first-seen order.
+
+    Empty for any role that does not do clinical coding. Reference cards should
+    never have been created for them, but a role can change, so this is checked
+    at read time as well — otherwise codes banked under an old role would keep
+    appearing in documents.
     """
     import json as _json
+    if not _has_icd_codes(_session_clinician(session_id)):
+        return []
     rows = (
         CopilotCard.query
         .filter_by(session_id=session_id, card_type="reference")
@@ -2719,6 +2776,7 @@ def _session_copilot_cards(session_id: str) -> list:
             .filter_by(session_id=session_id)
             .order_by(CopilotCard.created_at.asc(), CopilotCard.id.asc())
             .all())
+    show_codes = _has_icd_codes(_session_clinician(session_id))
     out = []
     for r in rows:
         code = ""
@@ -2726,6 +2784,10 @@ def _session_copilot_cards(session_id: str) -> list:
             code = (_json.loads(r.payload) or {}).get("code", "")
         except Exception:
             pass
+        if not show_codes:
+            if (r.card_type or "") == "reference":
+                continue          # a reference card IS a code — drop it entirely
+            code = ""
         out.append({"type": r.card_type or "observation", "text": r.text or "", "code": code})
     return out
 
