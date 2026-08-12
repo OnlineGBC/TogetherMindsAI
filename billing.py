@@ -120,6 +120,39 @@ def create_checkout_url(clinician, role: str, success_url: str, cancel_url: str)
         return None
 
 
+TOPUP_KIND = "hours_topup"
+
+
+def create_topup_checkout_url(clinician, success_url: str, cancel_url: str) -> "str | None":
+    """Create a ONE-TIME Stripe Checkout for another 40 recording hours.
+
+    mode="payment", not "subscription": buying extra hours must not sign anyone
+    up to a repeating charge. The metadata marks it so the webhook credits hours
+    instead of granting a plan.
+    """
+    price = config.STRIPE_PRICE_HOURS_TOPUP
+    if not price:
+        return None
+    stripe = _init()
+    if stripe is None:
+        return None
+    customer_id = ensure_customer(clinician)
+    try:
+        sess = stripe.checkout.Session.create(
+            mode="payment",
+            customer=customer_id,
+            line_items=[{"price": price, "quantity": 1}],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            client_reference_id=clinician.id,
+            metadata={"clinician_id": clinician.id, "kind": TOPUP_KIND},
+        )
+        return sess.url
+    except Exception as exc:
+        logger.warning("create_topup_checkout_url failed: %s", exc)
+        return None
+
+
 def create_portal_url(customer_id: str, return_url: str) -> "str | None":
     """Create a Stripe billing-portal session (manage/cancel/update card)."""
     if not customer_id:

@@ -49,6 +49,37 @@
       </div>
     {% endif %}
 
+    {% if request.args.get('hours') %}
+      <div class="alert alert-success rounded-4">
+        <i class="bi bi-check-circle-fill me-1"></i>Thanks — 40 more recording hours are being added.
+        This can take a few seconds; refresh if the balance below does not update.
+      </div>
+    {% endif %}
+
+    {# Recording time. Only shown for a metered role (caregivers) on a paid plan —
+       nobody else has an hour limit, so nobody else has hours to buy. #}
+    {% if hours_left %}
+      <div class="card rounded-4 border-0 shadow-sm mb-3">
+        <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+          <div>
+            <div class="fw-bold"><i class="bi bi-record-circle me-1"></i>Recording time</div>
+            <div class="text-muted small">You have {{ hours_left }} this month.</div>
+          </div>
+          <form method="POST" action="{{ url_for('billing_topup') }}" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button type="submit" class="btn btn-outline-secondary rounded-pill">
+              Add 40 hours — $9.99
+            </button>
+          </form>
+        </div>
+        <div class="card-body pt-0">
+          <p class="text-muted small mb-0">
+            A single charge, not a subscription. Added hours last until the end of next month.
+          </p>
+        </div>
+      </div>
+    {% endif %}
+
     {% if comped %}
       {# Full access without a subscription. Saying "Free" here (the old behaviour)
          told them they had nothing while they in fact had everything, and offered

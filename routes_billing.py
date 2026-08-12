@@ -51,6 +51,19 @@ def _apply_checkout_completed(obj):
     clin = _clinician_for_event_object(obj)
     if clin is None:
         return
+    # A top-up is a ONE-OFF purchase of recording hours. It must not be mistaken
+    # for a subscription — otherwise buying extra hours would quietly put someone
+    # on a monthly plan they never asked for.
+    if (obj.get("metadata") or {}).get("kind") == billing.TOPUP_KIND:
+        import hours
+        # Keyed on the payment so a webhook delivered twice cannot credit twice.
+        ref = obj.get("payment_intent") or obj.get("id")
+        granted = hours.grant_topup(_tm.db, _tm.HoursGrant, clin.id, stripe_ref=ref)
+        _tm.log_event("recording_hours_purchased", user_id=clin.id,
+                      minutes=(granted.minutes if granted else 0),
+                      duplicate=granted is None)
+        return
+
     # One paid plan now; what it unlocks is decided by the account's role.
     clin.plan = billing.PAID
     clin.subscription_status = "active"
@@ -100,6 +113,12 @@ def register_billing_routes(app):
         # they in fact had everything — and offered to sell it to them again.
         paid = bool(clin) and _tm._is_paid(clin)
         comped = paid and (clin.plan or "") != billing.PAID
+        # Recording time, for the roles that are metered. None means "not metered",
+        # which is what the template keys on to hide the whole block.
+        hours_left = None
+        if clin is not None and _tm._hours_metered(clin) and paid:
+            import hours as _hours
+            hours_left = _hours.describe(_tm._recording_minutes_left(clin))
         return render_template(
             "billing.html",
             billing_enabled=config.BILLING_ENABLED,
@@ -111,6 +130,7 @@ def register_billing_routes(app):
             paid_features=roles.paid_features(role),
             is_paid=paid,
             comped=comped,
+            hours_left=hours_left,
             subscription_status=(clin.subscription_status if clin else None),
             has_customer=bool(clin and clin.stripe_customer_id),
             renews_on=(clin.current_period_end.strftime("%d %b %Y")
@@ -140,6 +160,29 @@ def register_billing_routes(app):
             flash("Could not start checkout. Please try again.", "warning")
             return redirect(url_for("billing_page"))
         _tm.log_event("billing_checkout_started", user_id=cid, role=role)
+        return redirect(url, code=303)
+
+    @app.route("/billing/topup", methods=["POST"])
+    def billing_topup():
+        """Buy another 40 recording hours — a single charge, not a subscription.
+
+        Caregivers only: nobody else is metered, so nobody else has hours to buy.
+        """
+        import roles
+        cid = _tm._current_clinician_id()
+        if not cid:
+            abort(403)
+        clin = _tm.db.session.get(_tm.Clinician, cid)
+        if not config.BILLING_ENABLED or roles.role_of(clin) != roles.CAREGIVER:
+            abort(404)
+        base = url_for("billing_page", _external=True, _scheme="https")
+        url = billing.create_topup_checkout_url(
+            clin, base + "?hours=1", base + "?canceled=1")
+        _tm.db.session.commit()          # persist any newly-created customer id
+        if not url:
+            flash("Could not start checkout. Please try again.", "warning")
+            return redirect(url_for("billing_page"))
+        _tm.log_event("hours_topup_started", user_id=cid)
         return redirect(url, code=303)
 
     @app.route("/billing/portal", methods=["POST"])
