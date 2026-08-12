@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, init_encryption, friendly_name_key
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, HoursGrant, init_encryption, friendly_name_key
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis
 import copilot
@@ -38,6 +38,7 @@ import recording
 import billing
 import admin_access
 import roles
+import hours
 import documents
 import feedback_email
 from audit import log_event
@@ -1410,6 +1411,34 @@ def _has_recording(clinician):
 def _has_icd_codes(clinician):
     """ICD reference cards and billing-code support — paid psychotherapists only."""
     return _capability(clinician, roles.ICD)
+
+
+def _hours_metered(clinician) -> bool:
+    """Whether this account's recording time is counted against an allowance.
+
+    Caregivers buy hours (40 a month, plus top-ups). The clinical roles buy a
+    flat plan with no hour limit, so nothing is metered for them.
+    """
+    return roles.role_of(clinician) == roles.CAREGIVER
+
+
+def _recording_minutes_left(clinician) -> int:
+    """Recording time left for a metered account. Never raises — a counting
+    problem must not block a session, so it reports the full allowance."""
+    if clinician is None or not _hours_metered(clinician):
+        return hours.MONTHLY_MINUTES
+    try:
+        hours.ensure_monthly_grant(db, HoursGrant, clinician.id)
+        return hours.remaining_minutes(HoursGrant, clinician.id)
+    except Exception:
+        app.logger.warning("hours lookup failed for %s", getattr(clinician, "id", "?"))
+        return hours.MONTHLY_MINUTES
+
+
+def _has_recording_time(clinician) -> bool:
+    """Whether they may START a recording right now. Separate from _has_recording:
+    one asks "is this in their plan", this asks "have they any time left"."""
+    return not _hours_metered(clinician) or _recording_minutes_left(clinician) > 0
 
 
 def _licence_gate_applies(session_id: str) -> bool:
@@ -3019,8 +3048,13 @@ def recording_start(session_id):
         return jsonify({"error": "recording_disabled"}), 403
     if _is_session_therapist(session_id) is None:
         return jsonify({"error": "Forbidden"}), 403
-    if not _has_recording(_session_clinician(session_id)):
+    _clin = _session_clinician(session_id)
+    if not _has_recording(_clin):
         return jsonify({"error": "recording_requires_premium"}), 402
+    if not _has_recording_time(_clin):
+        return jsonify({"error": "no_recording_time",
+                        "message": "You have used all your recording hours. "
+                                   "Add 40 more for $9.99."}), 402
     # NOTE: all-party consent gating is added in Phase 4 Step 2.
     now = datetime.now(timezone.utc)
     filepath = f"{session_id}/{now.strftime('%Y%m%dT%H%M%SZ')}.mp4"
@@ -3059,6 +3093,7 @@ def recording_stop(session_id):
         row.stopped_at = datetime.now(timezone.utc)
         db.session.commit()
         _finalize_stopped_recording(row)   # stamp 30-day retention + email the link
+        _charge_recording_hours(row)       # metered roles only
         log_event("recording_stopped", session_id=session_id, user_id=session.get("user_id"))
     return jsonify({"stopped": ok}), 200
 
@@ -3317,6 +3352,99 @@ def _dispatch_recording_ready(rec_id: int) -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
+def _charge_recording_hours(row) -> None:
+    """Deduct a finished recording's length from a metered account's balance.
+
+    Charged on STOP, not on start: the length is only known once it ends. That
+    means someone can finish slightly past zero — a recording already running is
+    never cut off mid-session. The overspend leaves the balance at zero and the
+    NEXT start is refused.
+
+    Emits the warning thresholds as they are crossed. Never raises: a counting
+    problem must not disturb a session that has already ended.
+    """
+    try:
+        clin = db.session.get(Clinician, row.started_by) if row.started_by else None
+        if clin is None or not _hours_metered(clin):
+            return
+        started, stopped = row.started_at, row.stopped_at
+        if not (started and stopped):
+            return
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if stopped.tzinfo is None:
+            stopped = stopped.replace(tzinfo=timezone.utc)
+        minutes = max(0, int((stopped - started).total_seconds() // 60))
+        if minutes <= 0:
+            return
+
+        hours.ensure_monthly_grant(db, HoursGrant, clin.id)
+        before = hours.remaining_minutes(HoursGrant, clin.id)
+        unpaid = hours.consume(db, HoursGrant, clin.id, minutes)
+        after = hours.remaining_minutes(HoursGrant, clin.id)
+
+        log_event("recording_hours_charged", session_id=row.session_id,
+                  user_id=clin.id, minutes=minutes, remaining=after,
+                  over=unpaid)
+
+        threshold = hours.crossed_warning(before, after)
+        if threshold is not None or after <= 0:
+            _warn_recording_hours(clin, after, threshold)
+    except Exception:
+        db.session.rollback()
+        app.logger.warning("recording hours charge failed (id=%s)",
+                           getattr(row, "id", "?"))
+
+
+def _warn_recording_hours(clinician, minutes_left: int, threshold) -> None:
+    """Tell a caregiver their recording time is running out.
+
+    Emailed as well as shown on screen, because the person watching a baby
+    overnight is asleep — an on-screen banner alone would be found hours late.
+    Only the first warning and the run-out are emailed; the 1-hour and 10-minute
+    steps are on screen only, so a long night does not fill their inbox.
+    """
+    try:
+        left = hours.describe(minutes_left)
+        socketio.emit("recording_hours", {"minutes_left": minutes_left,
+                                          "text": left},
+                      to=_therapist_room_for_clinician(clinician.id))
+        email = getattr(clinician, "email", None)
+        if not email:
+            return
+        first_warning = threshold == hours.WARN_AT_MINUTES[0]
+        if not (first_warning or minutes_left <= 0):
+            return
+        if minutes_left <= 0:
+            subject = "TogetherMindsAI — your recording time has run out"
+            lead = ("Recording has stopped because you have used all your hours. "
+                    "Add 40 more hours for $9.99 to start recording again.")
+        else:
+            subject = f"TogetherMindsAI — {left} of recording time"
+            lead = (f"You have {left} of recording time this month. "
+                    "You can add 40 more hours for $9.99 at any time.")
+        url = f"{config.PUBLIC_BASE_URL}/billing"
+        plain = f"{lead}\n\nManage your plan: {url}\n\n{_sent_at_line()}\n"
+        html = ('<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;">'
+                f'<p style="font-size:15px;">{lead}</p>'
+                f'<p><a href="{url}" style="background:#2e7d32;color:#fff;'
+                'text-decoration:none;padding:10px 18px;border-radius:8px;'
+                'display:inline-block;">Add recording hours</a></p>'
+                f'<p style="color:#888;font-size:12px;">{_sent_at_line()}</p></div>')
+        _send_email([email], subject, plain, html)
+    except Exception:
+        app.logger.warning("recording hours warning failed")
+
+
+def _therapist_room_for_clinician(clinician_id: str) -> str:
+    """The private room for whichever session this practitioner is running. Falls
+    back to their own id so an emit never goes to a public room by accident."""
+    for sid, tid in list(session_therapist_id.items()):
+        if tid == clinician_id:
+            return _therapist_room(sid)
+    return f"user:{clinician_id}"
+
+
 def _finalize_stopped_recording(row) -> None:
     """Stamp the 30-day retention deadline across the WHOLE session, counted from
     this stop — the latest one.
@@ -3378,6 +3506,7 @@ def _recording_rollover_sweep() -> None:
                 row.stopped_at = now
                 db.session.commit()
                 _finalize_stopped_recording(row)     # stamp retention; no email per segment
+                _charge_recording_hours(row)         # metered roles only
                 session_recording_active[row.session_id] = None
                 log_event("recording_rolled_over", session_id=row.session_id,
                           user_id=row.started_by, recording_id=row.id,
@@ -4311,6 +4440,7 @@ def _evaluate_recording(session_id: str) -> None:
                 row.stopped_at = datetime.now(timezone.utc)
                 db.session.commit()
                 _finalize_stopped_recording(row)   # stamp retention + email the link
+                _charge_recording_hours(row)       # metered roles only
             session_recording_active[session_id] = None
             log_event("recording_stopped", session_id=session_id,
                       user_id=session_therapist_id.get(session_id),

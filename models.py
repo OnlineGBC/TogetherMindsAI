@@ -434,6 +434,40 @@ class SessionRecording(db.Model):
         return f"<SessionRecording id={self.id} session={self.session_id} status={self.status}>"
 
 
+class HoursGrant(db.Model):
+    """A block of recording time given to a caregiver account.
+
+    Two kinds, with different lifetimes:
+      * "monthly" — the 40 hours included in the plan. Resets each month and does
+        NOT carry over.
+      * "topup"   — a $9.99 purchase of 40 more hours. Carries over to the end of
+        the FOLLOWING month, then expires.
+
+    A ledger rather than a running total on the account, because hours arrive with
+    different expiry dates. Consumption records against the individual grant it
+    came out of, so a carried-over block cannot be silently counted twice.
+
+    Minutes, not hours: recordings are not whole hours, and integers avoid the
+    rounding drift that would come from storing fractions.
+    """
+    __tablename__ = "hours_grants"
+
+    id            = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    clinician_id  = db.Column(db.String(36), index=True, nullable=False)
+    kind          = db.Column(db.String(10), nullable=False)      # monthly | topup
+    minutes       = db.Column(db.Integer, nullable=False)         # granted
+    used_minutes  = db.Column(db.Integer, nullable=False, default=0)
+    granted_at    = db.Column(db.DateTime, nullable=False)
+    expires_at    = db.Column(db.DateTime, nullable=False)
+    # Stripe payment for a top-up, so a purchase cannot be credited twice if the
+    # webhook is delivered more than once.
+    stripe_ref    = db.Column(db.String(64), unique=True, nullable=True)
+
+    def __repr__(self):
+        return (f"<HoursGrant {self.id} {self.kind} "
+                f"{self.used_minutes}/{self.minutes}m>")
+
+
 class CompAccess(db.Model):
     """An email granted full (premium) access without paying.
 
