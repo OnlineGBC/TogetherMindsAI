@@ -169,6 +169,41 @@ def _idle_logout():
     session["_last_seen"] = now
 
 
+# Paths a clinician may still reach before they have chosen a role. Anything that
+# would strand them (signing out, the chooser itself) or that carries no product
+# behaviour (legal text, static files, health checks).
+_ROLE_CHOICE_EXEMPT = {
+    "choose_role", "choose_role_post", "logout", "static",
+    "privacy", "tos", "feedback_page", "api_feedback",
+    "service_worker", "assetlinks", "login", "oauth_login", "oauth_callback",
+    "client_login", "client_oauth_login", "client_oauth_callback",
+}
+
+
+@app.before_request
+def _require_role_choice():
+    """Make a signed-in clinician pick a role before using the app.
+
+    Only bites when role IS NULL, which after the one-time backfill means new
+    accounts only. Clients are never asked — a role describes the practitioner,
+    not the person they are seeing.
+
+    Deliberately a redirect rather than a blocked page: the account is usable the
+    moment they choose, and there is nothing to lose by asking again later.
+    """
+    if request.endpoint in _ROLE_CHOICE_EXEMPT or request.endpoint is None:
+        return
+    cid = session.get("clinician_id")
+    if not cid:
+        return
+    clin = db.session.get(Clinician, cid)
+    if clin is None or roles.is_valid(getattr(clin, "role", None)):
+        return
+    if request.path.startswith("/api/") or request.path.startswith("/rtc/"):
+        return jsonify({"error": "role_required"}), 403
+    return redirect(url_for("choose_role", next=request.path))
+
+
 @app.after_request
 def _security_headers(resp):
     """Baseline security headers on every response (defense in depth).
@@ -1462,6 +1497,41 @@ def therapist_start_session(mode):
     log_event("session_created", session_id=new_sid, user_id=clinician_id,
               mode=mode, therapist_led=True)
     return redirect(url_for(f"therapy_{mode}", session_id=new_sid))
+
+
+@app.route("/choose-role", methods=["GET"])
+def choose_role():
+    """One-time role picker for a clinician who has not chosen yet."""
+    cid = session.get("clinician_id")
+    if not cid:
+        return redirect(url_for("login"))
+    clin = db.session.get(Clinician, cid)
+    if clin is not None and roles.is_valid(getattr(clin, "role", None)):
+        return redirect(url_for("therapist_start"))     # already chosen
+    return render_template("choose_role.html", choices=roles.choices(),
+                           next=_safe_next(request.args.get("next")))
+
+
+@app.route("/choose-role", methods=["POST"])
+def choose_role_post():
+    """Save the chosen role. Set once here; changing it later is an admin action,
+    because it moves what the app may claim and store about their work."""
+    cid = session.get("clinician_id")
+    if not cid:
+        return redirect(url_for("login"))
+    clin = db.session.get(Clinician, cid)
+    if clin is None:
+        return redirect(url_for("login"))
+    if roles.is_valid(getattr(clin, "role", None)):
+        return redirect(url_for("therapist_start"))     # already set — never overwrite
+    chosen = (request.form.get("role") or "").strip()
+    if not roles.is_valid(chosen):
+        flash("Please choose how you will use TogetherMindsAI.", "warning")
+        return redirect(url_for("choose_role", next=request.form.get("next")))
+    clin.role = chosen
+    db.session.commit()
+    log_event("role_chosen", user_id=cid, role=chosen)
+    return redirect(_safe_next(request.form.get("next")) or url_for("therapist_start"))
 
 
 @app.route("/privacy")

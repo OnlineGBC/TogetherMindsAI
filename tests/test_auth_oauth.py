@@ -430,8 +430,11 @@ def test_my_sessions_lists_silent_attendee_session(client):
 def test_navbar_account_menu_shows_login_id_and_provider(client):
     """A signed-in clinician sees their email + sign-in provider in the account
     menu, and Sign out lives there now."""
+    # role is required: a clinician without one is redirected to the role picker
+    # before any page renders, so the navbar would never be reached.
     db.session.add(Clinician(id="doc-nav", provider="google", provider_subject="g-nav",
-                             email="easton@example.com", created_at=datetime.now(timezone.utc)))
+                             email="easton@example.com", role="psychotherapist",
+                             created_at=datetime.now(timezone.utc)))
     db.session.commit()
     with client.session_transaction() as s:
         s["clinician_id"] = "doc-nav"; s["user_id"] = "doc-nav"

@@ -48,10 +48,14 @@ def client():
         db.drop_all()
 
 
-def _clinician(cid="clin-1", plan=None, status=None, customer=None):
+def _clinician(cid="clin-1", plan=None, status=None, customer=None,
+               role="psychotherapist"):
+    # A role is required now: a clinician without one is redirected to the role
+    # picker before any page loads. Real accounts always have one (set at sign-up,
+    # or by the one-time backfill), so these fixtures match production.
     db.session.add(Clinician(
         id=cid, provider="google", provider_subject="sub-" + cid,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(timezone.utc), role=role,
         plan=plan, subscription_status=status, stripe_customer_id=customer))
     db.session.commit()
 

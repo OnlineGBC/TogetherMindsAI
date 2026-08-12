@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}How will you use TogetherMindsAI?{% endblock %}
+
+{% block content %}
+<style>
+  .role-card {
+    border: 1.5px solid rgba(255, 255, 255, .14);
+    border-radius: 1rem;
+    cursor: pointer;
+    transition: border-color .15s ease, background-color .15s ease;
+  }
+  .role-card:hover { border-color: var(--teal-primary); }
+  .role-card input { margin-top: .2rem; }
+  .role-card.selected {
+    border-color: var(--teal-primary);
+    background: rgba(0, 150, 136, .08);
+  }
+  .role-name { font-weight: 700; font-size: 1.05rem; }
+  .role-blurb { color: var(--text-muted); font-size: .9rem; }
+</style>
+
+<div class="row justify-content-center">
+  <div class="col-12 col-md-9 col-lg-7">
+
+    <div class="text-center mb-4">
+      <h3 class="fw-bold mb-2">How will you use TogetherMindsAI?</h3>
+      <p class="text-muted mb-0">
+        This sets which features you see. Pick the one that fits your work.
+        Only an administrator can change it later, so choose carefully.
+      </p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert rounded-4 {{ 'alert-warning' if category == 'warning' else 'alert-info' }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="post" action="{{ url_for('choose_role_post') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="next" value="{{ next or '' }}">
+
+      {% for value, label, blurb in choices %}
+      <label class="role-card d-flex gap-3 p-3 mb-3">
+        <input class="form-check-input flex-shrink-0" type="radio" name="role" value="{{ value }}" required>
+        <span>
+          <span class="role-name d-block">{{ label }}</span>
+          <span class="role-blurb">{{ blurb }}</span>
+        </span>
+      </label>
+      {% endfor %}
+
+      <div class="d-grid mt-4">
+        <button class="btn btn-primary btn-lg rounded-pill" type="submit">Continue</button>
+      </div>
+    </form>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+    var cards = document.querySelectorAll(".role-card");
+    if (!cards.length) return;
+    function sync() {
+        cards.forEach(function (card) {
+            var input = card.querySelector("input[type=radio]");
+            card.classList.toggle("selected", !!(input && input.checked));
+        });
+    }
+    cards.forEach(function (card) { card.addEventListener("change", sync); });
+    sync();
+})();
+</script>
+{% endblock %}
