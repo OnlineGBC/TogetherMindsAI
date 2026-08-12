@@ -1682,6 +1682,13 @@ def _render_session_room(session_id, mode):
         is_therapist_led=bool(ts and ts.therapist_id),
         rtc_enabled=config.RTC_ENABLED,
         recording_enabled=config.RECORDING_ENABLED,
+        # Caregiver mode is a monitor, not a conversation: live video and a record
+        # button, nothing else. Driven off the ROLE's capabilities rather than a
+        # role name, so the room follows the same table as every other gate.
+        has_chat=roles.allows(roles.role_of(_session_clinician(session_id)),
+                              roles.CHAT, paid=True),
+        has_transcript=roles.allows(roles.role_of(_session_clinician(session_id)),
+                                    roles.TRANSCRIPT, paid=True),
         in_live_session=True,   # navbar/footer: open other links in a new tab (C),
                                 # and Home/Sign out get a leave-confirm modal (A)
     )

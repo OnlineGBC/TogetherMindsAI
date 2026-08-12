@@ -196,7 +196,8 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         }
 
         var chatBox = document.getElementById("chatBox");
-        if (messages.length > 0) {
+        // No chat pane in caregiver sessions — nothing to replay into.
+        if (chatBox && messages.length > 0) {
             chatBox.innerHTML = "";
             messages.forEach(function (msg) {
                 appendMessage(chatBox, msg.user_id, msg.text, msg.timestamp,
@@ -229,6 +230,7 @@ function joinRoom(sessionId, userId, mode, soloMode) {
         // from firing mid-conversation (covers the other party speaking too).
         _resetInactivityTimer();
         var chatBox = document.getElementById("chatBox");
+        if (!chatBox) { return; }   // caregiver session: no chat pane to render into
 
         // Remove empty state if present
         var emptyState = document.getElementById("emptyState");
