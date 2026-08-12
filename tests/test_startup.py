@@ -52,6 +52,39 @@ class TestStartupForwardReferences:
         )
 
 
+class TestClinicianColumnMigrations:
+    """Every ALTER that adds a clinicians column must run BEFORE the role
+    backfill. The backfill queries Clinician, and SQLAlchemy selects every column
+    the model declares — so on the first boot after a column is added, that query
+    dies with "no such column" unless the table has already caught up.
+
+    Caught for real: adding disabled_at below the backfill turned the boot-time
+    log line from InvalidToken into OperationalError."""
+
+    def test_clinician_alters_run_before_the_role_backfill(self):
+        source = APP.read_text(encoding="utf-8")
+        # The call, not the `def` line — plain find() would match the definition,
+        # which sits far above the startup block.
+        call = re.search(r"^[ \t]+_backfill_clinician_roles\(\)[ \t]*$",
+                         source, re.MULTILINE)
+        assert call, "_backfill_clinician_roles() call not found"
+        backfill_pos = call.start()
+        for column in ("role VARCHAR(32)", "disabled_at TIMESTAMP"):
+            ddl = f"ALTER TABLE clinicians ADD COLUMN {column}"
+            pos = source.find(ddl)
+            assert pos != -1, f"migration for {column} not found"
+            assert pos < backfill_pos, (
+                f"'{ddl}' runs after the role backfill — the backfill's query "
+                f"would fail with 'no such column' on the first boot after deploy"
+            )
+
+    def test_new_timestamp_columns_never_use_datetime(self):
+        """DATETIME is not a valid Postgres type: the ALTER fails there and the
+        column is silently never created, which shows up later as a 500."""
+        source = APP.read_text(encoding="utf-8")
+        assert "ADD COLUMN disabled_at DATETIME" not in source
+
+
 class TestThreadingImport:
 
     def test_import_threading_present_before_thread_usage(self):

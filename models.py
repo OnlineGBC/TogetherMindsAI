@@ -177,10 +177,19 @@ class Clinician(db.Model):
     plan                = db.Column(db.String(16), nullable=True)
     subscription_status = db.Column(db.String(24), nullable=True)
     current_period_end  = db.Column(db.DateTime, nullable=True)
+    # When an admin switched this account off. NULL means active. Disabling is
+    # deliberately reversible and destroys nothing: it blocks sign-in and ends any
+    # session already open, while sessions, certificates, hours and permissions all
+    # stay exactly as they are. Only an admin may set or clear it.
+    disabled_at      = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint("provider", "provider_subject", name="uq_clinician_provider_subject"),
     )
+
+    @property
+    def is_disabled(self) -> bool:
+        return self.disabled_at is not None
 
     def __repr__(self):
         return f"<Clinician {self.id} provider={self.provider}>"

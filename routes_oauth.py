@@ -69,6 +69,16 @@ def register_oauth_routes(app):
             .filter_by(provider=provider, provider_subject=subject)
             .first()
         )
+        # An account an admin switched off never gets a session. Checked before any
+        # write, so a blocked attempt does not even refresh last_login_at.
+        if clinician is not None and clinician.disabled_at is not None:
+            session.clear()
+            _tm.log_event("clinician_login_blocked", user_id=clinician.id,
+                          provider=provider)
+            flash("This account has been switched off. "
+                  "Please contact the administrator.", "danger")
+            return redirect(url_for("login"))
+
         if clinician is None:
             clinician = _tm.Clinician(
                 id=str(uuid.uuid4()), provider=provider, provider_subject=subject,

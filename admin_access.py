@@ -276,6 +276,53 @@ def set_role(db, Clinician, clinician_id: str, new_role: str):
     return (old_role, new_role)
 
 
+# ---------------------------------------------------------------------------
+# Switching an account off. Deliberately NOT deletion: an account's id is also
+# written into their therapy sessions and state licence certificates, which are
+# client records the practice is required to retain. Removing the account would
+# orphan those. Disabling takes away access and leaves every record intact.
+# ---------------------------------------------------------------------------
+
+# Shown on the console and written into the audit log on every change, so the
+# page and the permanent record can never drift apart. One source of truth.
+DISABLE_NOTICE = (
+    "Disabling blocks sign-in and ends any session already open. Nothing is "
+    "deleted — their therapy sessions, licence certificates, recording hours and "
+    "permissions all stay exactly as they are. Enable the account at any time to "
+    "restore access."
+)
+
+
+def set_disabled(db, Clinician, clinician_id: str, disabled: bool):
+    """Switch an account off or back on.
+
+    Returns the new state (True = disabled) on success, or None if the account is
+    unknown or is already in that state — so the caller can say "no change made"
+    rather than log an event that did nothing.
+    """
+    clin = db.session.get(Clinician, clinician_id)
+    if clin is None:
+        return None
+    already = clin.disabled_at is not None
+    if already == disabled:
+        return None
+    clin.disabled_at = datetime.now(timezone.utc) if disabled else None
+    db.session.commit()
+    return disabled
+
+
+def is_disabled(db, Clinician, clinician_id: str) -> bool:
+    """True when this account has been switched off by an admin.
+
+    Used on every request for a signed-in clinician, so it reads one row by
+    primary key and nothing else.
+    """
+    if not clinician_id:
+        return False
+    clin = db.session.get(Clinician, clinician_id)
+    return bool(clin is not None and clin.disabled_at is not None)
+
+
 def active_grants(CompAccess):
     """All grants, newest first — active and revoked (the list shows both)."""
     return CompAccess.query.order_by(CompAccess.id.desc()).all()

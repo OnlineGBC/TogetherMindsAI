@@ -80,6 +80,8 @@ def register_admin_routes(app):
             accounts=accounts, account_total=total,
             account_limit=admin_access.ACCOUNT_LIST_LIMIT,
             role_choices=roles.choices(), role_of=roles.role_of,
+            disable_notice=admin_access.DISABLE_NOTICE,
+            self_id=session.get("user_id"),
             totp_available=bool(config.ADMIN_TOTP_SECRET),
             factors_required=config.ADMIN_FACTORS_REQUIRED,
         )
@@ -116,7 +118,7 @@ def register_admin_routes(app):
             _mark_verified()
         else:
             flash(f"{passed} of {config.ADMIN_FACTORS_REQUIRED} required factors "
-                  "verified. Codes are single-use — request fresh ones.", "error")
+                  "verified. Codes are single-use — request fresh ones.", "danger")
         return redirect(url_for("admin_access_page"))
 
     @app.route("/accessadmin/add", methods=["POST"])
@@ -128,7 +130,7 @@ def register_admin_routes(app):
         row = admin_access.grant(_tm.db, _tm.CompAccess, target,
                                  request.form.get("note", ""), email)
         if row is None:
-            flash("That does not look like an email address.", "error")
+            flash("That does not look like an email address.", "danger")
         else:
             _tm.log_event("comp_access_granted", user_id=session.get("user_id"),
                           comp_id=row.id)
@@ -150,12 +152,43 @@ def register_admin_routes(app):
         new_role = (request.form.get("role") or "").strip()
         changed = admin_access.set_role(_tm.db, _tm.Clinician, target, new_role)
         if changed is None:
-            flash("No change made — unknown account, or already that role.", "error")
+            flash("No change made — unknown account, or already that role.", "danger")
         else:
             old_role, set_to = changed
             _tm.log_event("role_changed", user_id=session.get("user_id"),
                           target_id=target, old_role=old_role, new_role=set_to)
             flash(f"Role changed to {roles.spec(set_to)['label']}.", "info")
+        return redirect(url_for("admin_access_page"))
+
+    @app.route("/accessadmin/disable", methods=["POST"])
+    def admin_access_set_disabled():
+        """Switch an account off, or back on — admin only.
+
+        Reversible by design: it takes away access and destroys nothing, which is
+        why there is no confirmation step. Deleting the account instead would
+        orphan the therapy sessions and licence certificates that carry its id,
+        and those are client records the practice has to keep.
+        """
+        _require_admin()
+        if not _is_verified():
+            abort(403)
+        target = (request.form.get("clinician_id") or "").strip()
+        want_disabled = request.form.get("disabled") == "1"
+        # Switching yourself off would lock you out of this console, with no way
+        # back in — nobody else can undo it for you.
+        if target and target == session.get("user_id"):
+            flash("You cannot disable your own account.", "danger")
+            return redirect(url_for("admin_access_page"))
+        changed = admin_access.set_disabled(_tm.db, _tm.Clinician, target, want_disabled)
+        if changed is None:
+            flash("No change made — unknown account, or already in that state.", "danger")
+        else:
+            _tm.log_event("account_disabled" if changed else "account_enabled",
+                          user_id=session.get("user_id"), target_id=target,
+                          notice=admin_access.DISABLE_NOTICE)
+            flash("Account disabled — they cannot sign in until you enable it."
+                  if changed else
+                  "Account enabled — they can sign in again.", "info")
         return redirect(url_for("admin_access_page"))
 
     @app.route("/accessadmin/revoke", methods=["POST"])

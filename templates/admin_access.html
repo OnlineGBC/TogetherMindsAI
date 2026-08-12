@@ -44,11 +44,8 @@
       </p>
     </div>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% for category, message in messages %}
-        <div class="alert rounded-4 {{ 'alert-danger' if category == 'error' else 'alert-info' }}">{{ message }}</div>
-      {% endfor %}
-    {% endwith %}
+    {# Flash messages are printed by base.html for every page. This template used
+       to print them a second time, so each one appeared twice. #}
 
     {% if not verified %}
     {# ---- 2-of-3 challenge ------------------------------------------------ #}
@@ -128,7 +125,8 @@
           <table class="table align-middle mb-0 comp-table">
             <thead>
               <tr class="small">
-                <th>Account</th><th>Role</th><th class="text-end">Action</th>
+                <th>Account</th><th>Role</th><th>Status</th>
+                <th class="text-end">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -144,26 +142,49 @@
                   {% else %}<span class="comp-muted">no email yet · {{ acct.id[:8] }}</span>{% endif %}
                 </td>
                 <td class="small comp-muted">{{ acct.role or 'not chosen yet' }}</td>
+                <td>
+                  {% if acct.disabled_at %}
+                    <span class="badge bg-secondary rounded-pill">Disabled</span>
+                  {% else %}
+                    <span class="badge bg-success rounded-pill">Active</span>
+                  {% endif %}
+                </td>
                 <td class="text-end">
-                  <form method="post" action="{{ url_for('admin_access_set_role') }}"
-                        class="d-flex gap-2 justify-content-end">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="clinician_id" value="{{ acct.id }}">
-                    <select name="role" class="form-select form-select-sm w-auto">
-                      {% for value, label, _blurb in role_choices %}
-                      <option value="{{ value }}" {% if acct.role == value %}selected{% endif %}>{{ label }}</option>
-                      {% endfor %}
-                    </select>
-                    {# Solid blue, matching the Add button: the outline style used
-                       the theme's dim border and read as a label, not a button. #}
-                    <button class="btn btn-primary btn-sm rounded-pill" type="submit">Set</button>
-                  </form>
+                  <div class="d-flex gap-2 justify-content-end align-items-center">
+                    <form method="post" action="{{ url_for('admin_access_set_role') }}"
+                          class="d-flex gap-2">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="clinician_id" value="{{ acct.id }}">
+                      <select name="role" class="form-select form-select-sm w-auto">
+                        {% for value, label, _blurb in role_choices %}
+                        <option value="{{ value }}" {% if acct.role == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                      </select>
+                      {# Solid blue, matching the Add button: the outline style used
+                         the theme's dim border and read as a label, not a button. #}
+                      <button class="btn btn-primary btn-sm rounded-pill" type="submit">Set</button>
+                    </form>
+                    {# Switching yourself off would lock you out with nobody able to
+                       undo it, so your own row shows no button at all. #}
+                    {% if acct.id != self_id %}
+                    <form method="post" action="{{ url_for('admin_access_set_disabled') }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="clinician_id" value="{{ acct.id }}">
+                      <input type="hidden" name="disabled" value="{{ '0' if acct.disabled_at else '1' }}">
+                      <button class="btn btn-sm rounded-pill {{ 'btn-success' if acct.disabled_at else 'btn-outline-danger' }}"
+                              type="submit">{{ 'Enable' if acct.disabled_at else 'Disable' }}</button>
+                    </form>
+                    {% endif %}
+                  </div>
                 </td>
               </tr>
             {% endfor %}
             </tbody>
           </table>
         </div>
+        {# Same wording as the audit-log entry written on every change, so the
+           screen and the permanent record can never drift apart. #}
+        <p class="text-muted small mb-0 mt-3">{{ disable_notice }}</p>
         {% if account_total > accounts|length %}
         <p class="text-muted small mb-0 mt-2">
           Showing the {{ accounts|length }} most recent of {{ account_total }} accounts.

@@ -181,6 +181,49 @@ _ROLE_CHOICE_EXEMPT = {
 }
 
 
+def _current_clinician_row():
+    """The signed-in clinician's row, read once per request and cached on `g`.
+
+    Two before_request handlers need it; without the cache each would issue its
+    own SELECT on every page load.
+    """
+    cid = session.get("clinician_id")
+    if not cid:
+        return None
+    if "clinician_row" not in g:
+        g.clinician_row = db.session.get(Clinician, cid)
+    return g.clinician_row
+
+
+# Endpoints a switched-off account may still reach. Logging out must work, and
+# the sign-in routes have to stay open or the redirect below would loop.
+_DISABLED_EXEMPT = {
+    "logout", "static", "login", "oauth_login", "oauth_callback",
+    "privacy", "tos", "service_worker", "assetlinks",
+}
+
+
+@app.before_request
+def _block_disabled_clinician():
+    """End the session of an account an admin has switched off.
+
+    Blocking at sign-in alone is not enough: someone already signed in when you
+    disable them would keep working until they happened to log out. This bites on
+    their next page load instead.
+    """
+    if request.endpoint in _DISABLED_EXEMPT or request.endpoint is None:
+        return
+    clin = _current_clinician_row()
+    if clin is None or getattr(clin, "disabled_at", None) is None:
+        return
+    session.clear()
+    if request.path.startswith("/api/") or request.path.startswith("/rtc/"):
+        return jsonify({"error": "account_disabled"}), 403
+    flash("This account has been switched off. "
+          "Please contact the administrator.", "danger")
+    return redirect(url_for("login"))
+
+
 @app.before_request
 def _require_role_choice():
     """Make a signed-in clinician pick a role before using the app.
@@ -194,10 +237,7 @@ def _require_role_choice():
     """
     if request.endpoint in _ROLE_CHOICE_EXEMPT or request.endpoint is None:
         return
-    cid = session.get("clinician_id")
-    if not cid:
-        return
-    clin = db.session.get(Clinician, cid)
+    clin = _current_clinician_row()
     if clin is None or roles.is_valid(getattr(clin, "role", None)):
         return
     if request.path.startswith("/api/") or request.path.startswith("/rtc/"):
@@ -930,14 +970,25 @@ if not config.IS_TESTING:
             except Exception:
                 db.session.rollback()  # column already exists
 
-    # Practitioner role (roles.py). Idempotent.
+    # Practitioner role (roles.py) and the admin switch-off. Idempotent.
+    #
+    # Both ALTERs must land BEFORE the backfill below. The backfill queries
+    # Clinician, and SQLAlchemy selects every column the model declares — so on
+    # the first boot after either column is added, that query fails with "no such
+    # column" if the table has not caught up yet.
     with app.app_context():
         from sqlalchemy import text
-        try:
-            db.session.execute(text("ALTER TABLE clinicians ADD COLUMN role VARCHAR(32)"))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()  # column already exists
+        for ddl in (
+            "ALTER TABLE clinicians ADD COLUMN role VARCHAR(32)",
+            # TIMESTAMP (not DATETIME): DATETIME is not a valid Postgres type, so the
+            # ALTER would fail there and the column would silently never be created.
+            "ALTER TABLE clinicians ADD COLUMN disabled_at TIMESTAMP",
+        ):
+            try:
+                db.session.execute(text(ddl))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # column already exists
         _backfill_clinician_roles()
 
     # Add the recording 24h-before-deletion reminder timestamp (Phase 4 Step 3).

@@ -201,6 +201,20 @@ def test_the_console_lists_accounts_with_a_role_selector(client):
     _as_verified_admin(client, check)
 
 
+def test_a_flash_message_is_printed_once(client):
+    """base.html prints flashed messages for every page. This template printed
+    them a second time, so every message appeared twice on screen."""
+    def check():
+        with app.app_context():
+            _seed("target", "listed@example.com", role=roles.HYPNOTHERAPIST)
+        html = client.post("/accessadmin/role",
+                           data={"clinician_id": "target",
+                                 "role": roles.CAREGIVER},
+                           follow_redirects=True).get_data(as_text=True)
+        assert html.count("Role changed to") == 1
+    _as_verified_admin(client, check)
+
+
 def test_the_row_actions_look_clickable(client):
     """Set used the outline style, which on this dark theme has a dim border and
     grey text — it read as a label, not a button. It is now solid blue like Add,
