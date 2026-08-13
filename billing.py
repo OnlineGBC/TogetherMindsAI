@@ -264,9 +264,12 @@ def create_promotion_code(code: str):
     """Create the promotion code customers type. Returns the Stripe object."""
     stripe = _stripe_or_raise()
     ensure_coupon()
-    return stripe.promotion_codes.create(promotion={"type": "coupon",
-                                                    "coupon": COUPON_ID},
-                                         code=code)
+    # stripe.PromotionCode, not stripe.promotion_codes: the snake_case accessors
+    # live on a StripeClient instance, not on the module. Calling the wrong one
+    # raised AttributeError, which the console reported as "the code may already
+    # be in use" — a guess that sent the diagnosis the wrong way.
+    return stripe.PromotionCode.create(
+        promotion={"type": "coupon", "coupon": COUPON_ID}, code=code)
 
 
 def deactivate_promotion_code(promo_id: str) -> None:
@@ -275,7 +278,7 @@ def deactivate_promotion_code(promo_id: str) -> None:
         return
     stripe = _stripe_or_raise()
     try:
-        stripe.promotion_codes.modify(promo_id, active=False)
+        stripe.PromotionCode.modify(promo_id, active=False)
     except Exception as exc:
         logger.warning("could not deactivate promotion code %s: %s", promo_id, exc)
 
@@ -286,7 +289,7 @@ def promotion_code_uses(promo_id: str) -> "int | None":
         return None
     try:
         stripe = _stripe_or_raise()
-        return stripe.promotion_codes.retrieve(promo_id).times_redeemed
+        return stripe.PromotionCode.retrieve(promo_id).times_redeemed
     except Exception as exc:
         logger.warning("could not read promotion code %s: %s", promo_id, exc)
         return None

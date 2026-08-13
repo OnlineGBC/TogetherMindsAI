@@ -240,9 +240,13 @@ def register_admin_routes(app):
         except ValueError as exc:
             flash(str(exc), "danger")
         except Exception as exc:
-            app.logger.warning("discount code change failed: %s", type(exc).__name__)
-            flash("Stripe would not accept that — nothing was changed. "
-                  "The code may already be in use.", "danger")
+            # Log and show what actually went wrong. Logging only the exception
+            # TYPE, and guessing at the cause in the message, sent a real
+            # diagnosis the wrong way: an AttributeError in our own code was
+            # reported to the admin as "the code may already be in use".
+            app.logger.warning("discount code change failed: %s: %s",
+                               type(exc).__name__, exc)
+            flash(f"Nothing was changed. Stripe said: {exc}", "danger")
         return redirect(url_for("admin_access_page"))
 
     @app.route("/accessadmin/revoke", methods=["POST"])

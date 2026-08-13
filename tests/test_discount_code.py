@@ -245,3 +245,59 @@ def test_both_checkouts_show_the_code_box():
 
         billing.create_topup_checkout_url(MagicMock(id="doc"), "s", "c")
         assert fake.checkout.Session.create.call_args.kwargs["allow_promotion_codes"] is True
+
+
+# ---------------------------------------------------------------------------
+# The names we call must exist on the real SDK
+# ---------------------------------------------------------------------------
+
+class _SdkSpecMock:
+    """A stand-in for the stripe module that allows only attribute names the
+    installed SDK really has, and raises AttributeError for the rest.
+
+    MagicMock(spec=stripe) cannot do this: the SDK resolves names lazily through
+    __getattr__, so dir(stripe) is empty and every name would look invalid.
+    """
+
+    def __init__(self):
+        self._seen = {}
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        import stripe
+        if not hasattr(stripe, name):
+            raise AttributeError(f"stripe has no attribute {name!r}")
+        return self._seen.setdefault(name, MagicMock())
+
+
+def test_the_stripe_calls_use_names_the_sdk_actually_has():
+    """Regression: the code called stripe.promotion_codes.*, which does not exist
+    — the snake_case accessors live on a StripeClient instance, not the module.
+    Every other test mocks our own wrapper, so nothing ever touched the real
+    attribute and the AttributeError only showed up in production.
+    """
+    import stripe
+    assert hasattr(stripe, "PromotionCode")
+    assert not hasattr(stripe, "promotion_codes")     # the spelling that broke
+
+    fake = _SdkSpecMock()
+    with patch.object(billing, "_init", return_value=fake):
+        billing.create_promotion_code("SPEC-TEST")     # raised AttributeError before
+        billing.deactivate_promotion_code("promo_1")
+        billing.promotion_code_uses("promo_1")
+
+    kwargs = fake.PromotionCode.create.call_args.kwargs
+    assert kwargs["code"] == "SPEC-TEST"
+    assert kwargs["promotion"] == {"type": "coupon", "coupon": billing.COUPON_ID}
+    fake.PromotionCode.modify.assert_called_once_with("promo_1", active=False)
+    fake.PromotionCode.retrieve.assert_called_once_with("promo_1")
+
+
+def test_the_create_parameters_match_the_installed_sdk():
+    """`promotion=` is the current shape; an older SDK took `coupon=` instead.
+    If the pinned version ever moves back, this says so."""
+    from stripe.params import _promotion_code_create_params as params
+    allowed = params.PromotionCodeCreateParams.__annotations__
+    assert "promotion" in allowed
+    assert "code" in allowed
