@@ -156,14 +156,23 @@
             <tbody>
             {% for acct in accounts %}
               <tr>
-                {# An account has no email until its owner next logs in (the column
-                   is filled from the OAuth claim). Showing the raw 36-character
-                   UUID there was unreadable, so say plainly that the email is
-                   missing and add a short id so two such rows stay tellable
-                   apart. The Set form below posts the full id regardless. #}
+                {# Microsoft accounts usually hand us no email, so a row could read
+                   only "no email yet · cfc74874" — unidentifiable. A switched-off
+                   Microsoft account then looked unrelated to the person who could
+                   not sign in, and the cause took a deployed log line to find.
+                   The provider and last sign-in are what actually identify these
+                   rows. The Set form below posts the full id regardless. #}
                 <td class="small">
                   {% if acct.email %}{{ acct.email }}
                   {% else %}<span class="comp-muted">no email yet · {{ acct.id[:8] }}</span>{% endif %}
+                  <div class="comp-muted" style="font-size:.78rem">
+                    {{ (acct.provider or 'unknown')|capitalize }} ·
+                    {% if acct.last_login_at %}
+                      last in {{ acct.last_login_at.strftime('%d %b %Y') }}
+                    {% else %}
+                      never signed in
+                    {% endif %}
+                  </div>
                 </td>
                 <td class="small comp-muted">{{ acct.role or 'not chosen yet' }}</td>
                 <td>

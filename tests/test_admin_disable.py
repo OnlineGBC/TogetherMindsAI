@@ -318,3 +318,37 @@ def test_logout_still_works_when_disabled(client):
 
     rv = client.get("/logout")
     assert rv.status_code in (200, 302)
+
+
+def test_each_row_says_which_provider_and_when_they_last_signed_in(client):
+    """Microsoft accounts hand us no email, so a row could read only
+    "no email yet · cfc74874". A switched-off Microsoft account then looked
+    unrelated to the person who could not sign in, and finding the cause needed
+    a deployed log line. The provider and last sign-in identify the row."""
+    def check():
+        with app.app_context():
+            row = Clinician(id="ms-1", provider="microsoft",
+                            provider_subject="AAAA", email=None,
+                            role=roles.HYPNOTHERAPIST,
+                            created_at=datetime.now(timezone.utc),
+                            last_login_at=datetime(2026, 8, 12, tzinfo=timezone.utc))
+            db.session.add(row)
+            db.session.commit()
+        html = client.get("/accessadmin").get_data(as_text=True)
+        assert "Microsoft" in html
+        assert "last in 12 Aug 2026" in html
+    _as_verified_admin(client, check)
+
+
+def test_an_account_that_never_signed_in_says_so(client):
+    def check():
+        with app.app_context():
+            db.session.add(Clinician(id="new-1", provider="google",
+                                     provider_subject="s1", email="new@example.com",
+                                     role=roles.PSYCHOTHERAPIST,
+                                     created_at=datetime.now(timezone.utc),
+                                     last_login_at=None))
+            db.session.commit()
+        html = client.get("/accessadmin").get_data(as_text=True)
+        assert "never signed in" in html
+    _as_verified_admin(client, check)
