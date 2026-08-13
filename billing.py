@@ -112,6 +112,10 @@ def create_checkout_url(clinician, role: str, success_url: str, cancel_url: str)
             success_url=success_url,
             cancel_url=cancel_url,
             client_reference_id=clinician.id,
+            # Shows the "Add promotion code" box. Without it a Stripe coupon has
+            # nowhere to be typed, so a 100%-off code cannot be used to test the
+            # live payment path without really paying.
+            allow_promotion_codes=True,
             metadata={"clinician_id": clinician.id, "plan": PAID, "role": role},
         )
         return sess.url

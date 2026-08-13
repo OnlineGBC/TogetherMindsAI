@@ -415,3 +415,21 @@ def test_billing_routes_extracted_to_module(client):
     for ep in ("billing_page", "billing_checkout", "billing_portal", "stripe_webhook"):
         assert ep in app.view_functions, ep
         assert app.view_functions[ep].__module__ == "routes_billing", ep
+
+
+def test_subscription_checkout_accepts_a_promotion_code():
+    """Without this flag Stripe shows no code box, so a 100%-off coupon has
+    nowhere to be typed and the live payment path cannot be tested for free."""
+    from unittest.mock import MagicMock
+    import roles
+    fake = MagicMock()
+    fake.checkout.Session.create.return_value.url = "https://stripe.test/x"
+    with patch.object(config, "STRIPE_PRICE_CLINICAL", "price_clinical"), \
+         patch("billing._init", return_value=fake), \
+         patch("billing.ensure_customer", return_value="cus_1"):
+        billing.create_checkout_url(
+            MagicMock(id="doc", role=roles.PSYCHOTHERAPIST),
+            roles.PSYCHOTHERAPIST, "s", "c")
+    kwargs = fake.checkout.Session.create.call_args.kwargs
+    assert kwargs["allow_promotion_codes"] is True
+    assert kwargs["mode"] == "subscription"
