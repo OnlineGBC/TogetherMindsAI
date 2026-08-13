@@ -174,6 +174,37 @@ def test_request_unavailable_when_disabled(enc_client):
         assert start.call_count == 0
 
 
+def test_upgrade_message_carries_a_link_to_billing(enc_client):
+    """The room hides the nav on purpose, so a message that merely NAMED the
+    billing page left the clinician stuck with no way to reach it."""
+    with app.app_context():
+        sid = _seed("ther-1")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_has_recording", return_value=False), \
+         patch("recording.start_recording", return_value="EG1"):
+        t = _join(enc_client, sid, "ther-1")
+        t.emit("recording_request", {"session_id": sid, "user_id": "ther-1"})
+        msgs = [e for e in t.get_received() if e["name"] == "recording_unavailable"]
+        assert len(msgs) == 1
+        payload = msgs[0]["args"][0]
+        assert payload["action"]["url"] == "/billing"
+        assert "Plans & billing" in payload["action"]["text"]
+
+
+def test_out_of_hours_message_carries_a_link_to_billing(enc_client):
+    with app.app_context():
+        sid = _seed("ther-1")
+    with patch.object(config, "RECORDING_ENABLED", True), \
+         patch.object(tm, "_has_recording", return_value=True), \
+         patch.object(tm, "_has_recording_time", return_value=False), \
+         patch("recording.start_recording", return_value="EG1"):
+        t = _join(enc_client, sid, "ther-1")
+        t.emit("recording_request", {"session_id": sid, "user_id": "ther-1"})
+        msgs = [e for e in t.get_received() if e["name"] == "recording_unavailable"]
+        assert len(msgs) == 1
+        assert msgs[0]["args"][0]["action"]["url"] == "/billing"
+
+
 def test_request_ignored_from_non_therapist(enc_client):
     with app.app_context():
         sid = _seed("ther-1")

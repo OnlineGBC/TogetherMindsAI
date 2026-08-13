@@ -73,17 +73,24 @@
             <small class="text-nowrap"><strong>Session ID:</strong> <span class="font-monospace">{{ session_id }}</span></small>
             <!-- Shared session friendly name (therapist-set) — appears right after the ID -->
             <span id="friendlyNameLabel" class="badge rounded-pill text-bg-success d-none"></span>
-            <button class="btn btn-outline-green btn-sm rounded-pill py-0 js-copy-sid" data-sid="{{ session_id }}" title="Copy Session ID">
-                <i class="bi bi-clipboard"></i>
+            {# Each of these carries its word, not just a tooltip. A tooltip needs a
+               mouse to hover: on a phone or tablet it never appears at all, so the
+               buttons were three unexplained icons. The strip wraps, so the words
+               cost a line at most on a narrow screen. #}
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0 js-copy-sid" data-sid="{{ session_id }}"
+                    title="Copy Session ID" aria-label="Copy Session ID">
+                <i class="bi bi-clipboard"></i><span class="ms-1">Copy</span>
             </button>
             {% if is_therapist %}
-            <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="setFriendlyNameBtn" title="Name this session">
-                <i class="bi bi-tag"></i>
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="setFriendlyNameBtn"
+                    title="Name this session" aria-label="Name this session">
+                <i class="bi bi-tag"></i><span class="ms-1">Name</span>
             </button>
             {% endif %}
             <small class="text-muted text-nowrap">You: <span id="displayNameLabel" class="font-monospace text-primary-green fw-semibold">…</span></small>
-            <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameDisplayNameBtn" title="Change display name">
-                <i class="bi bi-pencil" style="color:#fd7e14"></i>
+            <button class="btn btn-outline-green btn-sm rounded-pill py-0" id="renameDisplayNameBtn"
+                    title="Change display name" aria-label="Change display name">
+                <i class="bi bi-pencil" style="color:#fd7e14"></i><span class="ms-1">Rename</span>
             </button>
             <small class="text-muted ms-md-auto">Confidential {{ words.record }} — encrypted, never sold or used to train AI.</small>
         </div>

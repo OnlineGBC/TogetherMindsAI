@@ -4559,14 +4559,25 @@ def on_recording_request(data):
         return
     if not user_id or session_therapist_id.get(session_id) != user_id:
         return   # only the session's clinician may start recording
+    # These two name the billing page, so they carry a link to it. Without one the
+    # message told the clinician what was wrong and left them stuck: the room hides
+    # the nav on purpose, so there is no way to reach billing from here. The link
+    # opens in a new tab — navigating away would drop the call.
+    #
+    # Only ever sent back to the clinician who pressed the button (a bare emit
+    # replies to the caller), and only that session's clinician can get this far,
+    # so no client ever sees an upgrade prompt during their own session.
     _clin = _session_clinician(session_id)
     if not _has_recording(_clin):
-        emit("recording_unavailable", {"message": "Recording is a Premium-plan feature. Upgrade in Plans & billing."})
+        emit("recording_unavailable",
+             {"message": "Recording is a Premium-plan feature.",
+              "action": {"text": "Upgrade in Plans & billing", "url": "/billing"}})
         return
     if not _has_recording_time(_clin):
         emit("recording_unavailable",
-             {"message": "You have used all your recording hours. "
-                         "Add 40 more for $9.99 in Plans & billing."})
+             {"message": "You have used all your recording hours.",
+              "action": {"text": "Add 40 more for $9.99 in Plans & billing",
+                         "url": "/billing"}})
         return
     if _needs_record_authorisation(session_id):
         emit("recording_unavailable",

@@ -159,3 +159,23 @@ def test_caption_writes_are_guarded():
     for line in src.splitlines():
         if "captionsEl.textContent" in line:
             assert "if (captionsEl" in line, line.strip()
+
+
+# ---------------------------------------------------------------------------
+# The session-ID strip: labels, not tooltips
+# ---------------------------------------------------------------------------
+
+def test_the_icon_buttons_carry_their_words(client):
+    """These three were icon-only, labelled by a `title` tooltip alone. A tooltip
+    needs a mouse to hover, so on a phone or tablet the label never appeared at
+    all and they were three unexplained icons."""
+    html = _room(client, roles.PSYCHOTHERAPIST)
+    for word in ("Copy", "Name", "Rename"):
+        assert f'<span class="ms-1">{word}</span>' in html, word
+
+
+def test_the_icon_buttons_are_labelled_for_screen_readers(client):
+    """`title` alone is weak for assistive tech — an explicit aria-label is not."""
+    html = _room(client, roles.PSYCHOTHERAPIST)
+    for label in ("Copy Session ID", "Name this session", "Change display name"):
+        assert f'aria-label="{label}"' in html, label

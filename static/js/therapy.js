@@ -440,7 +440,21 @@ function initRecordingControls(sessionId, userId, isTherapist) {
 
     // ---- Server → client events ----
     socket.on("recording_unavailable", function (data) {
-        if (statusText) statusText.textContent = (data && data.message) || "Recording is not available.";
+        if (!statusText) return;
+        statusText.textContent = (data && data.message) || "Recording is not available.";
+        // Some of these name the billing page. Built as a real element rather than
+        // injected markup, and opened in a new tab so the live call survives.
+        var act = data && data.action;
+        if (act && act.url && act.text) {
+            statusText.appendChild(document.createTextNode(" "));
+            var a = document.createElement("a");
+            a.href = act.url;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.className = "text-warning text-decoration-underline";
+            a.textContent = act.text;
+            statusText.appendChild(a);
+        }
     });
 
     // Recording time left, for metered accounts. Sent when a warning threshold is
