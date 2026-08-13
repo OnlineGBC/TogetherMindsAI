@@ -326,3 +326,70 @@ def is_disabled(db, Clinician, clinician_id: str) -> bool:
 def active_grants(CompAccess):
     """All grants, newest first — active and revoked (the list shows both)."""
     return CompAccess.query.order_by(CompAccess.id.desc()).all()
+
+
+# ---------------------------------------------------------------------------
+# The one discount code the console manages.
+#
+# Stripe will not rename a promotion code, so "changing the code" is really
+# "create the new one, switch the old one off". That happens here, in one step,
+# so the console can show a single field and a single button.
+# ---------------------------------------------------------------------------
+
+
+def current_discount(db, DiscountCode):
+    """The single row, created on first read with the starting code.
+
+    Creating the row does NOT create anything in Stripe — `promo_id` stays NULL
+    until an admin saves. A page view must never make live billing objects.
+    """
+    import billing
+    row = DiscountCode.query.order_by(DiscountCode.id.desc()).first()
+    if row is None:
+        row = DiscountCode(code=billing.DEFAULT_DISCOUNT_CODE, promo_id=None,
+                           active=True, updated_at=datetime.now(timezone.utc))
+        db.session.add(row)
+        db.session.commit()
+    return row
+
+
+def set_discount_code(db, DiscountCode, new_code: str, admin_email: str):
+    """Point the discount at a new code. Returns the row.
+
+    Raises on any Stripe failure, having changed nothing here — a half-done
+    change must be visible rather than stored as if it had worked.
+    """
+    import billing
+    new_code = (new_code or "").strip()
+    if not billing.is_valid_code(new_code):
+        raise ValueError("Use letters, numbers and dashes only.")
+
+    row = current_discount(db, DiscountCode)
+    if row.active and row.code == new_code and row.promo_id:
+        return row                      # already exactly this; nothing to do
+
+    promo = billing.create_promotion_code(new_code)   # raises if Stripe is unhappy
+    old_promo_id = row.promo_id
+    row.code = new_code
+    row.promo_id = promo.id
+    row.active = True
+    row.updated_at = datetime.now(timezone.utc)
+    row.updated_by = admin_email
+    db.session.commit()
+    # Only after the new one is safely stored — otherwise a failure here would
+    # leave the account with no working code at all.
+    billing.deactivate_promotion_code(old_promo_id)
+    return row
+
+
+def turn_off_discount(db, DiscountCode, admin_email: str):
+    """Switch the current code off in Stripe and here. Returns the row."""
+    import billing
+    row = current_discount(db, DiscountCode)
+    billing.deactivate_promotion_code(row.promo_id)
+    row.active = False
+    row.promo_id = None
+    row.updated_at = datetime.now(timezone.utc)
+    row.updated_by = admin_email
+    db.session.commit()
+    return row

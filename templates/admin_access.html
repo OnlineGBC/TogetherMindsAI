@@ -232,6 +232,47 @@
       </div>
     </div>
 
+    {# ---- Discount code ---------------------------------------------------- #}
+    {% if discount_enabled %}
+    <div class="card rounded-4 border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-1 fs-6">Discount code</h5>
+        <p class="text-muted small mb-3">
+          One code, for 100% off at checkout. Stripe cannot rename a code, so
+          saving a new one creates it and switches the old one off.
+        </p>
+        <form method="post" action="{{ url_for('admin_access_discount') }}"
+              class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="col-12 col-md-6">
+            <label class="form-label small fw-semibold">Code</label>
+            <input class="form-control form-control-sm" name="code" maxlength="64"
+                   value="{{ discount_code }}" placeholder="letters, numbers and dashes">
+          </div>
+          <div class="col-6 col-md-3 d-grid">
+            <button class="btn btn-primary btn-sm rounded-pill" type="submit">Save</button>
+          </div>
+        </form>
+        <div class="d-flex gap-3 align-items-center mt-2 flex-wrap">
+          {% if discount_live %}
+            <span class="badge bg-success rounded-pill">Working now</span>
+            <span class="text-muted small">
+              Used {{ discount_uses if discount_uses is not none else '—' }} time(s).
+            </span>
+            <form method="post" action="{{ url_for('admin_access_discount') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="turn_off" value="1">
+              <button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Turn off</button>
+            </form>
+          {% else %}
+            <span class="badge bg-secondary rounded-pill">Not created yet</span>
+            <span class="text-muted small">Press Save to create it in Stripe.</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     {# ---- Existing grants ------------------------------------------------- #}
     <div class="card rounded-4 border-0 shadow-sm">
       <div class="card-body">

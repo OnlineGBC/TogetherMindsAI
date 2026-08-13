@@ -149,6 +149,9 @@ def create_topup_checkout_url(clinician, success_url: str, cancel_url: str) -> "
             success_url=success_url,
             cancel_url=cancel_url,
             client_reference_id=clinician.id,
+            # Same code box as the subscription checkout, so buying hours can be
+            # tested without really paying either.
+            allow_promotion_codes=True,
             metadata={"clinician_id": clinician.id, "kind": TOPUP_KIND},
         )
         return sess.url
@@ -218,3 +221,79 @@ def subscription_plan_and_status(subscription) -> "tuple[str, str]":
     except Exception:
         price_id = ""
     return plan_for_price(price_id), status
+
+
+# ---------------------------------------------------------------------------
+# The one discount code the admin console manages.
+#
+# Stripe will not rename a promotion code — its update endpoint accepts only
+# `active`, `metadata` and `restrictions`. So changing the code means creating a
+# new promotion code on the same coupon and switching the old one off. That is
+# two calls, done here so the console shows one field and one button.
+#
+# Unlike the rest of this module these raise on failure rather than returning
+# None. A half-done change must be visible: the caller shows the error and keeps
+# the stored code exactly as it was.
+# ---------------------------------------------------------------------------
+
+# Fixed id, so the coupon is found rather than duplicated on every call.
+COUPON_ID = "tmai_admin_100off"
+DEFAULT_DISCOUNT_CODE = "100-0ffTh1sBuy"
+
+
+def _stripe_or_raise():
+    stripe = _init()
+    if stripe is None:
+        raise RuntimeError("Stripe is not configured.")
+    return stripe
+
+
+def ensure_coupon():
+    """The 100%-off coupon, created once if it is not there yet."""
+    stripe = _stripe_or_raise()
+    try:
+        return stripe.Coupon.retrieve(COUPON_ID)
+    except Exception:
+        return stripe.Coupon.create(
+            id=COUPON_ID, percent_off=100, duration="forever",
+            name="TogetherMindsAI admin discount",
+        )
+
+
+def create_promotion_code(code: str):
+    """Create the promotion code customers type. Returns the Stripe object."""
+    stripe = _stripe_or_raise()
+    ensure_coupon()
+    return stripe.promotion_codes.create(promotion={"type": "coupon",
+                                                    "coupon": COUPON_ID},
+                                         code=code)
+
+
+def deactivate_promotion_code(promo_id: str) -> None:
+    """Switch an old promotion code off. Missing or already-off is not an error."""
+    if not promo_id:
+        return
+    stripe = _stripe_or_raise()
+    try:
+        stripe.promotion_codes.modify(promo_id, active=False)
+    except Exception as exc:
+        logger.warning("could not deactivate promotion code %s: %s", promo_id, exc)
+
+
+def promotion_code_uses(promo_id: str) -> "int | None":
+    """How many times this code has been redeemed, or None if unknown."""
+    if not promo_id:
+        return None
+    try:
+        stripe = _stripe_or_raise()
+        return stripe.promotion_codes.retrieve(promo_id).times_redeemed
+    except Exception as exc:
+        logger.warning("could not read promotion code %s: %s", promo_id, exc)
+        return None
+
+
+# Stripe rejects anything else: "Valid characters are lower case letters (a-z),
+# upper case letters (A-Z), digits (0-9), and dashes (-)."
+def is_valid_code(code: str) -> bool:
+    import re
+    return bool(code) and len(code) <= 64 and re.fullmatch(r"[A-Za-z0-9-]+", code) is not None

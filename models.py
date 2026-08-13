@@ -551,3 +551,29 @@ class AdminAuthCode(db.Model):
 
     def __repr__(self):
         return f"<AdminAuthCode id={self.id} channel={self.channel}>"
+
+
+class DiscountCode(db.Model):
+    """The one discount code the admin console offers, and its Stripe twin.
+
+    Exactly one row: Stripe will not let a promotion code be renamed (only
+    `active`, `metadata` and `restrictions` are editable), so "changing the code"
+    means creating a new promotion code and switching the old one off. This row
+    remembers which one is current so the console has something to show and the
+    old one has something to be switched off by.
+
+    `promo_id` is NULL until the code has actually been created in Stripe — a
+    page view must never create live billing objects, so that happens on the
+    first save.
+    """
+    __tablename__ = "discount_code"
+
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    code       = db.Column(db.String(64), nullable=False)
+    promo_id   = db.Column(db.String(64), nullable=True)   # Stripe promotion_code id
+    active     = db.Column(db.Boolean, nullable=False, default=True)
+    updated_at = db.Column(db.DateTime, nullable=False)
+    updated_by = db.Column(db.String(255), nullable=True)  # admin email
+
+    def __repr__(self):
+        return f"<DiscountCode {self.code} active={self.active}>"

@@ -62,6 +62,24 @@ def _mark_verified() -> None:
     session[_VERIFIED_UNTIL] = until.isoformat()
 
 
+def _discount_view() -> dict:
+    """Template values for the discount-code card.
+
+    Reading the usage count talks to Stripe, so it is skipped when the code has
+    never been created there — the card says so instead of showing a made-up 0.
+    """
+    if not config.BILLING_ENABLED:
+        return {"discount_enabled": False}
+    row = admin_access.current_discount(_tm.db, _tm.DiscountCode)
+    import billing
+    return {
+        "discount_enabled": True,
+        "discount_code": row.code,
+        "discount_live": bool(row.active and row.promo_id),
+        "discount_uses": billing.promotion_code_uses(row.promo_id) if row.promo_id else None,
+    }
+
+
 def register_admin_routes(app):
 
     @app.route("/accessadmin")
@@ -83,6 +101,9 @@ def register_admin_routes(app):
             disable_notice=admin_access.DISABLE_NOTICE,
             self_id=session.get("user_id"),
             admin_emails=[a.lower() for a in (config.ADMIN_EMAILS or [])],
+            # With billing off there is no checkout for a code to be typed into,
+            # so the whole card is hidden rather than shown doing nothing.
+            **_discount_view(),
             totp_available=bool(config.ADMIN_TOTP_SECRET),
             factors_required=config.ADMIN_FACTORS_REQUIRED,
         )
@@ -190,6 +211,38 @@ def register_admin_routes(app):
             flash("Account disabled — they cannot sign in until you enable it."
                   if changed else
                   "Account enabled — they can sign in again.", "info")
+        return redirect(url_for("admin_access_page"))
+
+    @app.route("/accessadmin/discount", methods=["POST"])
+    def admin_access_discount():
+        """Set, change, or switch off the one discount code.
+
+        Stripe will not rename a promotion code, so a change means creating the
+        new one and switching the old one off — done in admin_access so this
+        route stays a thin wrapper. Any Stripe failure is shown and stored
+        nothing, rather than saved as if it had worked.
+        """
+        email = _require_admin()
+        if not _is_verified():
+            abort(403)
+        turn_off = request.form.get("turn_off") == "1"
+        try:
+            if turn_off:
+                admin_access.turn_off_discount(_tm.db, _tm.DiscountCode, email)
+                _tm.log_event("discount_code_off", user_id=session.get("user_id"))
+                flash("Discount code switched off.", "info")
+            else:
+                row = admin_access.set_discount_code(
+                    _tm.db, _tm.DiscountCode, request.form.get("code", ""), email)
+                _tm.log_event("discount_code_set", user_id=session.get("user_id"),
+                              code=row.code)
+                flash(f"Discount code is now {row.code}.", "info")
+        except ValueError as exc:
+            flash(str(exc), "danger")
+        except Exception as exc:
+            app.logger.warning("discount code change failed: %s", type(exc).__name__)
+            flash("Stripe would not accept that — nothing was changed. "
+                  "The code may already be in use.", "danger")
         return redirect(url_for("admin_access_page"))
 
     @app.route("/accessadmin/revoke", methods=["POST"])
