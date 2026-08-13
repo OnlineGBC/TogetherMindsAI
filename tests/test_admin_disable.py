@@ -352,3 +352,23 @@ def test_an_account_that_never_signed_in_says_so(client):
         html = client.get("/accessadmin").get_data(as_text=True)
         assert "never signed in" in html
     _as_verified_admin(client, check)
+
+
+def test_a_failed_sign_in_does_not_leave_you_signed_in_as_someone_else(client):
+    """A sign-in that fails half way must clear the session. Otherwise the next
+    page load acts on the OLD identity — and if that account is switched off, the
+    message reads as if it were about the account you were trying to reach."""
+    with app.app_context():
+        _seed("old", "old@example.com", disabled=True)
+    with client.session_transaction() as s:
+        s["user_id"] = "old"
+        s["clinician_id"] = "old"
+
+    # The provider hands back nothing usable, so the callback bails out.
+    with patch.object(app.view_functions["oauth_callback"].__globals__["_tm"],
+                      "_oauth_userinfo", return_value=None):
+        client.get("/auth/google/callback", follow_redirects=False)
+
+    with client.session_transaction() as s:
+        assert "clinician_id" not in s
+        assert "user_id" not in s

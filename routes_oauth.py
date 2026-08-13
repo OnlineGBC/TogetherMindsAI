@@ -59,6 +59,11 @@ def register_oauth_routes(app):
         info = _tm._oauth_userinfo(provider)
         subject = info.get("sub") if info else None
         if not subject:
+            # Clear first. A sign-in that fails half way must not leave you signed
+            # in as whoever you were before: the next page load would then act on
+            # the OLD identity, and any message about it reads as if it were about
+            # the account you were just trying to reach.
+            session.clear()
             flash("Sign-in did not complete. Please try again.", "warning")
             return redirect(url_for("login"))
         email = (info.get("email") or "").strip().lower() or None
@@ -93,13 +98,8 @@ def register_oauth_routes(app):
                 email=email, created_at=now, last_login_at=now,
             )
             _tm.db.session.add(clinician)
-            _tm.app.logger.warning("SIGNIN new account: id=%s provider=%s subject=%s",
-                                   clinician.id, provider, (subject or "")[:12])
             _tm.log_event("clinician_registered", user_id=clinician.id, provider=provider)
         else:
-            _tm.app.logger.warning(
-                "SIGNIN matched existing: id=%s provider=%s subject=%s disabled_at=%s",
-                clinician.id, provider, (subject or "")[:12], clinician.disabled_at)
             clinician.last_login_at = now
             if email and clinician.email != email:
                 clinician.email = email   # backfill / keep current for existing accounts
