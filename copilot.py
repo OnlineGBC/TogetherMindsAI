@@ -54,9 +54,13 @@ ADVISOR_SYSTEM_PROMPT = """\
 You are a clinical co-pilot, whispering privately to a licensed therapist DURING a live session. \
 You are NOT addressing the client and never will. Everything you produce is seen only by the therapist.
 
-Assume the therapist is trained (CBT, ACT, IFS, person-centred). Be concise and never patronising \
-— but be genuinely useful and fairly forthcoming. Your job is to keep a few helpful cues in their \
-peripheral vision: a question worth asking next, a technique that fits, or a pattern worth noting.
+This practitioner is {trained_in}. Suggest what fits THEIR way of working: {fits}. \
+Never offer moves from a school they do not practise.
+
+NEVER be patronising. They are trained and experienced. Do not explain their own craft back to them, \
+do not praise them, and do not soften a suggestion with flattery. Say the useful thing plainly. \
+Be concise, but genuinely useful and fairly forthcoming. Your job is to keep a few helpful cues in \
+their peripheral vision: a question worth asking next, a technique that fits, or a pattern worth noting.
 
 Session: {framing}.
 
@@ -82,6 +86,8 @@ Rules:
 - Offer a card only when it is directly supported by the latest turns. Prefer an empty panel to a
   speculative one: return [] rather than manufacture a pattern, and also when the latest turn is purely
   logistical or social ("hi", "thanks", "one sec") or a card would just restate the obvious.
+- NO TWO CARDS MAY MAKE THE SAME SUGGESTION. Rewording one point as two cards wastes the panel and
+  reads as padding. If only one thing is worth saying, return one card.
 - "question": a specific question the therapist might pose next.
 - "technique": a named tool/technique that fits right now, stated in a phrase.
 - "observation": a grounded pattern worth noting (e.g. possible catastrophizing, repeated deflection)
@@ -100,8 +106,10 @@ ADVISOR_REPLY_SYSTEM_PROMPT = """\
 You are a clinical co-pilot answering a licensed therapist's PRIVATE question during a live session. \
 Only the therapist sees your answer; the client never will.
 
-Assume the therapist is trained (CBT, ACT, IFS, person-centred). Answer their question directly, \
-concisely and practically — a few sentences at most. Ground your answer in what was actually said in \
+This practitioner is {trained_in}. Answer in terms of THEIR way of working: {fits}. \
+Answer their question directly, concisely and practically — a few sentences at most. NEVER be \
+patronising: they are trained and experienced, so do not explain their own craft back to them, do \
+not praise them, and do not pad the answer with reassurance. Ground your answer in what was actually said in \
 the session when relevant, and you may also draw on general clinical knowledge when they ask for it.
 
 You are an assistive aid, not the clinician: offer options and considerations, not firm directives, and \
@@ -133,7 +141,7 @@ NO_ICD_RULE = (
 
 
 def answer_therapist(question: str, transcript: str = "", notes: str = "", mode: str = "solo",
-                     allow_icd: bool = True) -> str:
+                     allow_icd: bool = True, role: str = None) -> str:
     """Return a short, private co-pilot answer to the therapist's note/question.
 
     `allow_icd` is False for roles that do not do clinical coding (coaches). The
@@ -145,8 +153,12 @@ def answer_therapist(question: str, transcript: str = "", notes: str = "", mode:
     if not question or not question.strip():
         return ""
 
+    import roles as _roles
+    framing = _roles.copilot_framing(role if _roles.is_valid(role) else _roles.DEFAULT_ROLE)
     system_prompt = ADVISOR_REPLY_SYSTEM_PROMPT.format(
         framing=_MODE_FRAMING.get(mode, _MODE_FRAMING["solo"]),
+        trained_in=framing["trained_in"],
+        fits=framing["fits"],
     )
     if not allow_icd:
         system_prompt += NO_ICD_RULE
@@ -171,7 +183,8 @@ def answer_therapist(question: str, transcript: str = "", notes: str = "", mode:
         return ""
 
 
-def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: str = "") -> list:
+def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: str = "",
+                         role: str = None) -> list:
     """Return a list of suggestion cards for the therapist, or [] when nothing is high-signal.
 
     Never raises — any API or parsing failure yields [] so the live session is
@@ -180,8 +193,12 @@ def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: s
     if not transcript or not transcript.strip():
         return []
 
+    import roles as _roles
+    framing = _roles.copilot_framing(role if _roles.is_valid(role) else _roles.DEFAULT_ROLE)
     system_prompt = ADVISOR_SYSTEM_PROMPT.format(
         framing=_MODE_FRAMING.get(mode, _MODE_FRAMING["solo"]),
+        trained_in=framing["trained_in"],
+        fits=framing["fits"],
         max_cards=MAX_CARDS_PER_TURN,
     )
 

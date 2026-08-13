@@ -536,7 +536,12 @@ def _run_copilot(session_id: str, mode: str, trigger_text: str = None,
             # but never a code.
             if _has_icd_codes(clinician):
                 cards.extend(copilot.build_reference_cards(transcript))
-            cards.extend(copilot.generate_suggestions(transcript, mode=mode, therapist_notes=notes))
+            # The role decides what kind of suggestion fits. Without it every
+            # practitioner got talking-therapy moves — a hypnotherapist was
+            # offered "invite them to say more" mid-induction.
+            cards.extend(copilot.generate_suggestions(
+                transcript, mode=mode, therapist_notes=notes,
+                role=roles.role_of(clinician)))
 
         recent = session_recent_cards.setdefault(session_id, [])
         cards = copilot.dedupe_cards(cards, recent)
@@ -581,9 +586,10 @@ def _answer_therapist_note(session_id: str, user_id: str, question: str) -> None
             return
         transcript = _build_transcript(session_id)
         notes = "\n".join(session_therapist_notes.get(session_id, []))
+        _clin = _session_clinician(session_id)
         answer = copilot.answer_therapist(
             question, transcript, notes, mode=room_mode.get(session_id, "solo"),
-            allow_icd=_has_icd_codes(_session_clinician(session_id)))
+            allow_icd=_has_icd_codes(_clin), role=roles.role_of(_clin))
         # Deterministic stand-down: once the therapist has acknowledged a flagged
         # safety concern, strip any sentence that re-raises crisis language from
         # the reply, so the co-pilot cannot keep bringing it up.

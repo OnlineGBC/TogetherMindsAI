@@ -44,6 +44,14 @@ ROLES = {
         "paid":  {AI, ICD, RECORDING},
         "licence_check": True,     # must certify they may practise in the client's state
         "clinical": True,          # may use "clinician" / "clinical record" wording
+        # How the co-pilot is told to think about this practitioner. Without it
+        # every role got the same talking-therapy prompt, so a hypnotherapist was
+        # offered person-centred moves ("invite them to say more") mid-induction.
+        # Required of every role — see tests/test_copilot_role_prompt.py.
+        "copilot_trained_in":
+            "trained in talking therapies (CBT, ACT, IFS, person-centred)",
+        "copilot_fits":
+            "questions, reflections and named talking-therapy techniques",
     },
     HYPNOTHERAPIST: {
         "label": "Hypnotherapist / hypnotic coach",
@@ -52,6 +60,14 @@ ROLES = {
         "paid":  {AI, RECORDING},  # deliberately no ICD — coding is clinical
         "licence_check": False,
         "clinical": False,
+        "copilot_trained_in":
+            "trained in hypnotherapy and coaching — inductions, suggestion, "
+            "deepeners, anchoring, motivational and goal-focused work",
+        "copilot_fits":
+            "what a symptom or habit does for the person, their triggers, "
+            "readiness for trance, suggestion wording, and goal-focused moves. "
+            "Do NOT default to open-ended exploration when they are working "
+            "hypnotically",
     },
     CAREGIVER: {
         "label": "Nurse / parent / caregiver",
@@ -63,6 +79,11 @@ ROLES = {
         "paid":  {RECORDING},
         "licence_check": False,
         "clinical": False,
+        # This role has no chat and no transcript, so the co-pilot has nothing to
+        # read. Present for completeness, and so adding words later needs no
+        # change here.
+        "copilot_trained_in": "watching over someone, not running a therapy session",
+        "copilot_fits": "plain, practical notes about what they are seeing",
     },
 }
 
@@ -217,3 +238,20 @@ def choices() -> list:
     """(value, label, blurb) for the sign-up picker, in display order."""
     return [(r, ROLES[r]["label"], ROLES[r]["blurb"])
             for r in (PSYCHOTHERAPIST, HYPNOTHERAPIST, CAREGIVER)]
+
+
+def copilot_framing(role: str) -> dict:
+    """How the co-pilot should think about this practitioner.
+
+    Every role must supply both keys. A new role that forgets them would silently
+    fall back to the talking-therapy wording — which is the bug this replaced —
+    so the values are read strictly and a missing one raises here rather than
+    quietly mis-advising someone mid-session.
+    """
+    s = spec(role)
+    try:
+        return {"trained_in": s["copilot_trained_in"], "fits": s["copilot_fits"]}
+    except KeyError as exc:
+        raise KeyError(
+            f"role {role!r} is missing {exc} — every role must say how the "
+            f"co-pilot should think about it (see roles.ROLES)") from exc
