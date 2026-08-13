@@ -529,6 +529,13 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
    clamp(...) in the ≤991.98px media query), so "shrink to fill" works on phones too. */
 #rtcVideoGrid.self-mini .rtc-tile:not([data-tile="local"]) { width: 100%; }
 
+/* Brighten a dim picture — the watcher's screen only. Nothing is sent differently
+   and the camera is never touched, so this cannot clash with the background
+   processor (LiveKit allows one processor per track). Deliberately NOT applied to
+   the self-view: you should see your own camera as it really is. */
+#rtcVideoGrid.brighten-low  .rtc-tile:not([data-tile="local"]) video { filter: brightness(1.45) contrast(1.08); }
+#rtcVideoGrid.brighten-high .rtc-tile:not([data-tile="local"]) video { filter: brightness(1.9) contrast(1.18); }
+
 /* ---- Clearly visible scrollbars in the session room ---- */
 body.therapy-page .chat-window .card-body,
 body.therapy-page .video-pane {

@@ -270,8 +270,32 @@
                                     aria-pressed="false">
                                 <i class="bi bi-arrows-angle-in"></i> Shrink my video
                             </button>
+                            {% if has_brighten %}
+                            <!-- Brightens a dim picture in YOUR view only — nothing is sent
+                                 differently and the camera is not touched, so it cannot clash
+                                 with the background processor. Off by default: a lit room
+                                 would only be washed out by it. -->
+                            <span class="d-inline-flex align-items-center gap-1">
+                                <span class="small text-muted">Brighten:</span>
+                                <select class="form-select form-select-sm rounded-pill" id="rtcBrightenSelect"
+                                        style="width:auto" aria-label="Brighten a dim picture">
+                                    <option value="off">Off</option>
+                                    <option value="low">Low</option>
+                                    <option value="high">High</option>
+                                </select>
+                            </span>
+                            {% endif %}
                         </div>
                         <div id="rtcVideoGrid" class="mb-2 flex-grow-1"></div>
+                        {% if has_brighten %}
+                        {# Say what it does, or it gets reported as "night vision is
+                           broken". It lifts a dim picture; it cannot show what the
+                           camera never captured. #}
+                        <p class="small text-muted mb-1">
+                            Brighten lifts a dim picture on your screen only. It cannot see in
+                            the dark — a fully dark room needs a camera with infrared.
+                        </p>
+                        {% endif %}
                         {% if has_transcript %}
                         <div class="small text-muted mb-1"><i class="bi bi-badge-cc me-1"></i>Live captions</div>
                         <div id="rtcCaptions" class="border rounded-3 p-2 small bg-light" style="min-height:2.5rem">…</div>
@@ -1101,6 +1125,33 @@
     }
     document.addEventListener("visibilitychange", onForeground);
     window.addEventListener("pageshow", onForeground);
+
+    {% if has_brighten %}
+    // Brighten — LOCAL only, and only for the roles that watch a dim room. Puts a
+    // class on the grid; the CSS filter does the work on the incoming tiles. Nothing
+    // is sent, the camera is untouched, and the self-view is left alone on purpose
+    // so you always see your own camera as it really is.
+    // Remembered per device, because an overnight watcher should set it once.
+    (function () {
+        var sel = document.getElementById("rtcBrightenSelect");
+        if (!sel || !videoGrid) { return; }
+        function apply(level) {
+            videoGrid.classList.remove("brighten-low", "brighten-high");
+            if (level === "low" || level === "high") {
+                videoGrid.classList.add("brighten-" + level);
+            }
+        }
+        var saved = "off";
+        try { saved = localStorage.getItem("tmBrighten") || "off"; } catch (e) {}
+        if (saved !== "low" && saved !== "high") { saved = "off"; }
+        sel.value = saved;
+        apply(saved);
+        sel.addEventListener("change", function () {
+            apply(sel.value);
+            try { localStorage.setItem("tmBrighten", sel.value); } catch (e) {}
+        });
+    })();
+    {% endif %}
 
     // Self-view size — LOCAL only: shrink your OWN video tile in your OWN view.
     // Sends nothing to the server; other participants still see you full-size. The

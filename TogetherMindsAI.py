@@ -1797,6 +1797,11 @@ def _render_session_room(session_id, mode):
                               roles.CHAT, paid=True),
         has_transcript=roles.allows(roles.role_of(_session_clinician(session_id)),
                                     roles.TRANSCRIPT, paid=True),
+        # Brightening a dim picture. Keyed off the role by name, not a capability:
+        # it is a viewing aid for whoever is watching, not a feature the plan sells,
+        # so it does not belong in the capability table. Caregivers get it because
+        # watching a dark nursery all night is what this role does.
+        has_brighten=(roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
         # Metered roles see how much recording time is left, in the room where
         # they are actually recording — not only on the billing page.
         hours_left=(hours.describe(_recording_minutes_left(_session_clinician(session_id)))

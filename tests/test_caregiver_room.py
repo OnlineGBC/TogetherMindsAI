@@ -179,3 +179,38 @@ def test_the_icon_buttons_are_labelled_for_screen_readers(client):
     html = _room(client, roles.PSYCHOTHERAPIST)
     for label in ("Copy Session ID", "Name this session", "Change display name"):
         assert f'aria-label="{label}"' in html, label
+
+
+# ---------------------------------------------------------------------------
+# Brighten: a viewing aid for the role that watches a dim room
+# ---------------------------------------------------------------------------
+
+def test_the_caregiver_room_offers_brighten(client):
+    html = _room(client, roles.CAREGIVER)
+    assert 'id="rtcBrightenSelect"' in html
+    for level in ('value="off"', 'value="low"', 'value="high"'):
+        assert level in html
+
+
+def test_brighten_says_plainly_that_it_is_not_night_vision(client):
+    """Without this it gets reported as "night vision is broken". It lifts a dim
+    picture; it cannot show what the camera never captured."""
+    html = _room(client, roles.CAREGIVER)
+    assert "cannot see in" in html and "infrared" in html
+
+
+def test_other_roles_do_not_get_brighten(client):
+    for role in (roles.PSYCHOTHERAPIST, roles.HYPNOTHERAPIST):
+        html = _room(client, role)
+        assert 'id="rtcBrightenSelect"' not in html, role
+
+
+def test_brighten_never_touches_the_self_view():
+    """You must always see your own camera as it really is — and the filter must
+    stay off the sender, where it would clash with the background processor."""
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    for level in ("brighten-low", "brighten-high"):
+        line = [l for l in css.splitlines() if level in l and "filter" in l]
+        assert line, level
+        assert ':not([data-tile="local"])' in line[0], level
