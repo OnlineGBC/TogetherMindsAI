@@ -73,6 +73,14 @@ def register_oauth_routes(app):
         # write, so a blocked attempt does not even refresh last_login_at.
         if clinician is not None and clinician.disabled_at is not None:
             session.clear()
+            # Plain app log as well as the audit event: audit rows go to the DB
+            # and are not searchable in Cloud Logging, which is exactly why this
+            # was hard to diagnose.
+            _tm.app.logger.warning(
+                "DISABLED-BLOCK at sign-in: id=%s provider=%s subject=%s "
+                "disabled_at=%s email=%s",
+                clinician.id, provider, (subject or "")[:12],
+                clinician.disabled_at, clinician.email or "(none)")
             _tm.log_event("clinician_login_blocked", user_id=clinician.id,
                           provider=provider)
             flash("This account has been switched off. "
@@ -85,8 +93,13 @@ def register_oauth_routes(app):
                 email=email, created_at=now, last_login_at=now,
             )
             _tm.db.session.add(clinician)
+            _tm.app.logger.warning("SIGNIN new account: id=%s provider=%s subject=%s",
+                                   clinician.id, provider, (subject or "")[:12])
             _tm.log_event("clinician_registered", user_id=clinician.id, provider=provider)
         else:
+            _tm.app.logger.warning(
+                "SIGNIN matched existing: id=%s provider=%s subject=%s disabled_at=%s",
+                clinician.id, provider, (subject or "")[:12], clinician.disabled_at)
             clinician.last_login_at = now
             if email and clinician.email != email:
                 clinician.email = email   # backfill / keep current for existing accounts

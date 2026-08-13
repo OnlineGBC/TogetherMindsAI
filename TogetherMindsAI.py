@@ -216,6 +216,14 @@ def _block_disabled_clinician():
     clin = _current_clinician_row()
     if clin is None or getattr(clin, "disabled_at", None) is None:
         return
+    # Say WHICH account, and that it was this check rather than the sign-in one.
+    # Without this the two paths produce an identical message and can only be
+    # told apart by reasoning from outside the system.
+    app.logger.warning(
+        "DISABLED-BLOCK at request: id=%s provider=%s subject=%s disabled_at=%s path=%s",
+        clin.id, getattr(clin, "provider", "?"),
+        (getattr(clin, "provider_subject", "") or "")[:12],
+        getattr(clin, "disabled_at", None), request.path)
     session.clear()
     if request.path.startswith("/api/") or request.path.startswith("/rtc/"):
         return jsonify({"error": "account_disabled"}), 403
