@@ -700,15 +700,21 @@ def test_therapist_led_solo_cards_isolated_and_no_autoreply(enc_client):
     assert all(m["user_id"] != "AI" for m in c_new)
 
 
-def test_therapist_default_display_name_is_therapist(enc_client):
-    """The clinician's default name is 'Therapist' in every mode, so their role is clear."""
+def test_session_leader_is_named_for_their_role(enc_client):
+    """The person leading the session is named for what they ARE, in every mode, so
+    their role is clear to everyone.
+
+    Was a hardcoded "Therapist", which labelled a caregiver watching a baby as a
+    therapist on the video tile. It now comes from the role's own wording table
+    (roles.WORDING), so these sessions — whose therapist has no Clinician row and
+    therefore falls back to the default clinical role — read "Clinician"."""
     for mode in ("solo", "couple", "group"):
         therapist_id = str(uuid.uuid4())
         sid = _insert_session(mode=mode, therapist_id=therapist_id, created_by=therapist_id)
         t_sio = authed_socket(app, socketio, therapist_id, clinician=True)
         t_sio.emit("join", {"session_id": sid, "mode": mode})
         hist = _args_of(t_sio.get_received(), "history")
-        assert hist and hist[0]["default_name"] == "Therapist", mode
+        assert hist and hist[0]["default_name"] == "Clinician", mode
 
 
 def test_client_default_name_keeps_mode_prefix(enc_client):

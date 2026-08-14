@@ -4245,10 +4245,14 @@ def on_join(data):
         if user_id not in joined:
             joined.append(user_id)
         join_position = joined.index(user_id) + 1
-        # The clinician leading the session defaults to "Therapist" (in all modes)
-        # so their role is clear to everyone; clients keep the mode-based name.
+        # The person leading the session is named for what they ARE, so their role is
+        # clear to everyone; clients keep the mode-based name. A caregiver monitoring
+        # a baby was labelled "Therapist" on the video tile, which is simply wrong.
+        # Uses the role's own word (roles.WORDING), so a role added later is named
+        # correctly without touching this.
         if therapist_id and user_id == therapist_id:
-            default_name = "Therapist"
+            default_name = roles.words(
+                roles.role_of(_session_clinician(session_id)))["practitioner"].capitalize()
         else:
             default_name = _default_display_name(mode, join_position)
 

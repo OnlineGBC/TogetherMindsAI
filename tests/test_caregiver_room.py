@@ -264,10 +264,10 @@ def test_shrink_survives_full_screen():
     be blown back up the moment you went full screen."""
     css = open(os.path.join(os.path.dirname(__file__), "..",
                             "static", "css", "style.css"), encoding="utf-8").read()
-    assert "#rtcVideoGrid:fullscreen.self-mini [data-tile=\"local\"]" in css
-    assert "#rtcVideoGrid.fill-window.self-mini [data-tile=\"local\"]" in css
+    assert '#rtcLive:fullscreen #rtcVideoGrid.self-mini [data-tile="local"]' in css
+    assert '#rtcLive.fill-window #rtcVideoGrid.self-mini [data-tile="local"]' in css
     # And it must come AFTER the rules it has to beat.
-    assert css.index("#rtcVideoGrid:fullscreen.self-mini") > css.index("#rtcVideoGrid:fullscreen .rtc-tile")
+    assert css.index("#rtcLive:fullscreen #rtcVideoGrid.self-mini") > css.index("#rtcLive:fullscreen .rtc-tile")
 
 
 def test_the_caregiver_room_has_no_background_chooser(client):
@@ -296,7 +296,7 @@ def test_the_fill_window_cover_sits_below_bootstrap_modals():
     """A consent or licensure prompt must never open behind the video."""
     css = open(os.path.join(os.path.dirname(__file__), "..",
                             "static", "css", "style.css"), encoding="utf-8").read()
-    block = css.split("#rtcVideoGrid.fill-window {")[1].split("}")[0]
+    block = css.split("#rtcLive.fill-window {")[1].split("}")[0]
     z = int([l for l in block.splitlines() if "z-index" in l][0]
             .split(":")[1].strip().rstrip(";"))
     assert z < 1050, z          # Bootstrap's modal backdrop
@@ -324,9 +324,11 @@ def test_full_screen_also_enlarges_the_tile_not_just_the_container(client):
     css = open(os.path.join(os.path.dirname(__file__), "..",
                             "static", "css", "style.css"), encoding="utf-8").read()
     # Both paths must reset the tile, not just the fallback.
-    assert "#rtcVideoGrid:fullscreen .rtc-tile" in css
-    assert "#rtcVideoGrid.fill-window .rtc-tile" in css
-    tile_rules = css.split("#rtcVideoGrid.fill-window .rtc-tile,")[1].split("}")[0]
+    # The PANE is what goes full screen, not the grid — fullscreen shows only the
+    # element it was given, and the controls live outside the grid.
+    assert "#rtcLive:fullscreen .rtc-tile" in css
+    assert "#rtcLive.fill-window .rtc-tile" in css
+    tile_rules = css.split("#rtcLive.fill-window .rtc-tile,")[1].split("}")[0]
     for prop in ("aspect-ratio: auto", "max-height: none", "height: 100%"):
         assert prop in tile_rules, prop
 
@@ -338,8 +340,8 @@ def test_the_webkit_fullscreen_selector_is_its_own_rule():
                             "static", "css", "style.css"), encoding="utf-8").read()
     # Selector lines only — the comment above them names both on purpose.
     for line in css.splitlines():
-        if "#rtcVideoGrid:-webkit-full-screen" in line:
-            assert "#rtcVideoGrid:fullscreen" not in line, line.strip()
+        if "#rtcLive:-webkit-full-screen" in line:
+            assert "#rtcLive:fullscreen" not in line, line.strip()
 
 
 def test_the_monitor_shows_the_whole_frame_not_a_crop(client):
@@ -348,3 +350,92 @@ def test_the_monitor_shows_the_whole_frame_not_a_crop(client):
     css = open(os.path.join(os.path.dirname(__file__), "..",
                             "static", "css", "style.css"), encoding="utf-8").read()
     assert "object-fit: contain !important" in css
+
+
+# ---------------------------------------------------------------------------
+# What full screen looked like on a real phone
+# ---------------------------------------------------------------------------
+
+def test_full_screen_takes_the_pane_so_the_controls_stay_reachable(client):
+    """Fullscreen shows ONLY the element it is given. Handing it the grid hid Exit
+    and Brighten, leaving the phone's own "drag from the top" as the only way out
+    — and no way at all to brighten a dim room while watching it."""
+    html = _room(client, roles.CAREGIVER)
+    assert 'var pane = document.getElementById("rtcLive")' in html
+    assert 'pane.requestFullscreen' in html
+
+
+def test_full_screen_offers_fill_as_well_as_fit(client):
+    """A wide picture on a tall phone is mostly black bars. Fit shows the whole
+    frame, Fill crops to use the screen. Fit stays the default — cropping can put
+    the very thing being watched out of frame."""
+    html = _room(client, roles.CAREGIVER)
+    assert 'id="rtcFitFillBtn"' in html
+    assert "video-fill" in html
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert "object-fit: contain !important" in css      # the default
+    assert "object-fit: cover !important" in css        # opted into by Fill
+
+
+def test_full_screen_asks_for_landscape(client):
+    html = _room(client, roles.CAREGIVER)
+    assert 'screen.orientation.lock("landscape")' in html
+    assert "screen.orientation.unlock()" in html
+
+
+def test_full_screen_darkens_the_status_bar(client):
+    """Android paints the status bar from theme-color, which showed as a teal
+    stripe above a full-screen video."""
+    html = _room(client, roles.CAREGIVER)
+    assert 'meta[name="theme-color"]' in html
+    assert '"#000000"' in html
+
+
+def test_the_tile_label_is_styled_from_css_not_inline(client):
+    """An inline style cannot be overridden without !important, and at bottom:2px
+    the label sat under the phone's gesture bar in full screen."""
+    html = _room(client, roles.CAREGIVER)
+    assert "position:absolute;left:4px;bottom:2px" not in html
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert ".rtc-tile-label {" in css
+    assert "#rtcLive:fullscreen .rtc-tile-label" in css
+
+
+# ---------------------------------------------------------------------------
+# The person leading the session is named for what they ARE
+# ---------------------------------------------------------------------------
+
+def _default_name_for(role):
+    """The name the session leader is given on joining a room led by this role."""
+    import TogetherMindsAI as tm
+    from tests.socket_utils import authed_socket
+    with app.app_context():
+        db.session.query(Clinician).delete()
+        db.session.query(TherapySession).delete()
+        now = datetime.now(timezone.utc)
+        db.session.add(Clinician(id="doc", provider="google", provider_subject="doc",
+                                 email="doc@example.com", role=role, created_at=now))
+        db.session.add(TherapySession(
+            id="s2", mode="solo", created_by="doc", created_at=now,
+            retention_expires_at=now + timedelta(days=30), therapist_id="doc"))
+        db.session.commit()
+    sio = authed_socket(app, tm.socketio, "doc", clinician=True)
+    sio.emit("join", {"session_id": "s2", "mode": "solo"})
+    for event in sio.get_received():
+        if event["name"] == "history":
+            return event["args"][0]["default_name"]
+    return None
+
+
+def test_a_caregiver_is_not_labelled_therapist(client):
+    """A caregiver watching a baby was labelled "Therapist" on the video tile."""
+    assert _default_name_for(roles.CAREGIVER) == "Caregiver"
+
+
+def test_the_clinical_roles_keep_their_own_words(client):
+    """Taken from the role's own wording table, so a role added later is named
+    correctly without touching the join handler."""
+    assert _default_name_for(roles.PSYCHOTHERAPIST) == "Clinician"
+    assert _default_name_for(roles.HYPNOTHERAPIST) == "Practitioner"

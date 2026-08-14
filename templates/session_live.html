@@ -287,6 +287,15 @@
                                     title="Fill the screen with the video">
                                 <i class="bi bi-arrows-fullscreen"></i> Full screen
                             </button>
+                            {# Only useful once full screen: a wide picture on a tall
+                               phone is mostly black bars, and Fill trades seeing the
+                               whole frame for using the whole screen. Hidden until
+                               then so it cannot be pressed with nothing to do. #}
+                            <button type="button" id="rtcFitFillBtn"
+                                    class="btn btn-sm btn-outline-secondary rounded-pill d-none"
+                                    title="Crop the picture to fill the screen">
+                                <i class="bi bi-arrows-angle-expand"></i> Fill screen
+                            </button>
                             {% endif %}
                             {% if has_brighten %}
                             <!-- Brightens a dim picture in YOUR view only — nothing is sent
@@ -1048,7 +1057,9 @@
         var lab = document.createElement("span");
         lab.className = "rtc-tile-label";
         lab.textContent = label;
-        lab.style.cssText = "position:absolute;left:4px;bottom:2px;font-size:.7rem;color:#fff;background:rgba(0,0,0,.5);padding:0 4px;border-radius:3px;";
+        // Styles live in style.css so full screen can override them — an inline
+        // style cannot be beaten without !important, and at bottom:2px on a
+        // full-screen tile the label sat under the phone's gesture bar.
         t.appendChild(lab);
         videoGrid.appendChild(t);
     }
@@ -1153,30 +1164,34 @@
     window.addEventListener("pageshow", onForeground);
 
     {% if is_monitor %}
-    // Full screen — fills the display with the video area. Watching is the whole
-    // job in a monitor room, so this replaces "shrink my video".
+    // Full screen. The element handed to the browser is the whole video PANE, not
+    // the grid: fullscreen shows only the element it was given, so fullscreening
+    // the grid alone hid Exit and Brighten and left the phone's own "drag from the
+    // top" as the only way out.
     //
     // iPhone Safari will not fullscreen an arbitrary element — it only hands a
-    // single video to the iOS native player. So where the element API is missing we
-    // cover the viewport with our own CSS instead, which keeps the page (and the
-    // Brighten filter) and works on every browser.
+    // single video to the iOS native player, which drops the Brighten filter and
+    // the labels. So where the element API is missing we cover the viewport with
+    // our own CSS instead, which keeps the page and works on every browser.
     (function () {
-        var btn = document.getElementById("rtcFullscreenBtn");
-        if (!btn || !videoGrid) { return; }
+        var btn  = document.getElementById("rtcFullscreenBtn");
+        var fill = document.getElementById("rtcFitFillBtn");
+        var pane = document.getElementById("rtcLive");
+        if (!btn || !pane) { return; }
 
-        // Real fullscreen where the browser allows an ELEMENT to take the screen.
-        // Never video.webkitEnterFullscreen: that hands the stream to the iOS
-        // native player, which drops the Brighten filter and the tile labels — the
-        // brightening is the whole point of a monitor in a dim room. Where the
-        // element API is missing (iPhone Safari) we cover the viewport ourselves,
-        // which keeps the page and works on every browser.
+        // Android paints the status bar from theme-color; on black it shows as a
+        // teal stripe above a full-screen video. Swapped while full screen, put back
+        // on the way out.
+        var themeMeta = document.querySelector('meta[name="theme-color"]');
+        var themeWas  = themeMeta ? themeMeta.getAttribute("content") : null;
+
         function canReal() {
-            return !!(videoGrid.requestFullscreen || videoGrid.webkitRequestFullscreen);
+            return !!(pane.requestFullscreen || pane.webkitRequestFullscreen);
         }
         function inReal() {
             return !!(document.fullscreenElement || document.webkitFullscreenElement);
         }
-        function inFill() { return videoGrid.classList.contains("fill-window"); }
+        function inFill() { return pane.classList.contains("fill-window"); }
         function isOn() { return inReal() || inFill(); }
 
         function paint() {
@@ -1185,17 +1200,25 @@
                 ? '<i class="bi bi-fullscreen-exit"></i> Exit full screen'
                 : '<i class="bi bi-arrows-fullscreen"></i> Full screen';
             btn.title = on ? "Leave full screen" : "Fill the screen with the video";
+            if (fill) { fill.classList.toggle("d-none", !on); }
+            if (themeMeta) { themeMeta.setAttribute("content", on ? "#000000" : themeWas); }
         }
 
         function enter() {
             if (canReal()) {
-                try {
-                    (videoGrid.requestFullscreen || videoGrid.webkitRequestFullscreen)
-                        .call(videoGrid);
-                    return;
-                } catch (e) { /* fall through to filling the window */ }
+                try { (pane.requestFullscreen || pane.webkitRequestFullscreen).call(pane); }
+                catch (e) { pane.classList.add("fill-window"); }
+            } else {
+                pane.classList.add("fill-window");
             }
-            videoGrid.classList.add("fill-window");
+            // A wide picture on a tall screen is mostly black bars. Asking for
+            // landscape is allowed only while full screen, and only on some
+            // browsers — iPhone refuses, which is why Fill exists as well.
+            try {
+                if (screen.orientation && screen.orientation.lock) {
+                    screen.orientation.lock("landscape").catch(function () {});
+                }
+            } catch (e) {}
             paint();
         }
         function leave() {
@@ -1203,11 +1226,23 @@
                 try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
                 catch (e) {}
             }
-            videoGrid.classList.remove("fill-window");
+            pane.classList.remove("fill-window");
+            try { if (screen.orientation && screen.orientation.unlock) { screen.orientation.unlock(); } }
+            catch (e) {}
             paint();
         }
 
         btn.addEventListener("click", function () { isOn() ? leave() : enter(); });
+        // Fit shows the whole frame; Fill crops to use the whole screen. Fit is the
+        // default: cropping can put the very thing being watched out of frame.
+        if (fill) {
+            fill.addEventListener("click", function () {
+                var filling = pane.classList.toggle("video-fill");
+                fill.innerHTML = filling
+                    ? '<i class="bi bi-aspect-ratio"></i> Fit whole frame'
+                    : '<i class="bi bi-arrows-angle-expand"></i> Fill screen';
+            });
+        }
         document.addEventListener("fullscreenchange", paint);
         document.addEventListener("webkitfullscreenchange", paint);
         // Escape leaves real fullscreen by itself; it must also leave the fallback.
