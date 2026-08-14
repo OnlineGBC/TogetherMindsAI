@@ -264,19 +264,24 @@
                                 </select>
                                 <input type="file" id="rtcBgUpload" accept="image/*" class="d-none">
                             </span>
-                            <!-- Shrink your own video — LOCAL to your view only; others still
-                                 see you full-size. Shown ONLY when your camera is on (nothing
-                                 to shrink otherwise); hidden by default until then. -->
+                            {% endif %}
+                            {# Shrink your own video — LOCAL to your view only; others still
+                               see you full-size. In EVERY room, monitor included: a parent or
+                               nurse who joins a monitor with their camera on has a self-view
+                               to get out of the way, exactly like anyone else. No role test
+                               needed — the button hides itself unless your camera is on, so
+                               whoever has nothing to shrink never sees it. #}
                             <button type="button" id="rtcSelfMiniBtn"
                                     class="btn btn-sm btn-outline-secondary rounded-pill d-none"
                                     title="Shrink your own video in your view (only you see this)"
                                     aria-pressed="false">
                                 <i class="bi bi-arrows-angle-in"></i> Shrink my video
                             </button>
-                            {% else %}
+                            {% if is_monitor %}
                             {# Watching, not conferencing: filling the screen is the useful
-                               control here. Browsers only allow fullscreen from a real tap,
-                               so this is a button and never automatic. #}
+                               control here, and everyone in the room is watching the same
+                               camera. Browsers only allow fullscreen from a real tap, so this
+                               is a button and never automatic. #}
                             <button type="button" id="rtcFullscreenBtn"
                                     class="btn btn-sm btn-outline-secondary rounded-pill"
                                     title="Fill the screen with the video">

@@ -571,6 +571,28 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
     aspect-ratio: auto; border-radius: 0; box-shadow: none;
 }
 
+/* Shrink still works inside full screen. The rules above size EVERY tile to fill,
+   which would otherwise blow the shrunken self-view back up — same specificity as
+   the .self-mini rule, and later in the file, so it would win. These re-assert the
+   floating self-view and carry an extra class, so they win instead. */
+#rtcVideoGrid.fill-window.self-mini [data-tile="local"],
+#rtcVideoGrid:fullscreen.self-mini [data-tile="local"] {
+    position: absolute;
+    right: 12px; bottom: 12px;
+    width: clamp(120px, 20%, 200px);
+    height: auto;
+    aspect-ratio: 4 / 3;
+    border-radius: 0.6rem;
+}
+#rtcVideoGrid:-webkit-full-screen.self-mini [data-tile="local"] {
+    position: absolute;
+    right: 12px; bottom: 12px;
+    width: clamp(120px, 20%, 200px);
+    height: auto;
+    aspect-ratio: 4 / 3;
+    border-radius: 0.6rem;
+}
+
 /* `contain`, not `cover`. The tile sets object-fit:cover inline, which crops to fill
    — fine for a face in a call, wrong for a monitor, where cropping can put the very
    thing being watched outside the frame. !important is needed to beat the inline

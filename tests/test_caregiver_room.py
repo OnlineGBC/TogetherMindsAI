@@ -242,17 +242,32 @@ def test_the_caregiver_room_still_sends_the_presence_heartbeat(client):
     assert "/heartbeat" in html
 
 
-def test_the_caregiver_room_swaps_shrink_for_full_screen(client):
-    """Watching is the whole job here — there is no own-video to shrink."""
+def test_the_caregiver_room_has_both_full_screen_and_shrink(client):
+    """Everyone in a monitor watches the same camera, so full screen is the useful
+    control. Shrink stays too: a parent or nurse who joins with their camera on has
+    a self-view to move out of the way, exactly like anyone else. The button hides
+    itself when the camera is off, so nobody sees a control with nothing to do."""
     html = _room(client, roles.CAREGIVER)
     assert 'id="rtcFullscreenBtn"' in html
-    assert 'id="rtcSelfMiniBtn"' not in html
+    assert 'id="rtcSelfMiniBtn"' in html
 
 
 def test_other_roles_keep_shrink_and_have_no_full_screen(client):
     html = _room(client, roles.PSYCHOTHERAPIST)
     assert 'id="rtcSelfMiniBtn"' in html
     assert 'id="rtcFullscreenBtn"' not in html
+
+
+def test_shrink_survives_full_screen():
+    """The full-screen rules size EVERY tile to fill, at the same specificity as the
+    shrink rule and later in the file — so without this the shrunken self-view would
+    be blown back up the moment you went full screen."""
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert "#rtcVideoGrid:fullscreen.self-mini [data-tile=\"local\"]" in css
+    assert "#rtcVideoGrid.fill-window.self-mini [data-tile=\"local\"]" in css
+    # And it must come AFTER the rules it has to beat.
+    assert css.index("#rtcVideoGrid:fullscreen.self-mini") > css.index("#rtcVideoGrid:fullscreen .rtc-tile")
 
 
 def test_the_caregiver_room_has_no_background_chooser(client):
