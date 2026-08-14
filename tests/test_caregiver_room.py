@@ -299,3 +299,37 @@ def test_other_roles_do_not_take_a_wake_lock(client):
     itself, and a needless wake lock costs battery."""
     html = _room(client, roles.PSYCHOTHERAPIST)
     assert "wakeLock" not in html
+
+
+def test_full_screen_also_enlarges_the_tile_not_just_the_container(client):
+    """Regression: the grid went full screen but the tile kept aspect-ratio 4/3,
+    max-height 72vh and the phone width clamp, so a full screen showed a small
+    tile in the corner of a black screen. The browser enlarges the ELEMENT, never
+    its children — real fullscreen needs the same overrides as the fallback."""
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    # Both paths must reset the tile, not just the fallback.
+    assert "#rtcVideoGrid:fullscreen .rtc-tile" in css
+    assert "#rtcVideoGrid.fill-window .rtc-tile" in css
+    tile_rules = css.split("#rtcVideoGrid.fill-window .rtc-tile,")[1].split("}")[0]
+    for prop in ("aspect-ratio: auto", "max-height: none", "height: 100%"):
+        assert prop in tile_rules, prop
+
+
+def test_the_webkit_fullscreen_selector_is_its_own_rule():
+    """A browser that does not know :-webkit-full-screen discards the whole rule it
+    sits in — grouping it with :fullscreen would take the standard one down too."""
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    # Selector lines only — the comment above them names both on purpose.
+    for line in css.splitlines():
+        if "#rtcVideoGrid:-webkit-full-screen" in line:
+            assert "#rtcVideoGrid:fullscreen" not in line, line.strip()
+
+
+def test_the_monitor_shows_the_whole_frame_not_a_crop(client):
+    """The tile sets object-fit:cover inline. Cropping can put the very thing being
+    watched outside the frame, so full screen shows the whole picture."""
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert "object-fit: contain !important" in css
