@@ -214,3 +214,54 @@ def test_brighten_never_touches_the_self_view():
         line = [l for l in css.splitlines() if level in l and "filter" in l]
         assert line, level
         assert ':not([data-tile="local"])' in line[0], level
+
+
+# ---------------------------------------------------------------------------
+# A monitor room drops what it cannot use
+# ---------------------------------------------------------------------------
+
+def test_the_caregiver_room_has_no_copilot(client):
+    """A monitor room has no words for the co-pilot to read, so the panel could
+    only ever sit there empty. The script is not even fetched."""
+    html = _room(client, roles.CAREGIVER)
+    assert "therapist-console.js" not in html
+    assert "initTherapistConsole" not in html
+
+
+def test_other_roles_still_get_the_copilot(client):
+    for role in (roles.PSYCHOTHERAPIST, roles.HYPNOTHERAPIST):
+        html = _room(client, role)
+        assert "therapist-console.js" in html, role
+        assert "initTherapistConsole" in html, role
+
+
+def test_the_caregiver_room_still_sends_the_presence_heartbeat(client):
+    """The co-pilot gate sits INSIDE the therapist block; it must not take the
+    heartbeat with it. Without the heartbeat, clients are never admitted."""
+    html = _room(client, roles.CAREGIVER)
+    assert "/heartbeat" in html
+
+
+def test_the_caregiver_room_swaps_shrink_for_full_screen(client):
+    """Watching is the whole job here — there is no own-video to shrink."""
+    html = _room(client, roles.CAREGIVER)
+    assert 'id="rtcFullscreenBtn"' in html
+    assert 'id="rtcSelfMiniBtn"' not in html
+
+
+def test_other_roles_keep_shrink_and_have_no_full_screen(client):
+    html = _room(client, roles.PSYCHOTHERAPIST)
+    assert 'id="rtcSelfMiniBtn"' in html
+    assert 'id="rtcFullscreenBtn"' not in html
+
+
+def test_the_caregiver_room_has_no_background_chooser(client):
+    """You are watching someone else's camera; there is no own background."""
+    html = _room(client, roles.CAREGIVER)
+    assert 'id="rtcBgSelect"' not in html
+    assert 'id="rtcBgUpload"' not in html
+
+
+def test_other_roles_keep_the_background_chooser(client):
+    html = _room(client, roles.HYPNOTHERAPIST)
+    assert 'id="rtcBgSelect"' in html

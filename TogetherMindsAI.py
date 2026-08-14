@@ -1801,7 +1801,19 @@ def _render_session_room(session_id, mode):
         # it is a viewing aid for whoever is watching, not a feature the plan sells,
         # so it does not belong in the capability table. Caregivers get it because
         # watching a dark nursery all night is what this role does.
+        # A MONITOR room: you are watching someone, not sitting in a conversation
+        # with them. That single fact decides three things — brightening is worth
+        # offering, and the background chooser and "shrink my video" are not, because
+        # the watcher is not the person on camera. Keyed off the role by name: these
+        # are viewing arrangements, not features a plan sells, so they do not belong
+        # in the capability table.
+        is_monitor=(roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
         has_brighten=(roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
+        # The co-pilot IS a capability, so it follows the table like chat and
+        # transcript. A monitor room has no words for it to read, so the panel could
+        # only ever sit there empty.
+        has_copilot=roles.allows(roles.role_of(_session_clinician(session_id)),
+                                 roles.AI, paid=True),
         # Metered roles see how much recording time is left, in the room where
         # they are actually recording — not only on the billing page.
         hours_left=(hours.describe(_recording_minutes_left(_session_clinician(session_id)))

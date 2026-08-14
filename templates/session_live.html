@@ -249,6 +249,9 @@
                             <span class="badge bg-secondary" id="rtcStatus">connecting…</span>
                             <!-- Mic / Camera / Transcription controls live in the always-visible
                                  control strip above; here we keep video-only settings. -->
+                            {# A monitor room watches someone else's camera, so there is
+                               no own-background to change and no own-video to shrink. #}
+                            {% if not is_monitor %}
                             <span class="d-inline-flex align-items-center gap-1">
                                 <span class="small text-muted">Background:</span>
                                 <select class="form-select form-select-sm rounded-pill" id="rtcBgSelect" style="width:auto">
@@ -270,6 +273,16 @@
                                     aria-pressed="false">
                                 <i class="bi bi-arrows-angle-in"></i> Shrink my video
                             </button>
+                            {% else %}
+                            {# Watching, not conferencing: filling the screen is the useful
+                               control here. Browsers only allow fullscreen from a real tap,
+                               so this is a button and never automatic. #}
+                            <button type="button" id="rtcFullscreenBtn"
+                                    class="btn btn-sm btn-outline-secondary rounded-pill"
+                                    title="Fill the screen with the video">
+                                <i class="bi bi-arrows-fullscreen"></i> Full screen
+                            </button>
+                            {% endif %}
                             {% if has_brighten %}
                             <!-- Brightens a dim picture in YOUR view only — nothing is sent
                                  differently and the camera is not touched, so it cannot clash
@@ -531,7 +544,10 @@
     @media (prefers-reduced-motion: reduce) { .rec-blink { animation: none; } }
 </style>
 {% endif %}
-{% if is_therapist %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}?v=2026-07-24-b"></script>{% endif %}
+{# Not just "is the therapist" — the ROLE must actually have the co-pilot. A
+   monitor room has no words for it to read, so the panel could only sit empty.
+   Gated here as well as at the call below, so the script is not even fetched. #}
+{% if is_therapist and has_copilot %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}?v=2026-07-24-b"></script>{% endif %}
 <script nonce="{{ csp_nonce }}">
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";
@@ -660,7 +676,12 @@
     window.addEventListener("load", function () {
         joinRoom(SESSION_ID, USER_ID, MODE, false /* realtime */);
         {% if is_therapist %}
+        {# Only the console is gated on the co-pilot. Everything else in this block —
+           the presence heartbeat especially — is needed by every clinician-led room,
+           caregiver monitors included. #}
+        {% if has_copilot %}
         initTherapistConsole(SESSION_ID, USER_ID);
+        {% endif %}
         // Presence heartbeat — tells the server the clinician is here so clients are
         // admitted from the waiting room. DB-backed, so it survives restarts and
         // doesn't depend on the socket staying connected.
@@ -1125,6 +1146,55 @@
     }
     document.addEventListener("visibilitychange", onForeground);
     window.addEventListener("pageshow", onForeground);
+
+    {% if is_monitor %}
+    // Full screen — fills the display with the video area. Watching is the whole
+    // job in a monitor room, so this replaces "shrink my video".
+    //
+    // iPhone Safari will not fullscreen an arbitrary element: it only does it for a
+    // <video>, through its own webkitEnterFullscreen. So fall back to the single
+    // video, and if even that is unavailable hide the button rather than leave a
+    // control that does nothing when tapped.
+    (function () {
+        var btn = document.getElementById("rtcFullscreenBtn");
+        if (!btn || !videoGrid) { return; }
+
+        function anyVideo() { return videoGrid.querySelector("video"); }
+        function canFullscreen() {
+            return !!(videoGrid.requestFullscreen || videoGrid.webkitRequestFullscreen
+                      || (anyVideo() && anyVideo().webkitEnterFullscreen));
+        }
+        function isFullscreen() {
+            return !!(document.fullscreenElement || document.webkitFullscreenElement);
+        }
+        function paint() {
+            var on = isFullscreen();
+            btn.innerHTML = on
+                ? '<i class="bi bi-fullscreen-exit"></i> Exit full screen'
+                : '<i class="bi bi-arrows-fullscreen"></i> Full screen';
+            btn.title = on ? "Leave full screen" : "Fill the screen with the video";
+        }
+        btn.addEventListener("click", function () {
+            try {
+                if (isFullscreen()) {
+                    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+                    return;
+                }
+                if (videoGrid.requestFullscreen) { videoGrid.requestFullscreen(); }
+                else if (videoGrid.webkitRequestFullscreen) { videoGrid.webkitRequestFullscreen(); }
+                else {
+                    var v = anyVideo();
+                    if (v && v.webkitEnterFullscreen) { v.webkitEnterFullscreen(); }
+                }
+            } catch (e) { console.error("fullscreen refused", e); }
+        });
+        document.addEventListener("fullscreenchange", paint);
+        document.addEventListener("webkitfullscreenchange", paint);
+        // Hide rather than offer a control the browser will refuse.
+        if (!canFullscreen()) { btn.classList.add("d-none"); }
+        paint();
+    })();
+    {% endif %}
 
     {% if has_brighten %}
     // Brighten — LOCAL only, and only for the roles that watch a dim room. Puts a
