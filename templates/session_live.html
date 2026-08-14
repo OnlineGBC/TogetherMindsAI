@@ -1151,48 +1151,85 @@
     // Full screen — fills the display with the video area. Watching is the whole
     // job in a monitor room, so this replaces "shrink my video".
     //
-    // iPhone Safari will not fullscreen an arbitrary element: it only does it for a
-    // <video>, through its own webkitEnterFullscreen. So fall back to the single
-    // video, and if even that is unavailable hide the button rather than leave a
-    // control that does nothing when tapped.
+    // iPhone Safari will not fullscreen an arbitrary element — it only hands a
+    // single video to the iOS native player. So where the element API is missing we
+    // cover the viewport with our own CSS instead, which keeps the page (and the
+    // Brighten filter) and works on every browser.
     (function () {
         var btn = document.getElementById("rtcFullscreenBtn");
         if (!btn || !videoGrid) { return; }
 
-        function anyVideo() { return videoGrid.querySelector("video"); }
-        function canFullscreen() {
-            return !!(videoGrid.requestFullscreen || videoGrid.webkitRequestFullscreen
-                      || (anyVideo() && anyVideo().webkitEnterFullscreen));
+        // Real fullscreen where the browser allows an ELEMENT to take the screen.
+        // Never video.webkitEnterFullscreen: that hands the stream to the iOS
+        // native player, which drops the Brighten filter and the tile labels — the
+        // brightening is the whole point of a monitor in a dim room. Where the
+        // element API is missing (iPhone Safari) we cover the viewport ourselves,
+        // which keeps the page and works on every browser.
+        function canReal() {
+            return !!(videoGrid.requestFullscreen || videoGrid.webkitRequestFullscreen);
         }
-        function isFullscreen() {
+        function inReal() {
             return !!(document.fullscreenElement || document.webkitFullscreenElement);
         }
+        function inFill() { return videoGrid.classList.contains("fill-window"); }
+        function isOn() { return inReal() || inFill(); }
+
         function paint() {
-            var on = isFullscreen();
+            var on = isOn();
             btn.innerHTML = on
                 ? '<i class="bi bi-fullscreen-exit"></i> Exit full screen'
                 : '<i class="bi bi-arrows-fullscreen"></i> Full screen';
             btn.title = on ? "Leave full screen" : "Fill the screen with the video";
         }
-        btn.addEventListener("click", function () {
-            try {
-                if (isFullscreen()) {
-                    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+
+        function enter() {
+            if (canReal()) {
+                try {
+                    (videoGrid.requestFullscreen || videoGrid.webkitRequestFullscreen)
+                        .call(videoGrid);
                     return;
-                }
-                if (videoGrid.requestFullscreen) { videoGrid.requestFullscreen(); }
-                else if (videoGrid.webkitRequestFullscreen) { videoGrid.webkitRequestFullscreen(); }
-                else {
-                    var v = anyVideo();
-                    if (v && v.webkitEnterFullscreen) { v.webkitEnterFullscreen(); }
-                }
-            } catch (e) { console.error("fullscreen refused", e); }
-        });
+                } catch (e) { /* fall through to filling the window */ }
+            }
+            videoGrid.classList.add("fill-window");
+            paint();
+        }
+        function leave() {
+            if (inReal()) {
+                try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); }
+                catch (e) {}
+            }
+            videoGrid.classList.remove("fill-window");
+            paint();
+        }
+
+        btn.addEventListener("click", function () { isOn() ? leave() : enter(); });
         document.addEventListener("fullscreenchange", paint);
         document.addEventListener("webkitfullscreenchange", paint);
-        // Hide rather than offer a control the browser will refuse.
-        if (!canFullscreen()) { btn.classList.add("d-none"); }
+        // Escape leaves real fullscreen by itself; it must also leave the fallback.
+        document.addEventListener("keydown", function (e) {
+            if (e.key === "Escape" && inFill()) { leave(); }
+        });
         paint();
+    })();
+
+    // Keep the screen awake while the monitor is open. A phone propped up watching
+    // a crib sleeps after a minute or two and then shows nothing at all. Released
+    // on leaving, and re-taken when the tab comes back — the browser drops the lock
+    // whenever the page is hidden.
+    (function () {
+        if (!("wakeLock" in navigator)) { return; }   // older iOS / Firefox: no-op
+        var lock = null;
+        async function take() {
+            if (document.visibilityState !== "visible" || lock) { return; }
+            try { lock = await navigator.wakeLock.request("screen"); }
+            catch (e) { lock = null; }                 // refused (low battery) — not fatal
+            if (lock) { lock.addEventListener("release", function () { lock = null; }); }
+        }
+        document.addEventListener("visibilitychange", take);
+        window.addEventListener("pagehide", function () {
+            try { if (lock) { lock.release(); lock = null; } } catch (e) {}
+        });
+        take();
     })();
     {% endif %}
 

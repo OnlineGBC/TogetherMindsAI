@@ -265,3 +265,37 @@ def test_the_caregiver_room_has_no_background_chooser(client):
 def test_other_roles_keep_the_background_chooser(client):
     html = _room(client, roles.HYPNOTHERAPIST)
     assert 'id="rtcBgSelect"' in html
+
+
+def test_full_screen_falls_back_to_filling_the_window(client):
+    """iPhone Safari will not fullscreen a container. The fallback must be our own
+    CSS cover, NOT video.webkitEnterFullscreen — the iOS native player drops the
+    Brighten filter, and brightening is the point of a monitor in a dim room."""
+    html = _room(client, roles.CAREGIVER)
+    assert "fill-window" in html
+    # The CALL, not the word — the comment above it explains why we avoid it.
+    assert ".webkitEnterFullscreen(" not in html
+
+
+def test_the_fill_window_cover_sits_below_bootstrap_modals():
+    """A consent or licensure prompt must never open behind the video."""
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    block = css.split("#rtcVideoGrid.fill-window {")[1].split("}")[0]
+    z = int([l for l in block.splitlines() if "z-index" in l][0]
+            .split(":")[1].strip().rstrip(";"))
+    assert z < 1050, z          # Bootstrap's modal backdrop
+
+
+def test_the_monitor_keeps_the_screen_awake(client):
+    """A phone propped up watching a crib sleeps in a minute and shows nothing."""
+    html = _room(client, roles.CAREGIVER)
+    assert "wakeLock" in html
+    assert 'navigator.wakeLock.request("screen")' in html
+
+
+def test_other_roles_do_not_take_a_wake_lock(client):
+    """Only the room whose job is watching. A therapy session holds attention by
+    itself, and a needless wake lock costs battery."""
+    html = _room(client, roles.PSYCHOTHERAPIST)
+    assert "wakeLock" not in html
