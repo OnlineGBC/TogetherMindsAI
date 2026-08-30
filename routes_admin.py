@@ -241,7 +241,7 @@ def register_admin_routes(app):
 
     @app.route("/accessadmin/code", methods=["POST"])
     def admin_access_promo_code():
-        """Add a discount code, or stop one. Admin only.
+        """Add, edit or delete a discount code. Admin only.
 
         Nothing is stored unless Stripe accepted the code: a row here with no
         code there would hand someone a code that does not work.
@@ -249,15 +249,33 @@ def register_admin_routes(app):
         email = _require_admin()
         if not _is_verified():
             abort(403)
-        stop_id = (request.form.get("stop_id") or "").strip()
+        edit_id = (request.form.get("edit_id") or "").strip()
+        delete_id = (request.form.get("delete_id") or "").strip()
         try:
-            if stop_id:
-                if admin_access.stop_promo_code(_tm.db, _tm.PromoCode, int(stop_id)):
-                    _tm.log_event("promo_code_stopped", user_id=session.get("user_id"),
-                                  promo_id=int(stop_id))
-                    flash("Code switched off.", "info")
+            if delete_id:
+                if admin_access.delete_promo_code(_tm.db, _tm.PromoCode, int(delete_id)):
+                    _tm.log_event("promo_code_deleted", user_id=session.get("user_id"),
+                                  row_id=int(delete_id))
+                    flash("Code deleted. It no longer works.", "info")
                 else:
-                    flash("No change made — unknown code, or already off.", "danger")
+                    flash("No change made — that code is already gone.", "danger")
+            elif edit_id:
+                row = admin_access.edit_promo_code(
+                    _tm.db, _tm.PromoCode, int(edit_id),
+                    label=request.form.get("label", ""),
+                    email=request.form.get("email", ""),
+                    commission_pct=request.form.get("commission_pct", ""),
+                    # An unticked box sends nothing at all, which is how a
+                    # checkbox says "off".
+                    active=(request.form.get("active") == "1"),
+                )
+                if row is None:
+                    flash("No change made — unknown code.", "danger")
+                else:
+                    _tm.log_event("promo_code_edited", user_id=session.get("user_id"),
+                                  code=row.code, commission_pct=row.commission_pct,
+                                  active=row.active)
+                    flash(f"Saved {row.code}.", "info")
             else:
                 row = admin_access.create_promo_code(
                     _tm.db, _tm.PromoCode,

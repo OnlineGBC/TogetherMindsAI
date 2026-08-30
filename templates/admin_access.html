@@ -292,7 +292,10 @@
           </div>
         </form>
         <p class="text-muted small mb-0 mt-2">
-          Max uses is optional, and enforced by Stripe.
+          Max uses is optional, and enforced by Stripe. On a code that already
+          exists you can change the label, the email, the commission and whether it
+          is active. The code itself, the discount and the max-uses cap are fixed
+          when it is made — to change one of those, delete it and add another.
         </p>
 
         {% if promo_codes %}
@@ -306,29 +309,58 @@
             </thead>
             <tbody>
             {% for p in promo_codes %}
+              {# Each row IS the edit form. The inputs sit in different cells and
+                 point at it by id: a <form> may not wrap <td>s — browsers hoist it
+                 out of the table and the fields then submit nothing.
+
+                 The three fields Stripe fixes at creation — the code, the discount
+                 and the max-uses cap — are plain text, because its update endpoint
+                 takes only `active`, `metadata` and `restrictions`. To change one
+                 of those, delete and add another. #}
               <tr>
                 <td class="small">
-                  {{ p.label }}
-                  <div class="comp-muted" style="font-size:.78rem">{{ p.email or ('no partner' if not p.has_partner else 'no email') }}</div>
+                  <input form="pc{{ p.id }}" class="form-control form-control-sm mb-1"
+                         name="label" value="{{ p.label }}" maxlength="80" aria-label="Label">
+                  <input form="pc{{ p.id }}" class="form-control form-control-sm"
+                         name="email" type="email" value="{{ p.email or '' }}"
+                         placeholder="no email" aria-label="Partner email">
                 </td>
                 <td class="small font-monospace">{{ p.code }}</td>
-                <td class="small comp-muted">
-                  they {{ p.discount_pct }}% · partner {{ p.commission_pct }}% ·
-                  <strong>you {{ p.kept_pct }}%</strong>
+                <td class="small comp-muted text-nowrap">
+                  they {{ p.discount_pct }}% · partner
+                  <input form="pc{{ p.id }}" class="form-control form-control-sm d-inline-block"
+                         name="commission_pct" type="number" min="0" max="100"
+                         value="{{ p.commission_pct }}" style="width:5rem"
+                         aria-label="Partner earns percent">%
+                  · <strong>you {{ p.kept_pct }}%</strong>
                 </td>
                 <td class="small comp-muted">
                   {{ promo_uses.get(p.code) if promo_uses.get(p.code) is not none else '—' }}{% if p.max_uses %} of {{ p.max_uses }}{% endif %}
                 </td>
                 <td class="text-end">
-                  {% if p.active %}
-                  <form method="post" action="{{ url_for('admin_access_promo_code') }}">
+                  <form id="pc{{ p.id }}" method="post"
+                        action="{{ url_for('admin_access_promo_code') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <input type="hidden" name="stop_id" value="{{ p.id }}">
-                    <button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Stop</button>
+                    <input type="hidden" name="edit_id" value="{{ p.id }}">
                   </form>
-                  {% else %}
-                  <span class="badge bg-secondary rounded-pill">Stopped</span>
-                  {% endif %}
+                  <div class="d-flex gap-2 justify-content-end align-items-center flex-wrap">
+                    {# Unticking keeps the record of what the partner is owed;
+                       deleting takes it with the row. #}
+                    <div class="form-check mb-0">
+                      <input form="pc{{ p.id }}" class="form-check-input" type="checkbox"
+                             name="active" value="1" id="active{{ p.id }}"
+                             {% if p.active %}checked{% endif %}>
+                      <label class="form-check-label small" for="active{{ p.id }}">Active</label>
+                    </div>
+                    <button form="pc{{ p.id }}" class="btn btn-primary btn-sm rounded-pill"
+                            type="submit">Save</button>
+                    <form method="post" action="{{ url_for('admin_access_promo_code') }}"
+                          onsubmit="return confirm('Delete {{ p.code }}? It stops working, and the record of what this partner is owed goes with it.');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <input type="hidden" name="delete_id" value="{{ p.id }}">
+                      <button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Delete</button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             {% endfor %}

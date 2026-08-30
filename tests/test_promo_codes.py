@@ -217,21 +217,91 @@ def test_a_partner_needs_a_name(client):
             _add(label="   ")
 
 
-def test_stopping_a_partner_switches_the_code_off_in_stripe(client):
+# ---------------------------------------------------------------------------
+# Editing and deleting
+# ---------------------------------------------------------------------------
+
+def test_the_three_editable_fields_change(client):
+    with app.app_context(), _stripe_ok():
+        row = _add()
+        admin_access.edit_promo_code(db, PromoCode, row.id, label="Easton Jr",
+                                     email="new@example.com", commission_pct="25")
+        saved = db.session.get(PromoCode, row.id)
+        assert saved.label == "Easton Jr"
+        assert saved.email == "new@example.com"
+        assert saved.commission_pct == 25
+
+
+def test_editing_never_touches_what_stripe_fixed(client):
+    """Its update endpoint takes only active, metadata and restrictions — the code,
+    the discount and the cap cannot be changed after creation at all."""
+    with app.app_context(), _stripe_ok():
+        row = _add(discount_pct=10, max_uses=10)
+        before = (row.code, row.discount_pct, row.max_uses)
+        admin_access.edit_promo_code(db, PromoCode, row.id, label="Renamed")
+        saved = db.session.get(PromoCode, row.id)
+        assert (saved.code, saved.discount_pct, saved.max_uses) == before
+
+
+def test_unticking_active_switches_the_code_off_in_stripe(client):
     with app.app_context(), _stripe_ok("promo_live"):
         row = _add()
         with patch.object(billing, "deactivate_promotion_code") as off:
-            assert admin_access.stop_promo_code(db, PromoCode, row.id) is True
+            admin_access.edit_promo_code(db, PromoCode, row.id, active=False)
         off.assert_called_once_with("promo_live")
         assert db.session.get(PromoCode, row.id).active is False
 
 
-def test_stopping_twice_is_a_no_op(client):
+def test_reticking_active_switches_it_back_on(client):
+    with app.app_context(), _stripe_ok("promo_live"):
+        row = _add()
+        with patch.object(billing, "deactivate_promotion_code"):
+            admin_access.edit_promo_code(db, PromoCode, row.id, active=False)
+        with patch.object(billing, "reactivate_promotion_code") as on:
+            admin_access.edit_promo_code(db, PromoCode, row.id, active=True)
+        on.assert_called_once_with("promo_live")
+        assert db.session.get(PromoCode, row.id).active is True
+
+
+def test_saving_without_changing_active_does_not_call_stripe(client):
+    """Editing a label must not send a needless write to a live billing object."""
+    with app.app_context(), _stripe_ok():
+        row = _add()
+        with patch.object(billing, "deactivate_promotion_code") as off,              patch.object(billing, "reactivate_promotion_code") as on:
+            admin_access.edit_promo_code(db, PromoCode, row.id, label="X", active=True)
+        off.assert_not_called()
+        on.assert_not_called()
+
+
+def test_an_empty_label_is_refused(client):
+    with app.app_context(), _stripe_ok():
+        row = _add()
+        with pytest.raises(ValueError):
+            admin_access.edit_promo_code(db, PromoCode, row.id, label="  ")
+
+
+def test_editing_an_unknown_code_returns_none(client):
+    with app.app_context():
+        assert admin_access.edit_promo_code(db, PromoCode, 9999, label="X") is None
+
+
+def test_deleting_removes_the_row_and_switches_it_off_in_stripe(client):
+    """Stripe has no delete for a promotion code, so it is switched off there and
+    the row goes here — from the console it is gone and the code stops working."""
+    with app.app_context(), _stripe_ok("promo_live"):
+        row = _add()
+        with patch.object(billing, "deactivate_promotion_code") as off:
+            assert admin_access.delete_promo_code(db, PromoCode, row.id) is True
+        off.assert_called_once_with("promo_live")
+        assert PromoCode.query.count() == 0
+
+
+def test_deleting_twice_is_a_no_op(client):
     with app.app_context(), _stripe_ok():
         row = _add()
         with patch.object(billing, "deactivate_promotion_code"):
-            admin_access.stop_promo_code(db, PromoCode, row.id)
-            assert admin_access.stop_promo_code(db, PromoCode, row.id) is False
+            admin_access.delete_promo_code(db, PromoCode, row.id)
+            assert admin_access.delete_promo_code(db, PromoCode, row.id) is False
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +317,9 @@ def test_the_card_lists_partners_with_their_code_and_split(client):
         assert "Discount codes" in html
         assert "Easton" in html
         # What each side gets must be readable at a glance, including your own.
-        assert "they 10%" in html and "partner 40%" in html and "you 50%" in html
+        # The commission is an input now, so it reads as a value rather than text.
+        assert "they 10%" in html and "you 50%" in html
+        assert 'name="commission_pct" type="number" min="0" max="100"' in html
     _as_verified_admin(client, check)
 
 
@@ -375,3 +447,78 @@ def test_a_hundred_percent_code_is_allowed(client):
     """The testing code gives everything away and earns nothing."""
     assert admin_access.split_error(100, 0) is None
 
+
+
+def test_the_edit_inputs_point_at_the_form_by_id(client):
+    """A <form> may not wrap <td>s — browsers hoist it out of the table and the
+    fields then submit nothing. The inputs live in different cells, so they
+    reference the form by id instead."""
+    def check():
+        with app.app_context(), _stripe_ok():
+            _add()
+        with patch.object(billing, "promotion_code_uses", return_value=0):
+            html = client.get("/accessadmin").get_data(as_text=True)
+        assert 'name="edit_id"' in html
+        assert html.count('form="pc') >= 4          # label, email, commission, active
+        # And the form element must not be sitting between cells.
+        assert "</td>\n                <form" not in html
+    _as_verified_admin(client, check)
+
+
+def test_editing_through_the_console_saves_and_is_logged(client):
+    def check():
+        with app.app_context(), _stripe_ok():
+            row = _add()
+            row_id = row.id
+        client.post("/accessadmin/code",
+                    data={"edit_id": str(row_id), "label": "Renamed",
+                          "email": "e2@example.com", "commission_pct": "15",
+                          "active": "1"},
+                    follow_redirects=True)
+        with app.app_context():
+            saved = db.session.get(PromoCode, row_id)
+            assert saved.label == "Renamed" and saved.commission_pct == 15
+            assert AuditLog.query.filter_by(event_type="promo_code_edited").count() == 1
+    _as_verified_admin(client, check)
+
+
+def test_an_unticked_box_switches_the_code_off(client):
+    """A checkbox that is not ticked sends nothing at all, which is how the form
+    says "off" — reading it as "unchanged" would make the box impossible to clear."""
+    def check():
+        with app.app_context(), _stripe_ok():
+            row = _add()
+            row_id = row.id
+        with patch.object(billing, "deactivate_promotion_code"):
+            client.post("/accessadmin/code",
+                        data={"edit_id": str(row_id), "label": "Easton",
+                              "commission_pct": "40"},      # no "active" key
+                        follow_redirects=True)
+        with app.app_context():
+            assert db.session.get(PromoCode, row_id).active is False
+    _as_verified_admin(client, check)
+
+
+def test_deleting_through_the_console_removes_it_and_is_logged(client):
+    def check():
+        with app.app_context(), _stripe_ok():
+            row = _add()
+            row_id = row.id
+        with patch.object(billing, "deactivate_promotion_code"):
+            client.post("/accessadmin/code",
+                        data={"delete_id": str(row_id)}, follow_redirects=True)
+        with app.app_context():
+            assert PromoCode.query.count() == 0
+            assert AuditLog.query.filter_by(event_type="promo_code_deleted").count() == 1
+    _as_verified_admin(client, check)
+
+
+def test_delete_asks_first(client):
+    """It cannot be undone, and it takes the payout record with it."""
+    def check():
+        with app.app_context(), _stripe_ok():
+            _add()
+        with patch.object(billing, "promotion_code_uses", return_value=0):
+            html = client.get("/accessadmin").get_data(as_text=True)
+        assert "return confirm(" in html
+    _as_verified_admin(client, check)

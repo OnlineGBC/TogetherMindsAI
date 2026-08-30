@@ -248,6 +248,15 @@ def deactivate_promotion_code(promo_id: str) -> None:
         logger.warning("could not deactivate promotion code %s: %s", promo_id, exc)
 
 
+def reactivate_promotion_code(promo_id: str) -> None:
+    """Switch a code back on. Raises, unlike its opposite: turning a code ON is a
+    deliberate act, and it must not appear to have worked when it did not."""
+    if not promo_id:
+        return
+    stripe = _stripe_or_raise()
+    stripe.PromotionCode.modify(promo_id, active=True)
+
+
 def promotion_code_uses(promo_id: str) -> "int | None":
     """How many times this code has been redeemed, or None if unknown."""
     if not promo_id:

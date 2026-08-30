@@ -540,15 +540,65 @@ def list_promo_codes(PromoCode) -> list:
     return PromoCode.query.order_by(PromoCode.id.desc()).all()
 
 
-def stop_promo_code(db, PromoCode, row_id) -> bool:
-    """Switch a code off in Stripe and here. Anyone already subscribed keeps their
-    discount — Stripe leaves an applied discount on the subscription."""
+def edit_promo_code(db, PromoCode, row_id, *, label=None, email=None,
+                    commission_pct=None, active=None):
+    """Change what CAN be changed. Returns the row, or None if unknown.
+
+    Only three of the six fields are ours to edit. Stripe's update endpoint takes
+    `active`, `metadata` and `restrictions` and nothing else, so the code itself,
+    the discount and the max-uses cap are fixed at creation — to change one of
+    those, delete the code and add another.
+    """
     import billing
     row = db.session.get(PromoCode, row_id)
-    if row is None or not row.active:
+    if row is None:
+        return None
+
+    if label is not None:
+        label = label.strip()
+        if not label:
+            raise ValueError("Enter a label — a partner's name, or what the code is for.")
+        row.label = label
+    if email is not None:
+        row.email = email.strip() or None
+    if commission_pct is not None and str(commission_pct).strip():
+        try:
+            commission = int(commission_pct)
+        except (TypeError, ValueError):
+            raise ValueError("Enter the commission as a whole number.")
+        if not (0 <= commission <= 100):
+            raise ValueError("The commission must be between 0 and 100.")
+        row.commission_pct = commission
+
+    if active is not None and bool(active) != bool(row.active):
+        # Stripe first: if it refuses, the row must not claim a state Stripe does
+        # not agree with.
+        if active:
+            billing.reactivate_promotion_code(row.promo_id)
+        else:
+            billing.deactivate_promotion_code(row.promo_id)
+        row.active = bool(active)
+
+    db.session.commit()
+    return row
+
+
+def delete_promo_code(db, PromoCode, row_id) -> bool:
+    """Remove a code. Returns False if it was already gone.
+
+    Stripe has no delete for a promotion code, so it is switched off there and the
+    row is removed here — from the console's point of view it is gone and the code
+    stops working. Two things follow, and both are stated on the page:
+    anyone already subscribed KEEPS their discount (Stripe leaves an applied
+    discount on the subscription), and the record of what a partner is owed goes
+    with the row, which is why switching a code off is offered as well.
+    """
+    import billing
+    row = db.session.get(PromoCode, row_id)
+    if row is None:
         return False
     billing.deactivate_promotion_code(row.promo_id)
-    row.active = False
+    db.session.delete(row)
     db.session.commit()
     return True
 
