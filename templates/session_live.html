@@ -828,6 +828,14 @@
     var muteBtn = document.getElementById("rtcMuteBtn");
     var camBtn  = document.getElementById("rtcCamBtn");
     var lkRoom = null, sttWS = null, audioCtx = null, micStream = null, micAudioTrack = null, processor = null, srcNode = null, muted = false, sttEnabled = true;
+    // Transcription runs over a SECOND connection, straight from this browser to
+    // the speech service. A network drop kills it as well as the chat socket, but
+    // only the chat socket reconnects itself — so without these the speech socket
+    // stayed dead, the audio loop quietly binned every frame, and the pill went on
+    // claiming "Transcription on". A whole reconnect's worth of speech was lost
+    // that way, in a real group session.
+    var sttReconnecting = false, sttRetry = 0, sttRetryTimer = null, sttStarting = false;
+    var STT_MAX_RETRIES = 5;
 
     function setStatus(t, cls) { statusEl.textContent = t; statusEl.className = "badge " + (cls || "bg-secondary"); }
     function isJoined() { return !!lkRoom; }
@@ -875,6 +883,17 @@
     // Transcription pill — amber when on, because your spoken words are being
     // written into the record. Tapping toggles your own speech-to-text.
     function setSttIndicator(on) {
+        // "on" must mean the words are actually going somewhere. While the socket
+        // is being re-established it says so instead: claiming "Transcription on"
+        // over a dead socket is how a whole reconnect's worth of speech went
+        // missing without anyone noticing.
+        if (on && sttReconnecting) {
+            setPill(sttBtn, true,
+                '<i class="bi bi-arrow-repeat"></i> Transcription reconnecting…',
+                '', "btn-secondary text-white",
+                "The transcription connection dropped — reconnecting", "");
+            return;
+        }
         setPill(sttBtn, on,
             '<i class="bi bi-badge-cc-fill"></i> Transcription on',
             '<i class="bi bi-badge-cc"></i> Transcription off',
@@ -948,12 +967,52 @@
         updateCamPill();
     }
 
+    // The speech socket died on its own. Bring it back if the user still wants
+    // transcription and is still in the session; otherwise say so plainly rather
+    // than leave a pill claiming it is on.
+    function _sttDropped() {
+        if (!sttEnabled || !isJoined()) { return; }     // deliberate stop, or gone
+        if (sttRetry >= STT_MAX_RETRIES) {
+            sttReconnecting = false;
+            sttEnabled = false;                          // one tap restarts it
+            setSttIndicator(false);
+            if (captionsEl) { captionsEl.textContent = "(transcription stopped — tap Transcription to restart)"; }
+            return;
+        }
+        sttReconnecting = true;
+        setSttIndicator(true);
+        if (captionsEl) { captionsEl.textContent = "(reconnecting transcription…)"; }
+        // Back off: 1s, 2s, 4s, 8s, 16s. A tight retry loop against a service that
+        // is down is worse than waiting.
+        var wait = 1000 * Math.pow(2, sttRetry);
+        sttRetry += 1;
+        clearTimeout(sttRetryTimer);
+        sttRetryTimer = setTimeout(function () {
+            if (sttEnabled && isJoined()) { startSTT(); }
+        }, wait);
+    }
+
     async function startSTT() {
+        // A retry and a user tap can land together; one socket at a time.
+        if (sttStarting) { return; }
+        sttStarting = true;
+        try { await _startSTT(); }
+        catch (e) { console.error("transcription failed to start", e); _sttDropped(); }
+        finally { sttStarting = false; }
+    }
+
+    async function _startSTT() {
+        // A retry must not stack a second audio graph on the first: browsers cap
+        // how many AudioContexts a page may hold, and the old one would go on
+        // feeding a dead socket.
+        _teardownSTT();
         var tr = await fetch("/rtc/stt-token", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ session_id: SESSION_ID })
         });
-        if (!tr.ok) { if (captionsEl) { captionsEl.textContent = "(transcription unavailable)"; } return; }
+        // A refused token is a drop like any other — retry rather than sit there
+        // silently not transcribing.
+        if (!tr.ok) { _sttDropped(); return; }
         var token = (await tr.json()).token;
 
         audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -972,7 +1031,19 @@
                 }
             }
         };
+        // The two handlers this whole fix is about. Without them a dropped socket
+        // was never noticed: the audio loop below checks readyState and simply
+        // returns, so every frame was binned in silence.
+        sttWS.onerror = function () { /* onclose always follows — handle it there */ };
+        sttWS.onclose = function () {
+            sttWS = null;
+            _sttDropped();
+        };
         sttWS.onopen = function () {
+            sttRetry = 0;                 // a good connection clears the budget
+            sttReconnecting = false;
+            setSttIndicator(true);
+            if (captionsEl) { captionsEl.textContent = "…"; }
             processor = audioCtx.createScriptProcessor(4096, 1, 1);
             var sink = audioCtx.createGain(); sink.gain.value = 0;   // silent sink so onaudioprocess fires without echo
             srcNode.connect(processor); processor.connect(sink); sink.connect(audioCtx.destination);
@@ -989,7 +1060,27 @@
     // Tear down ONLY the speech-to-text path (used by both the transcription
     // toggle and a full leave). The mic/call stay up unless leaveAudio() runs.
     function stopSTT() {
-        try { if (sttWS) { if (sttWS.readyState === 1) sttWS.send(JSON.stringify({ type: "Terminate" })); sttWS.close(); } } catch (e) {}
+        // A deliberate stop must not look like a drop, or turning transcription
+        // off would immediately reconnect it.
+        clearTimeout(sttRetryTimer);
+        sttRetryTimer = null;
+        sttRetry = 0;
+        sttReconnecting = false;
+        _teardownSTT();
+    }
+
+    // Close the socket and the audio graph. Shared by stopSTT and by a retry, so
+    // the onclose handler is removed FIRST — otherwise closing here would call
+    // _sttDropped and schedule a reconnect we do not want.
+    function _teardownSTT() {
+        try {
+            if (sttWS) {
+                sttWS.onclose = null;
+                sttWS.onerror = null;
+                if (sttWS.readyState === 1) sttWS.send(JSON.stringify({ type: "Terminate" }));
+                sttWS.close();
+            }
+        } catch (e) {}
         try { if (processor) processor.disconnect(); } catch (e) {}
         try { if (srcNode) srcNode.disconnect(); } catch (e) {}
         try { if (audioCtx) audioCtx.close(); } catch (e) {}
@@ -1029,9 +1120,15 @@
             _watchMicTrack(micAudioTrack);
             try { micAudioTrack.enabled = !muted; } catch (e) {}
             // Re-point the transcription audio graph at the new stream, if STT is up.
-            if (audioCtx && processor) {
+            if (audioCtx && processor && sttWS && sttWS.readyState === 1) {
                 try { if (srcNode) { srcNode.disconnect(); } } catch (e) {}
                 try { srcNode = audioCtx.createMediaStreamSource(micStream); srcNode.connect(processor); } catch (e) {}
+            } else if (sttEnabled) {
+                // The mic went away and came back — whatever interrupted it (an
+                // app-switch, a screen lock, a network drop) usually took the
+                // speech socket with it. Re-pointing audio at a dead socket just
+                // bins it quietly, which is the bug this whole change is about.
+                startSTT();
             }
         } catch (e) {
             console.error("mic recovery failed", e);
