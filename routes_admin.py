@@ -78,6 +78,33 @@ def _codes_view() -> dict:
     }
 
 
+def _payout_view() -> dict:
+    """Template values for the Partner payouts card.
+
+    Its own date boxes (`pfrom`/`pto`), separate from the audit card's `from`/`to`,
+    so filtering one does not silently refilter the other. Like the audit card they
+    live in the query string, so a payout run can be bookmarked or handed on.
+    """
+    if not config.BILLING_ENABLED:
+        return {"payouts_enabled": False, "payout_partners": [],
+                "payout_totals": {"collected_cents": 0, "owed_cents": 0, "referrals": 0},
+                "payout_filters": {"date_from": "", "date_to": ""}}
+    filters = {
+        "date_from": (request.args.get("pfrom") or "").strip(),
+        "date_to": (request.args.get("pto") or "").strip(),
+    }
+    partners, totals = admin_access.payout_report(
+        _tm.db, _tm.Referral, _tm.ReferralPayment, _tm.Clinician, **filters)
+    return {
+        "payouts_enabled": True,
+        "payout_partners": partners,
+        "payout_totals": totals,
+        "payout_filters": filters,
+        "money": admin_access.money,
+        "payout_window_days": admin_access.PAYOUT_WINDOW_DAYS,
+    }
+
+
 def _audit_view() -> dict:
     """Template values for the Recent activity card.
 
@@ -129,6 +156,7 @@ def register_admin_routes(app):
             self_id=session.get("user_id"),
             admin_emails=[a.lower() for a in (config.ADMIN_EMAILS or [])],
             **_codes_view(),
+            **_payout_view(),
             **_audit_view(),
             totp_available=bool(config.ADMIN_TOTP_SECRET),
             factors_required=config.ADMIN_FACTORS_REQUIRED,

@@ -47,10 +47,75 @@ def _clinician_for_event_object(obj):
     return clin
 
 
+def _record_referral(obj, clin):
+    """Note who referred this customer, if a partner's code was used at checkout.
+
+    Checkout is the ONLY moment Stripe names the promotion code — the payments that
+    follow name the customer and nothing else. So attribution has to be captured
+    here, and the customer id stored alongside it as the link to the money.
+
+    Never raises into the webhook: a subscription must still be applied even if
+    this bookkeeping fails.
+    """
+    try:
+        import admin_access
+        promo_id = admin_access.promo_id_from_checkout(obj)
+        if not promo_id:
+            return
+        row = admin_access.referral_from_checkout(
+            _tm.db, _tm.Referral, _tm.PromoCode,
+            promo_id=promo_id, clinician_id=clin.id,
+            customer_id=obj.get("customer"),
+            now=datetime.now(timezone.utc),
+        )
+        if row is not None:
+            # The code and the share, not the partner's name or the customer's:
+            # the audit log takes metadata, never PII.
+            _tm.log_event("referral_recorded", user_id=clin.id,
+                          code=row.code, commission_pct=row.commission_pct)
+    except Exception:
+        _tm.db.session.rollback()
+        _tm.app.logger.warning("referral not recorded for checkout")
+
+
+def _apply_invoice_paid(obj):
+    """Record a payment Stripe collected from a referred customer.
+
+    This is where the money comes from, and it is taken as Stripe reports it —
+    `amount_paid`, what actually arrived after the discount. Working it out from a
+    list price would overpay every partner, every month.
+
+    Fires on renewals as well as the first charge, which is the point: a partner
+    earns for a year, so every payment in that year has to be seen.
+    """
+    import admin_access
+    paid = obj.get("amount_paid")
+    # `or {}` rather than a default: Stripe sends the key with a null value, and a
+    # dict default would not save us from calling .get on None.
+    when = (obj.get("status_transitions") or {}).get("paid_at") or obj.get("created")
+    row = admin_access.record_payment(
+        _tm.db, _tm.Referral, _tm.ReferralPayment,
+        customer_id=obj.get("customer"),
+        stripe_ref=obj.get("id"),
+        amount_cents=paid,
+        currency=obj.get("currency"),
+        paid_at=(datetime.fromtimestamp(when, tz=timezone.utc) if when
+                 else datetime.now(timezone.utc)),
+    )
+    if row is not None:
+        _tm.log_event("referral_payment_recorded", referral_id=row.referral_id,
+                      amount_cents=row.amount_cents,
+                      commission_cents=row.commission_cents,
+                      in_window=row.in_window)
+
+
 def _apply_checkout_completed(obj):
     clin = _clinician_for_event_object(obj)
     if clin is None:
         return
+    # Before the early return below: a top-up bought with a partner's code is
+    # still that partner's referral.
+    _record_referral(obj, clin)
     # A top-up is a ONE-OFF purchase of recording hours. It must not be mistaken
     # for a subscription — otherwise buying extra hours would quietly put someone
     # on a monthly plan they never asked for.
@@ -214,6 +279,11 @@ def register_billing_routes(app):
                 _apply_subscription_change(obj)
             elif etype == "customer.subscription.deleted":
                 _apply_subscription_deleted(obj)
+            # Where the partner payout numbers come from. Fires on renewals too,
+            # which is the point: a partner earns for a year, so every payment
+            # collected in that year has to be seen.
+            elif etype == "invoice.paid":
+                _apply_invoice_paid(obj)
         except Exception:
             _tm.db.session.rollback()
             _tm.app.logger.error("stripe webhook handling error (%s)", etype)

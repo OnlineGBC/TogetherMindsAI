@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, DiscountCode, PromoCode, HoursGrant, RecordAuthorisation, init_encryption, friendly_name_key
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, DiscountCode, PromoCode, Referral, ReferralPayment, HoursGrant, RecordAuthorisation, init_encryption, friendly_name_key
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis
 import copilot

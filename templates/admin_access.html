@@ -372,6 +372,112 @@
     </div>
     {% endif %}
 
+    {# ---- Partner payouts --------------------------------------------------
+       Every figure here is what STRIPE COLLECTED. The customer paid a discounted
+       amount, so a share of list price would overpay every partner every month.
+
+       The commission itself exists only in our database — Stripe knows nothing
+       about it — so this card is the only thing between that number and someone
+       being paid wrongly. It is also deliberately uncapped, unlike every other
+       list on this page: a report that quietly stopped short would underpay. #}
+    {% if payouts_enabled %}
+    <div class="card rounded-4 border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-1 fs-6">Partner payouts</h5>
+        <p class="text-muted small mb-3">
+          Who signed up with each code, what Stripe collected from them, and what
+          you owe. A partner earns for one year from the day that person's first
+          payment is collected. Payments after the year earn nothing, and a refund
+          or cancellation takes nothing back.
+        </p>
+
+        <form method="get" action="{{ url_for('admin_access_page') }}"
+              class="row g-2 align-items-end mb-3">
+          <div class="col-6 col-md-3">
+            <label class="form-label small fw-semibold">Collected from</label>
+            <input class="form-control form-control-sm" type="date" name="pfrom"
+                   value="{{ payout_filters.date_from }}">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small fw-semibold">Collected to</label>
+            <input class="form-control form-control-sm" type="date" name="pto"
+                   value="{{ payout_filters.date_to }}">
+          </div>
+          <div class="col-12 col-md-6 d-flex gap-2 align-items-center flex-wrap">
+            <button class="btn btn-primary btn-sm rounded-pill" type="submit">Show</button>
+            <a class="btn btn-outline-secondary btn-sm rounded-pill"
+               href="{{ url_for('admin_access_page') }}">All time</a>
+          </div>
+        </form>
+
+        {% if not payout_partners %}
+          {# Never leave a blank report to be read as "nobody earned anything". #}
+          <p class="text-muted mb-0">
+            Nothing to pay yet. Tracking starts from the day this was switched on —
+            sign-ups and payments from before then are not counted, so an empty
+            report does not mean a partner earned nothing earlier.
+          </p>
+        {% else %}
+        <div class="table-responsive">
+          <table class="table align-middle mb-0 comp-table">
+            <thead>
+              <tr class="small">
+                <th>Who signed up</th><th>First payment</th><th>Earns until</th>
+                <th class="text-end">Stripe collected</th>
+                <th class="text-end">You owe</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for p in payout_partners %}
+              <tr class="table-light">
+                <td colspan="3" class="small">
+                  <strong>{{ p.label }}</strong>
+                  <span class="font-monospace">{{ p.code }}</span>
+                  <span class="comp-muted">· {{ p.email or 'no email' }}
+                    · earns {{ p.commission_pct }}%</span>
+                </td>
+                <td class="small text-end">{{ money(p.collected_cents) }}</td>
+                <td class="small text-end"><strong>{{ money(p.owed_cents) }}</strong></td>
+              </tr>
+              {% for r in p.referrals %}
+              <tr>
+                <td class="small ps-4">{{ r.who }}</td>
+                <td class="small comp-muted text-nowrap">
+                  {{ r.first_payment_at.strftime('%d %b %Y') if r.first_payment_at
+                     else 'not paid yet' }}
+                </td>
+                <td class="small comp-muted text-nowrap">
+                  {{ r.earns_until.strftime('%d %b %Y') if r.earns_until else '—' }}
+                  {% if r.expired %}
+                  <span class="badge bg-secondary rounded-pill">{{ r.expired }} past the year</span>
+                  {% endif %}
+                </td>
+                <td class="small comp-muted text-end">{{ money(r.collected_cents) }}</td>
+                <td class="small text-end">{{ money(r.owed_cents) }}</td>
+              </tr>
+              {% endfor %}
+            {% endfor %}
+              <tr>
+                <td colspan="3" class="small fw-semibold">
+                  Total · {{ payout_totals.referrals }} referral{{ '' if payout_totals.referrals == 1 else 's' }}
+                </td>
+                <td class="small text-end fw-semibold">{{ money(payout_totals.collected_cents) }}</td>
+                <td class="small text-end fw-bold">{{ money(payout_totals.owed_cents) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-muted small mb-0 mt-3">
+          You pay partners by hand — nothing here sends money. Amounts are a share
+          of what Stripe collected, before Stripe's own fee. Deleting a code does
+          not delete these rows: each referral keeps its own copy of the partner and
+          the percentage that applied when they signed up.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
     {# ---- Audit log --------------------------------------------------------
        Read-only by construction: the table is append-only and hash-chained, and
        no route here offers a delete. The filters live in the query string so a

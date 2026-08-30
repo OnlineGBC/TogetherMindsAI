@@ -639,3 +639,82 @@ class PromoCode(db.Model):
 
     def __repr__(self):
         return f"<PromoCode {self.label} {self.code} active={self.active}>"
+
+
+class Referral(db.Model):
+    """One referred customer, and the terms that applied when they were referred.
+
+    A per-referral record rather than a running total per code, because two of the
+    rules need to be answered about one person: a partner earns for ONE YEAR from
+    this customer's first collected payment, and the share is whatever it was when
+    they signed up.
+
+    Everything about the partner is COPIED here, not looked up later. The code row
+    can be edited or deleted afterwards — delete_promo_code removes it outright —
+    and this report is what decides whether someone is paid the right amount, so it
+    must not depend on a row that may be gone. That is also why there is no foreign
+    key to promo_codes.
+
+    One row per clinician: the first code they used is who referred them.
+
+    Email is encrypted at rest like every other address here.
+    """
+    __tablename__ = "referrals"
+
+    id                 = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    # --- the terms, as they stood at sign-up (copies, deliberately) ---
+    code               = db.Column(db.String(64), index=True, nullable=False)
+    partner_label      = db.Column(db.String(80), nullable=False)
+    partner_email      = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    commission_pct     = db.Column(db.Integer, nullable=False)
+    # --- who was referred ---
+    clinician_id       = db.Column(db.String(36), index=True, nullable=False)
+    # How later payments are matched back to this referral: Stripe names the
+    # customer on every one, and never the promotion code after the first.
+    stripe_customer_id = db.Column(db.String(64), index=True, nullable=True)
+    # --- the earning year ---
+    # When Stripe first collected real money from them. NULL until that happens:
+    # signing up with a 100%-off code collects nothing, so it starts no clock.
+    first_payment_at   = db.Column(db.DateTime, nullable=True)
+    # first_payment_at + one year, stored rather than worked out on the fly so the
+    # deadline this referral was given cannot move under it later.
+    earns_until        = db.Column(db.DateTime, nullable=True)
+    created_at         = db.Column(db.DateTime, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("clinician_id", name="uq_referral_clinician"),
+    )
+
+    def __repr__(self):
+        return f"<Referral {self.code} clinician={self.clinician_id}>"
+
+
+class ReferralPayment(db.Model):
+    """One payment Stripe actually collected from a referred customer.
+
+    The amount is what Stripe COLLECTED, never a list price: the customer paid a
+    discounted amount, and the commission is a share of what really came in.
+
+    `commission_cents` is worked out and stored when the payment lands, so editing
+    a code's percentage afterwards cannot rewrite money already earned.
+
+    `stripe_ref` is unique. Stripe delivers a webhook more than once, and paying a
+    partner twice for one payment is the exact mistake this table exists to stop.
+    """
+    __tablename__ = "referral_payments"
+
+    id               = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    referral_id      = db.Column(db.Integer, index=True, nullable=False)
+    # Stripe's own id for the collected payment — the duplicate guard.
+    stripe_ref       = db.Column(db.String(64), unique=True, nullable=False)
+    amount_cents     = db.Column(db.Integer, nullable=False)     # what Stripe collected
+    currency         = db.Column(db.String(8), nullable=True)
+    paid_at          = db.Column(db.DateTime, index=True, nullable=False)
+    commission_cents = db.Column(db.Integer, nullable=False)     # 0 outside the year
+    # False once the earning year has passed. Recorded rather than dropped, so the
+    # report can show WHY a payment earned nothing instead of hiding it.
+    in_window        = db.Column(db.Boolean, nullable=False, default=True)
+
+    def __repr__(self):
+        return (f"<ReferralPayment {self.stripe_ref} {self.amount_cents}c "
+                f"earned={self.commission_cents}c>")

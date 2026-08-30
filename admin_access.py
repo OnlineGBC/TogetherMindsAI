@@ -738,3 +738,229 @@ def sweep_promo_alerts(db, PromoCode, *, send, now, nearly_pct, burst_per_sweep,
         row.last_seen_uses = uses
     db.session.commit()
     return sent
+
+
+# ---------------------------------------------------------------------------
+# The payout report.
+#
+# The commission exists ONLY in our database — Stripe knows nothing about it — so
+# this report is the only thing standing between that number and someone being
+# paid the wrong amount. Two habits follow from that, and both are deliberate:
+#
+#   1. Every money figure comes from what Stripe COLLECTED. The customer paid a
+#      discounted amount, so list price would overpay every partner, every month.
+#   2. Each referral carries its own copy of the partner and the percentage. The
+#      code can be edited or deleted afterwards and the report still answers.
+# ---------------------------------------------------------------------------
+
+# A partner earns for one year from the referred customer's first collected
+# payment. Payments after that earn nothing.
+PAYOUT_WINDOW_DAYS = 365
+
+
+def commission_cents(amount_cents, pct) -> int:
+    """A partner's share of a collected payment, in whole cents.
+
+    Rounded half up rather than with round(), which rounds .5 to the nearest EVEN
+    number — so 2.5 cents would become 2 and 3.5 would become 4, quietly and
+    inconsistently. Money is expected to round up on the half.
+    """
+    amount = int(amount_cents or 0)
+    share = int(pct or 0)
+    if amount <= 0 or share <= 0:
+        return 0
+    return (amount * share + 50) // 100
+
+
+def promo_id_from_checkout(obj) -> str:
+    """The Stripe promotion code id used at this checkout, or "".
+
+    Stripe sends `discounts` as a list of {coupon, promotion_code}, and each value
+    may be a plain id string OR an expanded object depending on the account's API
+    version. Both shapes are read here rather than assumed, because guessing wrong
+    means a referral is silently never recorded.
+    """
+    for entry in (obj.get("discounts") or []):
+        promo = entry.get("promotion_code") if isinstance(entry, dict) else None
+        if isinstance(promo, dict):
+            promo = promo.get("id")
+        if promo:
+            return str(promo)
+    return ""
+
+
+def referral_from_checkout(db, Referral, PromoCode, *, promo_id, clinician_id,
+                           customer_id, now):
+    """Record who referred this customer. Returns the row, or None.
+
+    None when no code was used, the code is not one of ours, or this clinician is
+    already someone's referral — the FIRST code they used is who referred them.
+
+    The partner's name, email and share are copied in. Nothing here reads
+    promo_codes again afterwards.
+    """
+    if not (promo_id and clinician_id):
+        return None
+    existing = Referral.query.filter_by(clinician_id=clinician_id).first()
+    if existing is not None:
+        # Learn the customer id if checkout is where it first appears — later
+        # payments name the customer and nothing else, so without it the money
+        # could never be matched back.
+        if customer_id and not existing.stripe_customer_id:
+            existing.stripe_customer_id = customer_id
+            db.session.commit()
+        return None
+    code_row = PromoCode.query.filter_by(promo_id=promo_id).first()
+    if code_row is None:
+        return None
+    row = Referral(
+        code=code_row.code, partner_label=code_row.label,
+        partner_email=code_row.email, commission_pct=code_row.commission_pct or 0,
+        clinician_id=clinician_id, stripe_customer_id=customer_id or None,
+        first_payment_at=None, earns_until=None, created_at=now,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
+def _aware(value):
+    """A datetime read back from the database, made comparable. Timestamps come
+    back naive from both SQLite and Postgres, and comparing one to an aware `now`
+    raises."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def record_payment(db, Referral, ReferralPayment, *, customer_id, stripe_ref,
+                   amount_cents, currency, paid_at):
+    """Record a payment Stripe collected from a referred customer. Returns the row,
+    or None when there is nothing to record.
+
+    None when this customer is nobody's referral, the same payment has already been
+    recorded, or nothing was actually collected.
+
+    A payment of 0 is ignored entirely: a 100%-off code collects nothing, and a
+    year of earning must not start on a charge that never happened.
+    """
+    if not (customer_id and stripe_ref):
+        return None
+    amount = int(amount_cents or 0)
+    if amount <= 0:
+        return None
+    if ReferralPayment.query.filter_by(stripe_ref=stripe_ref).first() is not None:
+        return None                        # webhook delivered twice
+    referral = Referral.query.filter_by(stripe_customer_id=customer_id).first()
+    if referral is None:
+        return None
+
+    if referral.first_payment_at is None:
+        # The clock starts on the first money that actually arrived.
+        referral.first_payment_at = paid_at
+        referral.earns_until = paid_at + timedelta(days=PAYOUT_WINDOW_DAYS)
+
+    ends = _aware(referral.earns_until)
+    in_window = bool(ends is None or paid_at <= ends)
+    row = ReferralPayment(
+        referral_id=referral.id, stripe_ref=stripe_ref, amount_cents=amount,
+        currency=(currency or "").lower() or None, paid_at=paid_at,
+        commission_cents=(commission_cents(amount, referral.commission_pct)
+                          if in_window else 0),
+        in_window=in_window,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
+def _referral_ids(Referral, *, code=None) -> list:
+    """Referral ids only — no encrypted column, so nothing is decrypted here."""
+    q = Referral.query.with_entities(Referral.id)
+    if code:
+        q = q.filter(Referral.code == code)
+    return [r[0] for r in q.order_by(Referral.id.desc()).all()]
+
+
+def _referral_row(Referral, referral_id):
+    """One referral, or None if it will not decrypt.
+
+    Loaded one row at a time for the same reason as _email_of: decryption happens
+    while the row is read, so a single row encrypted under an older key makes a
+    BULK query raise — taking the whole page down instead of skipping one
+    unreadable name.
+    """
+    try:
+        return Referral.query.filter(Referral.id == referral_id).first()
+    except Exception:
+        return None
+
+
+def payout_report(db, Referral, ReferralPayment, Clinician, *,
+                  date_from="", date_to=""):
+    """What each partner is owed, per referral. Returns (partners, totals).
+
+    `partners` is a list of dicts, one per code, each holding its referrals. The
+    money columns count only payments collected inside the date range, which is
+    what a payout run means. Sign-ups are listed either way, so a referral that
+    paid nothing this month is visible rather than missing.
+
+    Deliberately NOT capped. Every other list on this console shows the most recent
+    N and says so, but a payout report that quietly stopped short would underpay
+    someone.
+    """
+    start = _parse_day(date_from)
+    end = _parse_day(date_to, end_of_day=True)
+
+    groups = {}
+    for rid in _referral_ids(Referral):
+        row = _referral_row(Referral, rid)
+        if row is None:
+            continue                       # unreadable row, not a dead page
+
+        q = ReferralPayment.query.filter(ReferralPayment.referral_id == row.id)
+        if start:
+            q = q.filter(ReferralPayment.paid_at >= start)
+        if end:
+            q = q.filter(ReferralPayment.paid_at <= end)
+        payments = q.order_by(ReferralPayment.paid_at.asc()).all()
+
+        collected = sum(p.amount_cents or 0 for p in payments)
+        owed = sum(p.commission_cents or 0 for p in payments)
+        group = groups.setdefault(row.code, {
+            "code": row.code, "label": row.partner_label,
+            "email": row.partner_email, "commission_pct": row.commission_pct,
+            "referrals": [], "collected_cents": 0, "owed_cents": 0,
+            "currencies": set(),
+        })
+        group["referrals"].append({
+            "who": _email_of(Clinician, row.clinician_id) or f"account {row.clinician_id[:8]}",
+            "clinician_id": row.clinician_id,
+            "signed_up": row.created_at,
+            "first_payment_at": row.first_payment_at,
+            "earns_until": row.earns_until,
+            "commission_pct": row.commission_pct,
+            "payments": len(payments),
+            "expired": sum(1 for p in payments if not p.in_window),
+            "collected_cents": collected,
+            "owed_cents": owed,
+        })
+        group["collected_cents"] += collected
+        group["owed_cents"] += owed
+        group["currencies"].update(p.currency for p in payments if p.currency)
+
+    partners = sorted(groups.values(), key=lambda g: (-g["owed_cents"], g["label"]))
+    for group in partners:
+        group["currencies"] = sorted(group["currencies"])
+    totals = {
+        "collected_cents": sum(g["collected_cents"] for g in partners),
+        "owed_cents": sum(g["owed_cents"] for g in partners),
+        "referrals": sum(len(g["referrals"]) for g in partners),
+    }
+    return partners, totals
+
+
+def money(cents) -> str:
+    """Cents as dollars, for the screen. Negative is impossible here, so there is
+    no sign to handle."""
+    return f"${(int(cents or 0)) / 100:,.2f}"
