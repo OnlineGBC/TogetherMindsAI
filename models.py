@@ -577,3 +577,42 @@ class DiscountCode(db.Model):
 
     def __repr__(self):
         return f"<DiscountCode {self.code} active={self.active}>"
+
+
+class Partner(db.Model):
+    """Someone who refers customers, and the code that identifies their referrals.
+
+    The two percentages are enforced very differently, which matters when reading
+    this table. `discount_pct` is real: it lives in a Stripe coupon and is applied
+    at checkout. `commission_pct` is only a number we store — Stripe knows nothing
+    about it. It drives the payout report and is paid by hand, so the report is the
+    only thing standing between this column and someone being paid the wrong
+    amount.
+
+    The code carries a random suffix so a second one cannot be guessed from the
+    first, and doubles as the attribution link: a checkout that used this code is
+    this partner's referral.
+
+    Email is encrypted at rest like every other address here.
+    """
+    __tablename__ = "partners"
+
+    id             = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name           = db.Column(db.String(80), nullable=False)
+    email          = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    code           = db.Column(db.String(64), nullable=False, unique=True)
+    discount_pct   = db.Column(db.Integer, nullable=False)     # what the new customer gets off
+    commission_pct = db.Column(db.Integer, nullable=False)     # what the partner earns
+    max_uses       = db.Column(db.Integer, nullable=True)      # None = unlimited
+    promo_id       = db.Column(db.String(64), nullable=True)   # Stripe promotion_code id
+    active         = db.Column(db.Boolean, nullable=False, default=True)
+    created_at     = db.Column(db.DateTime, nullable=False)
+    created_by     = db.Column(db.String(255), nullable=True)  # admin email
+
+    @property
+    def kept_pct(self) -> int:
+        """What the business keeps, before Stripe's fee."""
+        return 100 - (self.discount_pct or 0) - (self.commission_pct or 0)
+
+    def __repr__(self):
+        return f"<Partner {self.name} {self.code} active={self.active}>"

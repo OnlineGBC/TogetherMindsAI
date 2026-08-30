@@ -69,7 +69,7 @@ def _discount_view() -> dict:
     never been created there — the card says so instead of showing a made-up 0.
     """
     if not config.BILLING_ENABLED:
-        return {"discount_enabled": False}
+        return {"discount_enabled": False, "partners": [], "partner_uses": {}}
     row = admin_access.current_discount(_tm.db, _tm.DiscountCode)
     import billing
     return {
@@ -77,6 +77,11 @@ def _discount_view() -> dict:
         "discount_code": row.code,
         "discount_live": bool(row.active and row.promo_id),
         "discount_uses": billing.promotion_code_uses(row.promo_id) if row.promo_id else None,
+        # Partners live behind the same switch: with billing off there is no
+        # checkout for a referral code to be used at.
+        "partners": admin_access.list_partners(_tm.Partner),
+        "partner_uses": admin_access.partner_uses(_tm.Partner),
+        "partner_min_kept": admin_access.MIN_KEPT_PCT,
     }
 
 
@@ -241,6 +246,47 @@ def register_admin_routes(app):
             flash("Account disabled — they cannot sign in until you enable it."
                   if changed else
                   "Account enabled — they can sign in again.", "info")
+        return redirect(url_for("admin_access_page"))
+
+    @app.route("/accessadmin/partner", methods=["POST"])
+    def admin_access_partner():
+        """Add a referral partner, or stop one. Admin only.
+
+        Nothing is stored unless Stripe accepted the code: a row here with no
+        code there would hand someone a code that does not work.
+        """
+        email = _require_admin()
+        if not _is_verified():
+            abort(403)
+        stop_id = (request.form.get("stop_id") or "").strip()
+        try:
+            if stop_id:
+                if admin_access.stop_partner(_tm.db, _tm.Partner, int(stop_id)):
+                    _tm.log_event("partner_stopped", user_id=session.get("user_id"),
+                                  partner_id=int(stop_id))
+                    flash("Partner code switched off.", "info")
+                else:
+                    flash("No change made — unknown partner, or already off.", "danger")
+            else:
+                row = admin_access.create_partner(
+                    _tm.db, _tm.Partner,
+                    name=request.form.get("name", ""),
+                    email=request.form.get("email", ""),
+                    discount_pct=request.form.get("discount_pct", ""),
+                    commission_pct=request.form.get("commission_pct", ""),
+                    max_uses=request.form.get("max_uses", ""),
+                    admin_email=email,
+                )
+                # The code, not the name: it is the thing that has to be passed on.
+                _tm.log_event("partner_added", user_id=session.get("user_id"),
+                              code=row.code, discount_pct=row.discount_pct,
+                              commission_pct=row.commission_pct)
+                flash(f"Partner added. Their code is {row.code}.", "info")
+        except ValueError as exc:
+            flash(str(exc), "danger")
+        except Exception as exc:
+            app.logger.warning("partner change failed: %s: %s", type(exc).__name__, exc)
+            flash(f"Nothing was saved. Stripe said: {exc}", "danger")
         return redirect(url_for("admin_access_page"))
 
     @app.route("/accessadmin/discount", methods=["POST"])

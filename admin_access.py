@@ -532,3 +532,99 @@ def account_labels(Clinician) -> dict:
     for cid in _account_ids(Clinician):
         out[cid] = _email_of(Clinician, cid) or f"no email · {cid[:8]}"
     return out
+
+
+# ---------------------------------------------------------------------------
+# Partners.
+#
+# The two percentages are NOT symmetrical. The discount is real — Stripe applies
+# it at checkout. The commission is a number we store and pay by hand, so the
+# report is the only thing between it and someone being paid wrongly.
+# ---------------------------------------------------------------------------
+
+# Stripe takes roughly 2.9% + 30c, which on a $16 plan is about 4.7%. Below this
+# a sale would cost more to make than it brings in, so a pair that leaves less is
+# refused rather than saved and discovered later on an invoice.
+MIN_KEPT_PCT = 5
+
+
+def partner_split_error(discount_pct, commission_pct):
+    """Why this pair cannot be saved, or None if it is fine."""
+    try:
+        discount = int(discount_pct)
+        commission = int(commission_pct)
+    except (TypeError, ValueError):
+        return "Enter both percentages as whole numbers."
+    if not (1 <= discount <= 100):
+        return "The discount must be between 1 and 100."
+    if not (0 <= commission <= 100):
+        return "The commission must be between 0 and 100."
+    kept = 100 - discount - commission
+    if kept < MIN_KEPT_PCT:
+        return (f"That leaves you {kept}%, which does not cover the card fee. "
+                f"Keep at least {MIN_KEPT_PCT}%.")
+    return None
+
+
+def create_partner(db, Partner, *, name, email, discount_pct, commission_pct,
+                   max_uses=None, admin_email=None):
+    """Add a partner and create their code in Stripe. Returns the row.
+
+    Raises ValueError for a bad split, and lets a Stripe failure raise — a
+    half-made partner (row here, no code there) would hand out a code that does
+    not work, so nothing is stored unless Stripe accepted it.
+    """
+    import billing
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Enter a name.")
+    problem = partner_split_error(discount_pct, commission_pct)
+    if problem:
+        raise ValueError(problem)
+
+    uses = None
+    if str(max_uses or "").strip():
+        try:
+            uses = int(max_uses)
+        except (TypeError, ValueError):
+            raise ValueError("Max uses must be a whole number.")
+        if uses < 1:
+            raise ValueError("Max uses must be at least 1.")
+
+    code = billing.suggest_partner_code(name)
+    promo = billing.create_partner_code(code, int(discount_pct), uses)  # raises if refused
+    row = Partner(
+        name=name, email=(email or "").strip() or None, code=code,
+        discount_pct=int(discount_pct), commission_pct=int(commission_pct),
+        max_uses=uses, promo_id=promo.id, active=True,
+        created_at=datetime.now(timezone.utc), created_by=admin_email,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
+def list_partners(Partner) -> list:
+    return Partner.query.order_by(Partner.id.desc()).all()
+
+
+def stop_partner(db, Partner, partner_id) -> bool:
+    """Switch a partner's code off in Stripe and here. Their past referrals keep
+    their discount — Stripe leaves an applied discount on the subscription."""
+    import billing
+    row = db.session.get(Partner, partner_id)
+    if row is None or not row.active:
+        return False
+    billing.deactivate_promotion_code(row.promo_id)
+    row.active = False
+    db.session.commit()
+    return True
+
+
+def partner_uses(Partner) -> dict:
+    """code → how many times Stripe says it has been redeemed."""
+    import billing
+    out = {}
+    for row in Partner.query.all():
+        out[row.code] = billing.promotion_code_uses(row.promo_id) if row.promo_id else None
+    return out

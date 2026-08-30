@@ -287,12 +287,21 @@ def test_a_non_admin_cannot_read_the_log(client):
 
 
 def test_the_view_offers_no_way_to_change_the_log():
-    """The table is append-only and hash-chained. Nothing here may write to it."""
-    src = open(os.path.join(os.path.dirname(__file__), "..", "admin_access.py"),
-               encoding="utf-8").read()
-    audit_part = src.split("# Reading the audit log.")[1]
-    for forbidden in ("db.session.delete", "AuditLog(", ".update(", "db.session.commit"):
-        assert forbidden not in audit_part, forbidden
+    """The table is append-only and hash-chained. Nothing that reads it may write.
+
+    Checks the audit functions BY NAME rather than "everything below a comment" —
+    the first version did the latter and broke the moment an unrelated section was
+    appended to the file, which is a test reporting on the wrong code.
+    """
+    import inspect
+    import admin_access as aa
+    for fn in (aa.search_audit, aa._accounts_matching, aa._account_ids,
+               aa._email_of, aa._parse_day, aa.audit_event_types,
+               aa.account_labels, aa.db_distinct):
+        body = inspect.getsource(fn)
+        for forbidden in ("db.session.delete", "AuditLog(", ".update(",
+                          "db.session.commit", "db.session.add"):
+            assert forbidden not in body, f"{fn.__name__}: {forbidden}"
 
 
 # ---------------------------------------------------------------------------

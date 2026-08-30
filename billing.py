@@ -300,3 +300,64 @@ def promotion_code_uses(promo_id: str) -> "int | None":
 def is_valid_code(code: str) -> bool:
     import re
     return bool(code) and len(code) <= 64 and re.fullmatch(r"[A-Za-z0-9-]+", code) is not None
+
+
+# ---------------------------------------------------------------------------
+# Partner referral codes.
+#
+# One Stripe coupon per DISCOUNT LEVEL, shared by every partner offering that
+# level — a coupon is only a discount definition. The promotion CODE is what is
+# unique per partner, and it doubles as the attribution link: a checkout that
+# used this code is this partner's referral.
+#
+# Only the discount exists in Stripe. The partner's commission is ours alone and
+# never leaves our database (see models.Partner).
+# ---------------------------------------------------------------------------
+
+# Stripe's own rule: "Valid characters are lower case letters (a-z), upper case
+# letters (A-Z), digits (0-9), and dashes (-)."
+_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # no O/0, I/1/L — misread aloud
+
+
+def partner_coupon_id(discount_pct: int) -> str:
+    return f"tmai_partner_{int(discount_pct)}off"
+
+
+def ensure_partner_coupon(discount_pct: int):
+    """The coupon for this discount level, created once and reused after that."""
+    stripe = _stripe_or_raise()
+    cid = partner_coupon_id(discount_pct)
+    try:
+        return stripe.Coupon.retrieve(cid)
+    except Exception:
+        return stripe.Coupon.create(
+            id=cid, percent_off=int(discount_pct), duration="forever",
+            name=f"TogetherMindsAI partner {int(discount_pct)}% off",
+        )
+
+
+def suggest_partner_code(name: str) -> str:
+    """NAME-XXXX. The random tail is the point: without it, someone holding
+    EASTON10 would simply try EASTON50 and take the bigger discount."""
+    import re
+    import secrets
+    base = re.sub(r"[^A-Za-z0-9]", "", (name or "").strip()).upper()[:16] or "PARTNER"
+    tail = "".join(secrets.choice(_CODE_ALPHABET) for _ in range(4))
+    return f"{base}-{tail}"
+
+
+def create_partner_code(code: str, discount_pct: int, max_uses=None):
+    """Create the partner's promotion code in Stripe. Returns the Stripe object.
+
+    max_redemptions is enforced by STRIPE, not by us — a cap we counted ourselves
+    could be walked past by two people checking out at the same moment.
+    """
+    stripe = _stripe_or_raise()
+    ensure_partner_coupon(discount_pct)
+    kwargs = {
+        "promotion": {"type": "coupon", "coupon": partner_coupon_id(discount_pct)},
+        "code": code,
+    }
+    if max_uses:
+        kwargs["max_redemptions"] = int(max_uses)
+    return stripe.PromotionCode.create(**kwargs)

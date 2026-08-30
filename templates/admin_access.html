@@ -282,6 +282,103 @@
     </div>
     {% endif %}
 
+    {# ---- Partners ---------------------------------------------------------
+       The two percentages are not the same kind of thing. The discount is real
+       and Stripe applies it; the commission is a number we store and you pay by
+       hand. The card says so, or the difference is invisible. #}
+    {% if discount_enabled %}
+    <div class="card rounded-4 border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-1 fs-6">Partners</h5>
+        <p class="text-muted small mb-3">
+          Each partner gets one code with a random ending, so a second one cannot
+          be guessed from the first. The discount comes off at checkout. The
+          commission is recorded here and paid by you.
+        </p>
+
+        <form method="post" action="{{ url_for('admin_access_partner') }}"
+              class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="col-12 col-md-3">
+            <label class="form-label small fw-semibold">Name</label>
+            <input class="form-control form-control-sm" name="name" required
+                   maxlength="80" placeholder="Easton">
+          </div>
+          <div class="col-12 col-md-3">
+            <label class="form-label small fw-semibold">Email</label>
+            <input class="form-control form-control-sm" name="email" type="email"
+                   placeholder="name@example.com">
+          </div>
+          <div class="col-4 col-md-2">
+            <label class="form-label small fw-semibold">They get off %</label>
+            <input class="form-control form-control-sm" name="discount_pct" type="number"
+                   min="1" max="100" required placeholder="10">
+          </div>
+          <div class="col-4 col-md-2">
+            <label class="form-label small fw-semibold">Partner earns %</label>
+            <input class="form-control form-control-sm" name="commission_pct" type="number"
+                   min="0" max="100" required placeholder="40">
+          </div>
+          <div class="col-4 col-md-1">
+            <label class="form-label small fw-semibold">Max uses</label>
+            <input class="form-control form-control-sm" name="max_uses" type="number"
+                   min="1" placeholder="10">
+          </div>
+          <div class="col-12 col-md-1 d-grid">
+            <button class="btn btn-primary btn-sm rounded-pill" type="submit">Add</button>
+          </div>
+        </form>
+        <p class="text-muted small mb-0 mt-2">
+          The two percentages must leave you at least {{ partner_min_kept }}% — below
+          that the card fee costs more than the sale brings in. Max uses is optional
+          and enforced by Stripe.
+        </p>
+
+        {% if partners %}
+        <div class="table-responsive mt-3">
+          <table class="table align-middle mb-0 comp-table">
+            <thead>
+              <tr class="small">
+                <th>Partner</th><th>Code</th><th>Split</th><th>Used</th>
+                <th class="text-end">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for p in partners %}
+              <tr>
+                <td class="small">
+                  {{ p.name }}
+                  <div class="comp-muted" style="font-size:.78rem">{{ p.email or 'no email' }}</div>
+                </td>
+                <td class="small font-monospace">{{ p.code }}</td>
+                <td class="small comp-muted">
+                  they {{ p.discount_pct }}% · partner {{ p.commission_pct }}% ·
+                  <strong>you {{ p.kept_pct }}%</strong>
+                </td>
+                <td class="small comp-muted">
+                  {{ partner_uses.get(p.code) if partner_uses.get(p.code) is not none else '—' }}{% if p.max_uses %} of {{ p.max_uses }}{% endif %}
+                </td>
+                <td class="text-end">
+                  {% if p.active %}
+                  <form method="post" action="{{ url_for('admin_access_partner') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="stop_id" value="{{ p.id }}">
+                    <button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Stop</button>
+                  </form>
+                  {% else %}
+                  <span class="badge bg-secondary rounded-pill">Stopped</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
     {# ---- Audit log --------------------------------------------------------
        Read-only by construction: the table is append-only and hash-chained, and
        no route here offers a delete. The filters live in the query string so a
