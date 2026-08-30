@@ -554,7 +554,12 @@ class AdminAuthCode(db.Model):
 
 
 class DiscountCode(db.Model):
-    """The one discount code the admin console offers, and its Stripe twin.
+    """SUPERSEDED by PromoCode — kept only so the live row can be read and copied
+    across at startup. Nothing writes here any more; the console reads promo_codes.
+    Do not delete the table: it holds the record of the 100%-off testing code that
+    was created before the two were merged.
+
+    The one discount code the admin console offers, and its Stripe twin.
 
     Exactly one row: Stripe will not let a promotion code be renamed (only
     `active`, `metadata` and `restrictions` are editable), so "changing the code"
@@ -579,15 +584,21 @@ class DiscountCode(db.Model):
         return f"<DiscountCode {self.code} active={self.active}>"
 
 
-class Partner(db.Model):
-    """Someone who refers customers, and the code that identifies their referrals.
+class PromoCode(db.Model):
+    """Every discount code the console offers — with or without a partner behind it.
+
+    One table on purpose. The 100%-off testing code and a partner's referral code
+    are the same object: a Stripe promotion code with a percentage off. A partner
+    code merely also carries a name, an email and a commission. Keeping them apart
+    meant two cards doing nearly the same job, and two code paths to change in
+    step.
 
     The two percentages are enforced very differently, which matters when reading
     this table. `discount_pct` is real: it lives in a Stripe coupon and is applied
     at checkout. `commission_pct` is only a number we store — Stripe knows nothing
     about it. It drives the payout report and is paid by hand, so the report is the
     only thing standing between this column and someone being paid the wrong
-    amount.
+    amount. It is 0 for a code with no partner.
 
     The code carries a random suffix so a second one cannot be guessed from the
     first, and doubles as the attribution link: a checkout that used this code is
@@ -595,10 +606,10 @@ class Partner(db.Model):
 
     Email is encrypted at rest like every other address here.
     """
-    __tablename__ = "partners"
+    __tablename__ = "promo_codes"
 
     id             = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name           = db.Column(db.String(80), nullable=False)
+    label          = db.Column(db.String(80), nullable=False)   # partner name, or what it is for
     email          = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
     code           = db.Column(db.String(64), nullable=False, unique=True)
     discount_pct   = db.Column(db.Integer, nullable=False)     # what the new customer gets off
@@ -614,5 +625,10 @@ class Partner(db.Model):
         """What the business keeps, before Stripe's fee."""
         return 100 - (self.discount_pct or 0) - (self.commission_pct or 0)
 
+    @property
+    def has_partner(self) -> bool:
+        """A code that pays someone, as opposed to a plain discount."""
+        return bool(self.commission_pct)
+
     def __repr__(self):
-        return f"<Partner {self.name} {self.code} active={self.active}>"
+        return f"<PromoCode {self.label} {self.code} active={self.active}>"

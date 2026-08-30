@@ -224,22 +224,11 @@ def subscription_plan_and_status(subscription) -> "tuple[str, str]":
 
 
 # ---------------------------------------------------------------------------
-# The one discount code the admin console manages.
+# Shared Stripe plumbing for promotion codes.
 #
-# Stripe will not rename a promotion code — its update endpoint accepts only
-# `active`, `metadata` and `restrictions`. So changing the code means creating a
-# new promotion code on the same coupon and switching the old one off. That is
-# two calls, done here so the console shows one field and one button.
-#
-# Unlike the rest of this module these raise on failure rather than returning
-# None. A half-done change must be visible: the caller shows the error and keeps
-# the stored code exactly as it was.
+# These raise on failure rather than returning None, unlike the rest of this
+# module: a half-done change to a live discount must be visible, not swallowed.
 # ---------------------------------------------------------------------------
-
-# Fixed id, so the coupon is found rather than duplicated on every call.
-COUPON_ID = "tmai_admin_100off"
-DEFAULT_DISCOUNT_CODE = "100-0ffTh1sBuy"
-
 
 def _stripe_or_raise():
     stripe = _init()
@@ -248,32 +237,8 @@ def _stripe_or_raise():
     return stripe
 
 
-def ensure_coupon():
-    """The 100%-off coupon, created once if it is not there yet."""
-    stripe = _stripe_or_raise()
-    try:
-        return stripe.Coupon.retrieve(COUPON_ID)
-    except Exception:
-        return stripe.Coupon.create(
-            id=COUPON_ID, percent_off=100, duration="forever",
-            name="TogetherMindsAI admin discount",
-        )
-
-
-def create_promotion_code(code: str):
-    """Create the promotion code customers type. Returns the Stripe object."""
-    stripe = _stripe_or_raise()
-    ensure_coupon()
-    # stripe.PromotionCode, not stripe.promotion_codes: the snake_case accessors
-    # live on a StripeClient instance, not on the module. Calling the wrong one
-    # raised AttributeError, which the console reported as "the code may already
-    # be in use" — a guess that sent the diagnosis the wrong way.
-    return stripe.PromotionCode.create(
-        promotion={"type": "coupon", "coupon": COUPON_ID}, code=code)
-
-
 def deactivate_promotion_code(promo_id: str) -> None:
-    """Switch an old promotion code off. Missing or already-off is not an error."""
+    """Switch a code off. Missing or already-off is not an error."""
     if not promo_id:
         return
     stripe = _stripe_or_raise()
@@ -295,15 +260,15 @@ def promotion_code_uses(promo_id: str) -> "int | None":
         return None
 
 
-# Stripe rejects anything else: "Valid characters are lower case letters (a-z),
-# upper case letters (A-Z), digits (0-9), and dashes (-)."
+# Stripe's own rule: "Valid characters are lower case letters (a-z), upper case
+# letters (A-Z), digits (0-9), and dashes (-)."
 def is_valid_code(code: str) -> bool:
     import re
     return bool(code) and len(code) <= 64 and re.fullmatch(r"[A-Za-z0-9-]+", code) is not None
 
 
 # ---------------------------------------------------------------------------
-# Partner referral codes.
+# Discount codes — the console's only way to make one.
 #
 # One Stripe coupon per DISCOUNT LEVEL, shared by every partner offering that
 # level — a coupon is only a discount definition. The promotion CODE is what is
@@ -319,24 +284,24 @@ def is_valid_code(code: str) -> bool:
 _CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   # no O/0, I/1/L — misread aloud
 
 
-def partner_coupon_id(discount_pct: int) -> str:
-    return f"tmai_partner_{int(discount_pct)}off"
+def discount_coupon_id(discount_pct: int) -> str:
+    return f"tmai_discount_{int(discount_pct)}off"
 
 
-def ensure_partner_coupon(discount_pct: int):
+def ensure_discount_coupon(discount_pct: int):
     """The coupon for this discount level, created once and reused after that."""
     stripe = _stripe_or_raise()
-    cid = partner_coupon_id(discount_pct)
+    cid = discount_coupon_id(discount_pct)
     try:
         return stripe.Coupon.retrieve(cid)
     except Exception:
         return stripe.Coupon.create(
             id=cid, percent_off=int(discount_pct), duration="forever",
-            name=f"TogetherMindsAI partner {int(discount_pct)}% off",
+            name=f"TogetherMindsAI {int(discount_pct)}% off",
         )
 
 
-def suggest_partner_code(name: str) -> str:
+def suggest_code(name: str) -> str:
     """NAME-XXXX. The random tail is the point: without it, someone holding
     EASTON10 would simply try EASTON50 and take the bigger discount."""
     import re
@@ -346,16 +311,16 @@ def suggest_partner_code(name: str) -> str:
     return f"{base}-{tail}"
 
 
-def create_partner_code(code: str, discount_pct: int, max_uses=None):
+def create_promo_code(code: str, discount_pct: int, max_uses=None):
     """Create the partner's promotion code in Stripe. Returns the Stripe object.
 
     max_redemptions is enforced by STRIPE, not by us — a cap we counted ourselves
     could be walked past by two people checking out at the same moment.
     """
     stripe = _stripe_or_raise()
-    ensure_partner_coupon(discount_pct)
+    ensure_discount_coupon(discount_pct)
     kwargs = {
-        "promotion": {"type": "coupon", "coupon": partner_coupon_id(discount_pct)},
+        "promotion": {"type": "coupon", "coupon": discount_coupon_id(discount_pct)},
         "code": code,
     }
     if max_uses:

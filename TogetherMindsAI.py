@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, DiscountCode, Partner, HoursGrant, RecordAuthorisation, init_encryption, friendly_name_key
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, DiscountCode, PromoCode, HoursGrant, RecordAuthorisation, init_encryption, friendly_name_key
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis
 import copilot
@@ -1004,6 +1004,29 @@ if not config.IS_TESTING:
             except Exception:
                 db.session.rollback()  # column already exists
         _backfill_clinician_roles()
+
+    # Move the one-off discount code into the merged promo_codes table. The two
+    # cards became one, so the live 100%-off testing code has to appear in the
+    # list with everything else. Copies the record only — the Stripe code itself
+    # is untouched and keeps working either way. Idempotent, and never raises:
+    # losing this copy costs a row on a screen, not a working code.
+    with app.app_context():
+        try:
+            legacy = DiscountCode.query.order_by(DiscountCode.id.desc()).first()
+            if legacy is not None and legacy.promo_id:
+                already = PromoCode.query.filter_by(code=legacy.code).first()
+                if already is None:
+                    db.session.add(PromoCode(
+                        label="Testing (100% off)", email=None, code=legacy.code,
+                        discount_pct=100, commission_pct=0, max_uses=None,
+                        promo_id=legacy.promo_id, active=bool(legacy.active),
+                        created_at=legacy.updated_at or datetime.now(timezone.utc),
+                        created_by=legacy.updated_by))
+                    db.session.commit()
+                    app.logger.info("Copied the legacy discount code into promo_codes.")
+        except Exception as exc:
+            db.session.rollback()
+            app.logger.warning("legacy discount code copy skipped: %s", type(exc).__name__)
 
     # Add the recording 24h-before-deletion reminder timestamp (Phase 4 Step 3).
     with app.app_context():

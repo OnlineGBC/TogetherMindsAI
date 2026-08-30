@@ -329,73 +329,6 @@ def active_grants(CompAccess):
 
 
 # ---------------------------------------------------------------------------
-# The one discount code the console manages.
-#
-# Stripe will not rename a promotion code, so "changing the code" is really
-# "create the new one, switch the old one off". That happens here, in one step,
-# so the console can show a single field and a single button.
-# ---------------------------------------------------------------------------
-
-
-def current_discount(db, DiscountCode):
-    """The single row, created on first read with the starting code.
-
-    Creating the row does NOT create anything in Stripe — `promo_id` stays NULL
-    until an admin saves. A page view must never make live billing objects.
-    """
-    import billing
-    row = DiscountCode.query.order_by(DiscountCode.id.desc()).first()
-    if row is None:
-        row = DiscountCode(code=billing.DEFAULT_DISCOUNT_CODE, promo_id=None,
-                           active=True, updated_at=datetime.now(timezone.utc))
-        db.session.add(row)
-        db.session.commit()
-    return row
-
-
-def set_discount_code(db, DiscountCode, new_code: str, admin_email: str):
-    """Point the discount at a new code. Returns the row.
-
-    Raises on any Stripe failure, having changed nothing here — a half-done
-    change must be visible rather than stored as if it had worked.
-    """
-    import billing
-    new_code = (new_code or "").strip()
-    if not billing.is_valid_code(new_code):
-        raise ValueError("Use letters, numbers and dashes only.")
-
-    row = current_discount(db, DiscountCode)
-    if row.active and row.code == new_code and row.promo_id:
-        return row                      # already exactly this; nothing to do
-
-    promo = billing.create_promotion_code(new_code)   # raises if Stripe is unhappy
-    old_promo_id = row.promo_id
-    row.code = new_code
-    row.promo_id = promo.id
-    row.active = True
-    row.updated_at = datetime.now(timezone.utc)
-    row.updated_by = admin_email
-    db.session.commit()
-    # Only after the new one is safely stored — otherwise a failure here would
-    # leave the account with no working code at all.
-    billing.deactivate_promotion_code(old_promo_id)
-    return row
-
-
-def turn_off_discount(db, DiscountCode, admin_email: str):
-    """Switch the current code off in Stripe and here. Returns the row."""
-    import billing
-    row = current_discount(db, DiscountCode)
-    billing.deactivate_promotion_code(row.promo_id)
-    row.active = False
-    row.promo_id = None
-    row.updated_at = datetime.now(timezone.utc)
-    row.updated_by = admin_email
-    db.session.commit()
-    return row
-
-
-# ---------------------------------------------------------------------------
 # Reading the audit log.
 #
 # Everything was already recorded; there was simply no way to look at it without
@@ -535,7 +468,7 @@ def account_labels(Clinician) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Partners.
+# Discount codes, with or without a partner behind them.
 #
 # The two percentages are NOT symmetrical. The discount is real — Stripe applies
 # it at checkout. The commission is a number we store and pay by hand, so the
@@ -548,7 +481,7 @@ def account_labels(Clinician) -> dict:
 MIN_KEPT_PCT = 5
 
 
-def partner_split_error(discount_pct, commission_pct):
+def split_error(discount_pct, commission_pct):
     """Why this pair cannot be saved, or None if it is fine."""
     try:
         discount = int(discount_pct)
@@ -559,6 +492,13 @@ def partner_split_error(discount_pct, commission_pct):
         return "The discount must be between 1 and 100."
     if not (0 <= commission <= 100):
         return "The commission must be between 0 and 100."
+    # A 100%-off code is fine as long as nobody is owed a share of it: no money
+    # changes hands, so there is no card fee and nothing to lose. This is what
+    # the free testing code is. Pair it with a commission and you would collect
+    # nothing while owing someone — the worst case there is.
+    if discount == 100:
+        return ("A 100% off code cannot pay a commission — nothing is collected "
+                "to pay it from.") if commission else None
     kept = 100 - discount - commission
     if kept < MIN_KEPT_PCT:
         return (f"That leaves you {kept}%, which does not cover the card fee. "
@@ -566,19 +506,22 @@ def partner_split_error(discount_pct, commission_pct):
     return None
 
 
-def create_partner(db, Partner, *, name, email, discount_pct, commission_pct,
-                   max_uses=None, admin_email=None):
-    """Add a partner and create their code in Stripe. Returns the row.
+def create_promo_code(db, PromoCode, *, label, email, discount_pct, commission_pct,
+                      max_uses=None, admin_email=None):
+    """Add a discount code and create it in Stripe. Returns the row.
 
-    Raises ValueError for a bad split, and lets a Stripe failure raise — a
-    half-made partner (row here, no code there) would hand out a code that does
-    not work, so nothing is stored unless Stripe accepted it.
+    `commission_pct` of 0 means a plain discount with nobody to pay — the 100%-off
+    testing code is exactly that. Anything above 0 makes it a partner's code.
+
+    Raises ValueError for a bad split, and lets a Stripe failure raise: a row here
+    with no code there would hand someone a code that does not work, so nothing is
+    stored unless Stripe accepted it.
     """
     import billing
-    name = (name or "").strip()
-    if not name:
-        raise ValueError("Enter a name.")
-    problem = partner_split_error(discount_pct, commission_pct)
+    label = (label or "").strip()
+    if not label:
+        raise ValueError("Enter a label — a partner's name, or what the code is for.")
+    problem = split_error(discount_pct, commission_pct)
     if problem:
         raise ValueError(problem)
 
@@ -591,10 +534,10 @@ def create_partner(db, Partner, *, name, email, discount_pct, commission_pct,
         if uses < 1:
             raise ValueError("Max uses must be at least 1.")
 
-    code = billing.suggest_partner_code(name)
-    promo = billing.create_partner_code(code, int(discount_pct), uses)  # raises if refused
-    row = Partner(
-        name=name, email=(email or "").strip() or None, code=code,
+    code = billing.suggest_code(label)
+    promo = billing.create_promo_code(code, int(discount_pct), uses)  # raises if refused
+    row = PromoCode(
+        label=label, email=(email or "").strip() or None, code=code,
         discount_pct=int(discount_pct), commission_pct=int(commission_pct),
         max_uses=uses, promo_id=promo.id, active=True,
         created_at=datetime.now(timezone.utc), created_by=admin_email,
@@ -604,15 +547,15 @@ def create_partner(db, Partner, *, name, email, discount_pct, commission_pct,
     return row
 
 
-def list_partners(Partner) -> list:
-    return Partner.query.order_by(Partner.id.desc()).all()
+def list_promo_codes(PromoCode) -> list:
+    return PromoCode.query.order_by(PromoCode.id.desc()).all()
 
 
-def stop_partner(db, Partner, partner_id) -> bool:
-    """Switch a partner's code off in Stripe and here. Their past referrals keep
-    their discount — Stripe leaves an applied discount on the subscription."""
+def stop_promo_code(db, PromoCode, row_id) -> bool:
+    """Switch a code off in Stripe and here. Anyone already subscribed keeps their
+    discount — Stripe leaves an applied discount on the subscription."""
     import billing
-    row = db.session.get(Partner, partner_id)
+    row = db.session.get(PromoCode, row_id)
     if row is None or not row.active:
         return False
     billing.deactivate_promotion_code(row.promo_id)
@@ -621,10 +564,10 @@ def stop_partner(db, Partner, partner_id) -> bool:
     return True
 
 
-def partner_uses(Partner) -> dict:
+def promo_code_uses(PromoCode) -> dict:
     """code → how many times Stripe says it has been redeemed."""
     import billing
     out = {}
-    for row in Partner.query.all():
+    for row in PromoCode.query.all():
         out[row.code] = billing.promotion_code_uses(row.promo_id) if row.promo_id else None
     return out

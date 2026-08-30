@@ -62,26 +62,20 @@ def _mark_verified() -> None:
     session[_VERIFIED_UNTIL] = until.isoformat()
 
 
-def _discount_view() -> dict:
-    """Template values for the discount-code card.
+def _codes_view() -> dict:
+    """Template values for the Discount codes card.
 
-    Reading the usage count talks to Stripe, so it is skipped when the code has
-    never been created there — the card says so instead of showing a made-up 0.
+    One card for every code, with or without a partner behind it. Hidden when
+    billing is off: with no checkout, a code has nowhere to be typed.
     """
     if not config.BILLING_ENABLED:
-        return {"discount_enabled": False, "partners": [], "partner_uses": {}}
-    row = admin_access.current_discount(_tm.db, _tm.DiscountCode)
-    import billing
+        return {"codes_enabled": False, "promo_codes": [], "promo_uses": {}}
     return {
-        "discount_enabled": True,
-        "discount_code": row.code,
-        "discount_live": bool(row.active and row.promo_id),
-        "discount_uses": billing.promotion_code_uses(row.promo_id) if row.promo_id else None,
-        # Partners live behind the same switch: with billing off there is no
-        # checkout for a referral code to be used at.
-        "partners": admin_access.list_partners(_tm.Partner),
-        "partner_uses": admin_access.partner_uses(_tm.Partner),
-        "partner_min_kept": admin_access.MIN_KEPT_PCT,
+        "codes_enabled": True,
+        "promo_codes": admin_access.list_promo_codes(_tm.PromoCode),
+        # Read from Stripe, which is the only place that actually counts them.
+        "promo_uses": admin_access.promo_code_uses(_tm.PromoCode),
+        "promo_min_kept": admin_access.MIN_KEPT_PCT,
     }
 
 
@@ -135,9 +129,7 @@ def register_admin_routes(app):
             disable_notice=admin_access.DISABLE_NOTICE,
             self_id=session.get("user_id"),
             admin_emails=[a.lower() for a in (config.ADMIN_EMAILS or [])],
-            # With billing off there is no checkout for a code to be typed into,
-            # so the whole card is hidden rather than shown doing nothing.
-            **_discount_view(),
+            **_codes_view(),
             **_audit_view(),
             totp_available=bool(config.ADMIN_TOTP_SECRET),
             factors_required=config.ADMIN_FACTORS_REQUIRED,
@@ -248,9 +240,9 @@ def register_admin_routes(app):
                   "Account enabled — they can sign in again.", "info")
         return redirect(url_for("admin_access_page"))
 
-    @app.route("/accessadmin/partner", methods=["POST"])
-    def admin_access_partner():
-        """Add a referral partner, or stop one. Admin only.
+    @app.route("/accessadmin/code", methods=["POST"])
+    def admin_access_promo_code():
+        """Add a discount code, or stop one. Admin only.
 
         Nothing is stored unless Stripe accepted the code: a row here with no
         code there would hand someone a code that does not work.
@@ -261,16 +253,16 @@ def register_admin_routes(app):
         stop_id = (request.form.get("stop_id") or "").strip()
         try:
             if stop_id:
-                if admin_access.stop_partner(_tm.db, _tm.Partner, int(stop_id)):
-                    _tm.log_event("partner_stopped", user_id=session.get("user_id"),
-                                  partner_id=int(stop_id))
-                    flash("Partner code switched off.", "info")
+                if admin_access.stop_promo_code(_tm.db, _tm.PromoCode, int(stop_id)):
+                    _tm.log_event("promo_code_stopped", user_id=session.get("user_id"),
+                                  promo_id=int(stop_id))
+                    flash("Code switched off.", "info")
                 else:
-                    flash("No change made — unknown partner, or already off.", "danger")
+                    flash("No change made — unknown code, or already off.", "danger")
             else:
-                row = admin_access.create_partner(
-                    _tm.db, _tm.Partner,
-                    name=request.form.get("name", ""),
+                row = admin_access.create_promo_code(
+                    _tm.db, _tm.PromoCode,
+                    label=request.form.get("label", ""),
                     email=request.form.get("email", ""),
                     discount_pct=request.form.get("discount_pct", ""),
                     commission_pct=request.form.get("commission_pct", ""),
@@ -278,51 +270,15 @@ def register_admin_routes(app):
                     admin_email=email,
                 )
                 # The code, not the name: it is the thing that has to be passed on.
-                _tm.log_event("partner_added", user_id=session.get("user_id"),
+                _tm.log_event("promo_code_added", user_id=session.get("user_id"),
                               code=row.code, discount_pct=row.discount_pct,
                               commission_pct=row.commission_pct)
-                flash(f"Partner added. Their code is {row.code}.", "info")
+                flash(f"Code created: {row.code}", "info")
         except ValueError as exc:
             flash(str(exc), "danger")
         except Exception as exc:
-            app.logger.warning("partner change failed: %s: %s", type(exc).__name__, exc)
+            app.logger.warning("promo code change failed: %s: %s", type(exc).__name__, exc)
             flash(f"Nothing was saved. Stripe said: {exc}", "danger")
-        return redirect(url_for("admin_access_page"))
-
-    @app.route("/accessadmin/discount", methods=["POST"])
-    def admin_access_discount():
-        """Set, change, or switch off the one discount code.
-
-        Stripe will not rename a promotion code, so a change means creating the
-        new one and switching the old one off — done in admin_access so this
-        route stays a thin wrapper. Any Stripe failure is shown and stored
-        nothing, rather than saved as if it had worked.
-        """
-        email = _require_admin()
-        if not _is_verified():
-            abort(403)
-        turn_off = request.form.get("turn_off") == "1"
-        try:
-            if turn_off:
-                admin_access.turn_off_discount(_tm.db, _tm.DiscountCode, email)
-                _tm.log_event("discount_code_off", user_id=session.get("user_id"))
-                flash("Discount code switched off.", "info")
-            else:
-                row = admin_access.set_discount_code(
-                    _tm.db, _tm.DiscountCode, request.form.get("code", ""), email)
-                _tm.log_event("discount_code_set", user_id=session.get("user_id"),
-                              code=row.code)
-                flash(f"Discount code is now {row.code}.", "info")
-        except ValueError as exc:
-            flash(str(exc), "danger")
-        except Exception as exc:
-            # Log and show what actually went wrong. Logging only the exception
-            # TYPE, and guessing at the cause in the message, sent a real
-            # diagnosis the wrong way: an AttributeError in our own code was
-            # reported to the admin as "the code may already be in use".
-            app.logger.warning("discount code change failed: %s: %s",
-                               type(exc).__name__, exc)
-            flash(f"Nothing was changed. Stripe said: {exc}", "danger")
         return redirect(url_for("admin_access_page"))
 
     @app.route("/accessadmin/revoke", methods=["POST"])

@@ -241,68 +241,31 @@
       </div>
     </div>
 
-    {# ---- Discount code ---------------------------------------------------- #}
-    {% if discount_enabled %}
+    {# ---- Discount codes ---------------------------------------------------
+       ONE card for every code. The 100%-off testing code and a partner's
+       referral code are the same object — a Stripe promotion code with a
+       percentage off — so two cards meant two ways to do one job.
+
+       The two percentages are not the same kind of thing, though. The discount
+       is real and Stripe applies it; the commission is a number we store and you
+       pay by hand. The card says so, or the difference is invisible. #}
+    {% if codes_enabled %}
     <div class="card rounded-4 border-0 shadow-sm mb-3">
       <div class="card-body">
-        <h5 class="fw-bold mb-1 fs-6">Discount code</h5>
+        <h5 class="fw-bold mb-1 fs-6">Discount codes</h5>
         <p class="text-muted small mb-3">
-          One code, for 100% off at checkout. Stripe cannot rename a code, so
-          saving a new one creates it and switches the old one off.
-        </p>
-        <form method="post" action="{{ url_for('admin_access_discount') }}"
-              class="row g-2 align-items-end">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <div class="col-12 col-md-6">
-            <label class="form-label small fw-semibold">Code</label>
-            <input class="form-control form-control-sm" name="code" maxlength="64"
-                   value="{{ discount_code }}" placeholder="letters, numbers and dashes">
-          </div>
-          <div class="col-6 col-md-3 d-grid">
-            <button class="btn btn-primary btn-sm rounded-pill" type="submit">Save</button>
-          </div>
-        </form>
-        <div class="d-flex gap-3 align-items-center mt-2 flex-wrap">
-          {% if discount_live %}
-            <span class="badge bg-success rounded-pill">Working now</span>
-            <span class="text-muted small">
-              Used {{ discount_uses if discount_uses is not none else '—' }} time(s).
-            </span>
-            <form method="post" action="{{ url_for('admin_access_discount') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="turn_off" value="1">
-              <button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Turn off</button>
-            </form>
-          {% else %}
-            <span class="badge bg-secondary rounded-pill">Not created yet</span>
-            <span class="text-muted small">Press Save to create it in Stripe.</span>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-    {% endif %}
-
-    {# ---- Partners ---------------------------------------------------------
-       The two percentages are not the same kind of thing. The discount is real
-       and Stripe applies it; the commission is a number we store and you pay by
-       hand. The card says so, or the difference is invisible. #}
-    {% if discount_enabled %}
-    <div class="card rounded-4 border-0 shadow-sm mb-3">
-      <div class="card-body">
-        <h5 class="fw-bold mb-1 fs-6">Partners</h5>
-        <p class="text-muted small mb-3">
-          Each partner gets one code with a random ending, so a second one cannot
-          be guessed from the first. The discount comes off at checkout. The
-          commission is recorded here and paid by you.
+          Every code gets a random ending, so a second one cannot be guessed from
+          the first. The discount comes off at checkout. A commission above 0 makes
+          it a partner's code — that share is recorded here and paid by you.
         </p>
 
-        <form method="post" action="{{ url_for('admin_access_partner') }}"
+        <form method="post" action="{{ url_for('admin_access_promo_code') }}"
               class="row g-2 align-items-end">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="col-12 col-md-3">
-            <label class="form-label small fw-semibold">Name</label>
-            <input class="form-control form-control-sm" name="name" required
-                   maxlength="80" placeholder="Easton">
+            <label class="form-label small fw-semibold">Label</label>
+            <input class="form-control form-control-sm" name="label" required
+                   maxlength="80" placeholder="Easton, or Testing">
           </div>
           <div class="col-12 col-md-3">
             <label class="form-label small fw-semibold">Email</label>
@@ -317,7 +280,7 @@
           <div class="col-4 col-md-2">
             <label class="form-label small fw-semibold">Partner earns %</label>
             <input class="form-control form-control-sm" name="commission_pct" type="number"
-                   min="0" max="100" required placeholder="40">
+                   min="0" max="100" value="0" required placeholder="0">
           </div>
           <div class="col-4 col-md-1">
             <label class="form-label small fw-semibold">Max uses</label>
@@ -329,26 +292,26 @@
           </div>
         </form>
         <p class="text-muted small mb-0 mt-2">
-          The two percentages must leave you at least {{ partner_min_kept }}% — below
+          The two percentages must leave you at least {{ promo_min_kept }}% — below
           that the card fee costs more than the sale brings in. Max uses is optional
           and enforced by Stripe.
         </p>
 
-        {% if partners %}
+        {% if promo_codes %}
         <div class="table-responsive mt-3">
           <table class="table align-middle mb-0 comp-table">
             <thead>
               <tr class="small">
-                <th>Partner</th><th>Code</th><th>Split</th><th>Used</th>
+                <th>Label</th><th>Code</th><th>Split</th><th>Used</th>
                 <th class="text-end">Action</th>
               </tr>
             </thead>
             <tbody>
-            {% for p in partners %}
+            {% for p in promo_codes %}
               <tr>
                 <td class="small">
-                  {{ p.name }}
-                  <div class="comp-muted" style="font-size:.78rem">{{ p.email or 'no email' }}</div>
+                  {{ p.label }}
+                  <div class="comp-muted" style="font-size:.78rem">{{ p.email or ('no partner' if not p.has_partner else 'no email') }}</div>
                 </td>
                 <td class="small font-monospace">{{ p.code }}</td>
                 <td class="small comp-muted">
@@ -356,11 +319,11 @@
                   <strong>you {{ p.kept_pct }}%</strong>
                 </td>
                 <td class="small comp-muted">
-                  {{ partner_uses.get(p.code) if partner_uses.get(p.code) is not none else '—' }}{% if p.max_uses %} of {{ p.max_uses }}{% endif %}
+                  {{ promo_uses.get(p.code) if promo_uses.get(p.code) is not none else '—' }}{% if p.max_uses %} of {{ p.max_uses }}{% endif %}
                 </td>
                 <td class="text-end">
                   {% if p.active %}
-                  <form method="post" action="{{ url_for('admin_access_partner') }}">
+                  <form method="post" action="{{ url_for('admin_access_promo_code') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="stop_id" value="{{ p.id }}">
                     <button class="btn btn-outline-danger btn-sm rounded-pill" type="submit">Stop</button>
