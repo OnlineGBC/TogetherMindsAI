@@ -270,6 +270,15 @@ ADMIN_FACTORS_REQUIRED: int = int(os.environ.get("ADMIN_FACTORS_REQUIRED", "1"))
 
 ADMIN_CONSOLE_ENABLED: bool = bool(ADMIN_EMAILS)
 
+# Discount-code usage alerts. A sweep asks Stripe how many times each code has
+# been redeemed and emails the partner and every admin when a code is nearly
+# spent, fully spent, or being used unusually fast — the last being what a leaked
+# code looks like. Settings rather than constants so a noisy threshold can be
+# retuned without a deploy.
+PROMO_ALERT_SWEEP_MINUTES: int = int(os.environ.get("PROMO_ALERT_SWEEP_MINUTES", "60"))
+PROMO_ALERT_NEARLY_SPENT_PCT: int = int(os.environ.get("PROMO_ALERT_NEARLY_SPENT_PCT", "80"))
+PROMO_ALERT_BURST_PER_SWEEP: int = int(os.environ.get("PROMO_ALERT_BURST_PER_SWEEP", "5"))
+
 
 def secure_env_file() -> None:
     """Restrict .env file permissions to the current OS user on every startup.

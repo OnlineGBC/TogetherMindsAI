@@ -522,3 +522,208 @@ def test_delete_asks_first(client):
             html = client.get("/accessadmin").get_data(as_text=True)
         assert "return confirm(" in html
     _as_verified_admin(client, check)
+
+
+# ---------------------------------------------------------------------------
+# Usage alerts
+#
+# The rules are pure functions taking a count — no Stripe, no SMTP, no clock —
+# so each one is checked directly rather than through a mock of the world.
+# ---------------------------------------------------------------------------
+
+def _row(**kw):
+    """A stand-in code row. Not saved: alerts_for only reads attributes."""
+    from types import SimpleNamespace
+    base = dict(code="X-1", label="Easton", email="e@example.com", max_uses=10,
+                last_seen_uses=0, alerted_nearly=False, alerted_spent=False,
+                last_burst_alert=None)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def test_nothing_is_said_below_the_threshold():
+    # burst_per_sweep high on purpose: this is about the 80% rule, and a jump from
+    # 0 to 7 in one sweep is a burst in its own right.
+    assert admin_access.alerts_for(_row(), 7, nearly_pct=80, burst_per_sweep=99) == []
+
+
+def test_eighty_percent_used_is_flagged():
+    out = admin_access.alerts_for(_row(), 8, nearly_pct=80, burst_per_sweep=99)
+    assert out == [admin_access.ALERT_NEARLY]
+
+
+def test_fully_used_is_flagged():
+    out = admin_access.alerts_for(_row(), 10, nearly_pct=80, burst_per_sweep=99)
+    assert out == [admin_access.ALERT_SPENT]
+
+
+def test_a_code_that_jumps_past_the_cap_says_it_has_stopped_not_that_it_is_close():
+    """Both rules match at once. Saying "nearly there" about a code that has
+    already stopped working would be wrong."""
+    out = admin_access.alerts_for(_row(), 12, nearly_pct=80, burst_per_sweep=99)
+    assert out == [admin_access.ALERT_SPENT]
+
+
+def test_each_threshold_is_only_said_once():
+    """Without this the same email would arrive every hour for the rest of the
+    code's life."""
+    assert admin_access.alerts_for(_row(alerted_nearly=True, last_seen_uses=8), 8,
+                                   nearly_pct=80, burst_per_sweep=99) == []
+    assert admin_access.alerts_for(_row(alerted_spent=True, last_seen_uses=10), 10,
+                                   nearly_pct=80, burst_per_sweep=99) == []
+
+
+def test_a_code_with_no_cap_gets_no_threshold_alerts():
+    """80% of nothing is nothing. Only the burst rule applies."""
+    out = admin_access.alerts_for(_row(max_uses=None, last_seen_uses=499), 500,
+                                  nearly_pct=80, burst_per_sweep=99)
+    assert out == []
+
+
+def test_a_burst_is_flagged():
+    """Five sign-ups in an hour on one code is what being passed around looks
+    like."""
+    out = admin_access.alerts_for(_row(max_uses=None, last_seen_uses=0), 5,
+                                  nearly_pct=80, burst_per_sweep=5)
+    assert out == [admin_access.ALERT_BURST]
+
+
+def test_a_burst_is_measured_since_the_last_sweep_not_from_zero():
+    out = admin_access.alerts_for(_row(max_uses=None, last_seen_uses=100), 102,
+                                  nearly_pct=80, burst_per_sweep=5)
+    assert out == []
+
+
+def test_a_recent_burst_alert_silences_the_next_one():
+    out = admin_access.alerts_for(_row(max_uses=None), 9, nearly_pct=80,
+                                  burst_per_sweep=5, burst_recent=True)
+    assert out == []
+
+
+def test_no_answer_from_stripe_says_nothing():
+    """Silence beats a wrong alarm when the count is unknown."""
+    assert admin_access.alerts_for(_row(), None, nearly_pct=80, burst_per_sweep=5) == []
+
+
+def test_the_partner_and_every_admin_are_told():
+    to = admin_access.alert_recipients(_row(email="e@example.com"),
+                                       ["a@x.com", "b@x.com"])
+    assert to == ["e@example.com", "a@x.com", "b@x.com"]
+
+
+def test_a_code_with_no_partner_goes_to_admins_only():
+    assert admin_access.alert_recipients(_row(email=None), ["a@x.com"]) == ["a@x.com"]
+
+
+def test_a_partner_who_is_also_an_admin_is_not_told_twice():
+    to = admin_access.alert_recipients(_row(email="a@x.com"), ["a@x.com"])
+    assert to == ["a@x.com"]
+
+
+def test_the_messages_say_what_happened_in_plain_words():
+    row = _row()
+    for kind in (admin_access.ALERT_NEARLY, admin_access.ALERT_SPENT,
+                 admin_access.ALERT_BURST):
+        subject, body = admin_access.alert_message(kind, row, 8)
+        assert row.code in subject and row.code in body
+        assert row.label in body
+
+
+# ---------------------------------------------------------------------------
+# The sweep
+# ---------------------------------------------------------------------------
+
+def _sweep(sent_box, uses, **kw):
+    def send(to, subject, body):
+        sent_box.append((to, subject))
+    args = dict(send=send, now=datetime.now(timezone.utc), nearly_pct=80,
+                burst_per_sweep=5, admin_emails=["admin@x.com"],
+                uses_of=lambda row: uses)
+    args.update(kw)
+    return admin_access.sweep_promo_alerts(db, PromoCode, **args)
+
+
+def test_the_sweep_sends_and_records_that_it_sent(client):
+    with app.app_context(), _stripe_ok():
+        row = _add(max_uses=10)
+        box = []
+        # burst_per_sweep high: a brand-new code jumping 0 to 10 is also a burst,
+        # and this test is about the cap being reached.
+        assert _sweep(box, 10, burst_per_sweep=99) == [(row.code, admin_access.ALERT_SPENT)]
+        assert len(box) == 1
+        assert db.session.get(PromoCode, row.id).alerted_spent is True
+
+
+def test_the_sweep_does_not_send_the_same_alert_twice(client):
+    with app.app_context(), _stripe_ok():
+        _add(max_uses=10)
+        box = []
+        _sweep(box, 10, burst_per_sweep=99)
+        _sweep(box, 10, burst_per_sweep=99)
+        assert len(box) == 1
+
+
+def test_a_failed_email_is_not_marked_as_sent(client):
+    """A warning nobody received is worse than a duplicate — the next sweep must
+    try again."""
+    with app.app_context(), _stripe_ok():
+        row = _add(max_uses=10)
+
+        def boom(to, subject, body):
+            raise RuntimeError("smtp down")
+
+        admin_access.sweep_promo_alerts(
+            db, PromoCode, send=boom, now=datetime.now(timezone.utc),
+            nearly_pct=80, burst_per_sweep=5, admin_emails=["a@x.com"],
+            uses_of=lambda r: 10)
+        assert db.session.get(PromoCode, row.id).alerted_spent is False
+
+
+def test_the_count_moves_even_when_nothing_is_sent(client):
+    """Otherwise a quiet hour would read as a burst on the next sweep."""
+    with app.app_context(), _stripe_ok():
+        row = _add(max_uses=100)
+        _sweep([], 3)
+        assert db.session.get(PromoCode, row.id).last_seen_uses == 3
+
+
+def test_a_switched_off_code_is_skipped(client):
+    with app.app_context(), _stripe_ok():
+        row = _add(max_uses=10)
+        with patch.object(billing, "deactivate_promotion_code"):
+            admin_access.edit_promo_code(db, PromoCode, row.id, active=False)
+        box = []
+        assert _sweep(box, 10) == []
+        assert box == []
+
+
+def test_stripe_being_unreachable_does_not_stop_the_sweep(client):
+    with app.app_context(), _stripe_ok():
+        _add(max_uses=10)
+
+        def boom(row):
+            raise RuntimeError("stripe down")
+
+        assert admin_access.sweep_promo_alerts(
+            db, PromoCode, send=lambda *a: None, now=datetime.now(timezone.utc),
+            nearly_pct=80, burst_per_sweep=5, admin_emails=["a@x.com"],
+            uses_of=boom) == []
+
+
+def test_the_sweep_is_registered_and_defined_before_it_is_used():
+    """The startup block runs at import, so a job registered above its own
+    function is an import-time NameError under gunicorn."""
+    src = open(os.path.join(os.path.dirname(__file__), "..",
+                            "TogetherMindsAI.py"), encoding="utf-8").read()
+    def_pos = src.index("def _promo_alert_sweep")
+    use_pos = src.index('id="promo_alert_sweep"')
+    assert def_pos < use_pos
+
+
+def test_a_spent_code_never_falls_back_to_saying_nearly():
+    """Regression: the two rules were chained on the SENT flags, so a code already
+    flagged as fully used sent "nearly used up" on the very next sweep — wrong,
+    and a second email."""
+    out = admin_access.alerts_for(_row(alerted_spent=True, last_seen_uses=10), 10,
+                                  nearly_pct=80, burst_per_sweep=99)
+    assert out == []

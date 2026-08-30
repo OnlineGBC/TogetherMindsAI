@@ -619,6 +619,13 @@ class PromoCode(db.Model):
     active         = db.Column(db.Boolean, nullable=False, default=True)
     created_at     = db.Column(db.DateTime, nullable=False)
     created_by     = db.Column(db.String(255), nullable=True)  # admin email
+    # Usage alerts. The count Stripe reported last sweep, and which warnings have
+    # already gone out — without these the same email would be sent every hour for
+    # the rest of the code's life.
+    last_seen_uses    = db.Column(db.Integer, nullable=False, default=0)
+    alerted_nearly    = db.Column(db.Boolean, nullable=False, default=False)
+    alerted_spent     = db.Column(db.Boolean, nullable=False, default=False)
+    last_burst_alert  = db.Column(db.DateTime, nullable=True)
 
     @property
     def kept_pct(self) -> int:

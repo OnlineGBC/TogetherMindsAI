@@ -1005,6 +1005,24 @@ if not config.IS_TESTING:
                 db.session.rollback()  # column already exists
         _backfill_clinician_roles()
 
+    # Usage-alert bookkeeping on promo_codes. create_all() makes new TABLES but
+    # never adds a column to one that already exists, so these need saying.
+    # TIMESTAMP, not DATETIME — DATETIME is not a valid Postgres type and the
+    # column would silently never appear.
+    with app.app_context():
+        from sqlalchemy import text
+        for ddl in (
+            "ALTER TABLE promo_codes ADD COLUMN last_seen_uses INTEGER DEFAULT 0",
+            "ALTER TABLE promo_codes ADD COLUMN alerted_nearly BOOLEAN DEFAULT 0",
+            "ALTER TABLE promo_codes ADD COLUMN alerted_spent BOOLEAN DEFAULT 0",
+            "ALTER TABLE promo_codes ADD COLUMN last_burst_alert TIMESTAMP",
+        ):
+            try:
+                db.session.execute(text(ddl))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()  # column already exists
+
     # Move the one-off discount code into the merged promo_codes table. The two
     # cards became one, so the live 100%-off testing code has to appear in the
     # list with everything else. Copies the record only — the Stripe code itself
@@ -3784,6 +3802,41 @@ def recording_download(token):
 
 
 # Wire the daily recording-retention sweep now that its function is defined (the
+def _promo_alert_sweep():
+    """Ask Stripe how many times each live discount code has been used, and email
+    the partner and the admins when one is nearly spent, spent, or being used
+    unusually fast.
+
+    Polling rather than a webhook: Stripe counts redemptions on the code itself,
+    so asking for that number cannot be wrong about a payload's shape. One small
+    call per live code, once an hour.
+
+    Never raises into the scheduler — a failed sweep must not stop the next one.
+    """
+    try:
+        with app.app_context():
+            import admin_access
+            import billing
+
+            def _send(to, subject, body):
+                _send_email(to, subject, body, f"<p>{body}</p>".replace("\n\n", "</p><p>"))
+
+            sent = admin_access.sweep_promo_alerts(
+                db, PromoCode,
+                send=_send,
+                now=datetime.now(timezone.utc),
+                nearly_pct=config.PROMO_ALERT_NEARLY_SPENT_PCT,
+                burst_per_sweep=config.PROMO_ALERT_BURST_PER_SWEEP,
+                admin_emails=config.ADMIN_EMAILS,
+                uses_of=lambda row: billing.promotion_code_uses(row.promo_id),
+            )
+            for code, kind in sent:
+                log_event("promo_code_alert", code=code, alert=kind)
+                app.logger.info("promo alert sent: %s (%s)", code, kind)
+    except Exception:
+        app.logger.exception("promo alert sweep failed")
+
+
 # `_scheduler` global was created in the startup block above). Registered here,
 # not in that block, because the sweep is defined further down this module.
 if not config.IS_TESTING:
@@ -3802,6 +3855,11 @@ if not config.IS_TESTING:
     )
     # Catch up on any reminders/deletions that came due while the app was down.
     threading.Thread(target=_recording_retention_sweep, daemon=True).start()
+
+    _scheduler.add_job(
+        _promo_alert_sweep, "interval",
+        minutes=config.PROMO_ALERT_SWEEP_MINUTES, id="promo_alert_sweep",
+    )
 
 
 def _session_friendly_label(session_id: str):

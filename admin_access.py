@@ -610,3 +610,131 @@ def promo_code_uses(PromoCode) -> dict:
     for row in PromoCode.query.all():
         out[row.code] = billing.promotion_code_uses(row.promo_id) if row.promo_id else None
     return out
+
+
+# ---------------------------------------------------------------------------
+# Usage alerts.
+#
+# Stripe counts redemptions on the code itself, so a sweep asks it rather than
+# reacting to a webhook: the count is the thing being watched, and asking for it
+# cannot be wrong about the payload shape.
+#
+# Three warnings, on fixed rules rather than a judgement call — an email that
+# fires on someone's opinion is one nobody can predict or debug.
+# ---------------------------------------------------------------------------
+
+ALERT_NEARLY = "nearly_spent"
+ALERT_SPENT = "spent"
+ALERT_BURST = "burst"
+
+
+def alerts_for(row, uses, *, nearly_pct, burst_per_sweep, burst_recent=False):
+    """Which warnings this code has earned right now, as a list.
+
+    Pure: no database, no email, no clock. Everything the decision needs is an
+    argument, so every rule below is directly testable.
+    """
+    out = []
+    if uses is None:                       # Stripe did not answer — say nothing
+        return out
+    since = uses - (row.last_seen_uses or 0)
+
+    if row.max_uses:
+        # Reaching the cap rules out "nearly there" completely — not just on the
+        # sweep that reports it. Chaining these as if/elif on the SENT flags meant
+        # a code already flagged as spent went on to send "nearly used up" on the
+        # very next sweep, which is both wrong and a second email.
+        if uses >= row.max_uses:
+            if not row.alerted_spent:
+                out.append(ALERT_SPENT)
+        elif not row.alerted_nearly and uses >= (row.max_uses * nearly_pct) / 100:
+            out.append(ALERT_NEARLY)
+
+    # A burst can repeat — it is about speed, not a threshold reached once — so it
+    # is throttled by time elsewhere rather than by a one-shot flag.
+    if since >= burst_per_sweep and not burst_recent:
+        out.append(ALERT_BURST)
+    return out
+
+
+def alert_message(kind, row, uses):
+    """(subject, body) for one warning, in plain words."""
+    left = (row.max_uses - uses) if row.max_uses else None
+    if kind == ALERT_SPENT:
+        return (f"Discount code {row.code} has been fully used",
+                f"The code {row.code} ({row.label}) has been used all "
+                f"{row.max_uses} times and has stopped working.\n\n"
+                f"Nobody can sign up with it now. Make a new code if you want to "
+                f"keep going.")
+    if kind == ALERT_NEARLY:
+        return (f"Discount code {row.code} is nearly used up",
+                f"The code {row.code} ({row.label}) has been used {uses} of "
+                f"{row.max_uses} times. {left} left.\n\n"
+                f"It will stop working when the last one is used.")
+    return (f"Discount code {row.code} is being used unusually fast",
+            f"The code {row.code} ({row.label}) was used "
+            f"{uses - (row.last_seen_uses or 0)} times in the last hour.\n\n"
+            f"That is what a code being passed around looks like. If that was not "
+            f"expected, switch it off in the admin console.")
+
+
+def alert_recipients(row, admin_emails) -> list:
+    """The partner, plus every admin. A code with no partner goes to admins only."""
+    out = [a for a in (admin_emails or []) if a]
+    if row.email and row.email not in out:
+        out.insert(0, row.email)
+    return out
+
+
+def sweep_promo_alerts(db, PromoCode, *, send, now, nearly_pct, burst_per_sweep,
+                       admin_emails, uses_of, burst_quiet_hours=6):
+    """Check every live code and send what it has earned. Returns what was sent.
+
+    `send` and `uses_of` are passed in rather than imported: the rules above are
+    the part worth testing, and neither Stripe nor SMTP should be reached to do it.
+
+    A code whose email fails is NOT marked as alerted, so the next sweep tries
+    again. Marking it sent on a failure would lose the warning permanently, and a
+    warning nobody receives is worse than a duplicate.
+    """
+    sent = []
+    for row in PromoCode.query.filter_by(active=True).all():
+        try:
+            uses = uses_of(row)
+        except Exception:
+            continue                       # Stripe unreachable — try next sweep
+        if uses is None:
+            continue
+
+        quiet = False
+        if row.last_burst_alert is not None:
+            last = row.last_burst_alert
+            if last.tzinfo is None:        # naive when read back from the DB
+                last = last.replace(tzinfo=timezone.utc)
+            quiet = (now - last) < timedelta(hours=burst_quiet_hours)
+
+        for kind in alerts_for(row, uses, nearly_pct=nearly_pct,
+                               burst_per_sweep=burst_per_sweep, burst_recent=quiet):
+            subject, body = alert_message(kind, row, uses)
+            to = alert_recipients(row, admin_emails)
+            if not to:
+                continue
+            try:
+                send(to, subject, body)
+            except Exception:
+                log.warning("promo alert email failed for %s (%s) — will retry",
+                            row.code, kind)
+                continue                   # deliberately not marked as sent
+            if kind == ALERT_SPENT:
+                row.alerted_spent = True
+            elif kind == ALERT_NEARLY:
+                row.alerted_nearly = True
+            else:
+                row.last_burst_alert = now
+            sent.append((row.code, kind))
+
+        # Always last: the next sweep measures the jump from here, and it must move
+        # even when nothing was sent, or one quiet hour would look like a burst.
+        row.last_seen_uses = uses
+    db.session.commit()
+    return sent
