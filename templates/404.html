@@ -20,6 +20,10 @@
         <i class="bi bi-house me-1"></i>Home
       </a>
       {% if not current_clinician_id and not current_client_account_id %}
+      {# Plain link on purpose. The page they asked for is remembered in the
+         session by the 404 handler, not shown here — a visible ?next= would
+         appear only for paths that really exist, telling a prober that
+         /accessadmin is a real page. #}
       <a class="btn btn-outline-secondary rounded-pill px-4" href="{{ url_for('login') }}">
         <i class="bi bi-box-arrow-in-right me-1"></i>Log in
       </a>

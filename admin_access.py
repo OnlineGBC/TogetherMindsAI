@@ -393,3 +393,142 @@ def turn_off_discount(db, DiscountCode, admin_email: str):
     row.updated_by = admin_email
     db.session.commit()
     return row
+
+
+# ---------------------------------------------------------------------------
+# Reading the audit log.
+#
+# Everything was already recorded; there was simply no way to look at it without
+# database access. Read-only: this module never writes to audit_logs, and no
+# route here offers a delete — the table is append-only and hash-chained.
+# ---------------------------------------------------------------------------
+
+# What an admin usually wants: the things done FROM this console, plus the
+# attempts to get into it. The rest of the log is session traffic — thousands of
+# rows a day, and noise on this page — so it is behind a toggle rather than the
+# default.
+ADMIN_EVENT_TYPES = (
+    "comp_access_granted", "comp_access_revoked",
+    "role_changed", "account_disabled", "account_enabled",
+    "discount_code_set", "discount_code_off",
+    "admin_code_sent", "admin_challenge",
+    "clinician_login_blocked",
+)
+
+AUDIT_PAGE_LIMIT = 100
+
+
+def _accounts_matching(Clinician, needle: str) -> list:
+    """Ids of accounts whose email contains `needle`.
+
+    Done in Python, not SQL: Clinician.email is Fernet-encrypted with a
+    non-deterministic cipher, so every row's ciphertext differs and a LIKE could
+    never match. The account list is small (see ACCOUNT_LIST_LIMIT), so reading
+    it and decrypting is cheap.
+    """
+    needle = (needle or "").strip().lower()
+    if not needle:
+        return []
+    ids = []
+    for cid in _account_ids(Clinician):
+        if cid.lower().startswith(needle):
+            ids.append(cid)
+            continue
+        email = (_email_of(Clinician, cid) or "").lower()
+        if needle and needle in email:
+            ids.append(cid)
+    return ids
+
+
+def _account_ids(Clinician) -> list:
+    """Account ids only — no email column, so nothing is decrypted here."""
+    return [row[0] for row in
+            Clinician.query.with_entities(Clinician.id).limit(ACCOUNT_LIST_LIMIT).all()]
+
+
+def _email_of(Clinician, clinician_id: str):
+    """One account's email, or None if it will not decrypt.
+
+    Loaded one row at a time on purpose. Decryption happens while the row is
+    being read, so a single account encrypted under an older key makes a BULK
+    query raise — which would take the whole page down instead of skipping one
+    unreadable name.
+    """
+    try:
+        row = Clinician.query.filter(Clinician.id == clinician_id).first()
+        return row.email if row is not None else None
+    except Exception:
+        return None
+
+
+def _parse_day(value: str, end_of_day: bool = False):
+    """A YYYY-MM-DD box into a datetime, or None if empty/unparseable."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        day = datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        return None
+    if end_of_day:
+        day = day.replace(hour=23, minute=59, second=59)
+    return day.replace(tzinfo=timezone.utc)
+
+
+def search_audit(db, AuditLog, Clinician, *, who="", event="", date_from="",
+                 date_to="", text="", admin_only=True, limit=AUDIT_PAGE_LIMIT):
+    """(rows, truncated) — the newest matching entries, plus whether more exist.
+
+    Every filter is optional and they combine. `who` matches an account's email
+    or the start of its id; `text` matches the event name or the stored details.
+    """
+    q = AuditLog.query
+
+    if event:
+        q = q.filter(AuditLog.event_type == event)
+    elif admin_only:
+        q = q.filter(AuditLog.event_type.in_(ADMIN_EVENT_TYPES))
+
+    if who:
+        ids = _accounts_matching(Clinician, who)
+        if not ids:
+            return [], False        # nobody matched, so nothing can match
+        # The actor OR the person acted upon: a role change records the admin as
+        # user_id and the target inside details, and both readings of "who" are
+        # what someone means when they type a name.
+        q = q.filter(db.or_(AuditLog.user_id.in_(ids),
+                            *[AuditLog.details.contains(i) for i in ids]))
+
+    start = _parse_day(date_from)
+    end = _parse_day(date_to, end_of_day=True)
+    if start:
+        q = q.filter(AuditLog.timestamp >= start)
+    if end:
+        q = q.filter(AuditLog.timestamp <= end)
+
+    if text:
+        needle = f"%{text.strip()}%"
+        q = q.filter(db.or_(AuditLog.event_type.ilike(needle),
+                            AuditLog.details.ilike(needle)))
+
+    # One more than asked for, so the page can say plainly that it is not showing
+    # everything rather than silently truncating.
+    rows = q.order_by(AuditLog.id.desc()).limit(limit + 1).all()
+    return rows[:limit], len(rows) > limit
+
+
+def audit_event_types(AuditLog) -> list:
+    """Every event name present in the log, for the filter dropdown."""
+    return sorted(r[0] for r in db_distinct(AuditLog))
+
+
+def db_distinct(AuditLog):
+    return AuditLog.query.with_entities(AuditLog.event_type).distinct().all()
+
+
+def account_labels(Clinician) -> dict:
+    """id → something a human can read, for naming the ids in the log."""
+    out = {}
+    for cid in _account_ids(Clinician):
+        out[cid] = _email_of(Clinician, cid) or f"no email · {cid[:8]}"
+    return out

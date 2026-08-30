@@ -282,6 +282,91 @@
     </div>
     {% endif %}
 
+    {# ---- Audit log --------------------------------------------------------
+       Read-only by construction: the table is append-only and hash-chained, and
+       no route here offers a delete. The filters live in the query string so a
+       useful view can be bookmarked or passed to the next admin. #}
+    <div class="card rounded-4 border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-1 fs-6">Recent activity</h5>
+        <p class="text-muted small mb-3">
+          Who did what, and when. Kept for six years and cannot be edited.
+        </p>
+
+        <form method="get" action="{{ url_for('admin_access_page') }}" class="row g-2 align-items-end mb-3">
+          <div class="col-12 col-md-3">
+            <label class="form-label small fw-semibold">Who</label>
+            <input class="form-control form-control-sm" name="who" value="{{ audit_filters.who }}"
+                   placeholder="email or id">
+          </div>
+          <div class="col-12 col-md-3">
+            <label class="form-label small fw-semibold">What</label>
+            <select class="form-select form-select-sm" name="event">
+              <option value="">Any</option>
+              {% for t in audit_event_types %}
+              <option value="{{ t }}" {% if audit_filters.event == t %}selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="form-label small fw-semibold">From</label>
+            <input class="form-control form-control-sm" type="date" name="from" value="{{ audit_filters.date_from }}">
+          </div>
+          <div class="col-6 col-md-2">
+            <label class="form-label small fw-semibold">To</label>
+            <input class="form-control form-control-sm" type="date" name="to" value="{{ audit_filters.date_to }}">
+          </div>
+          <div class="col-12 col-md-2">
+            <label class="form-label small fw-semibold">Contains</label>
+            <input class="form-control form-control-sm" name="q" value="{{ audit_filters.text }}"
+                   placeholder="any text">
+          </div>
+          <div class="col-12 d-flex gap-3 align-items-center flex-wrap mt-2">
+            <button class="btn btn-primary btn-sm rounded-pill" type="submit">Search</button>
+            <a class="btn btn-outline-secondary btn-sm rounded-pill"
+               href="{{ url_for('admin_access_page') }}">Clear</a>
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" name="all" value="1"
+                     id="auditAll" {% if not audit_admin_only %}checked{% endif %}>
+              <label class="form-check-label small text-muted" for="auditAll">
+                Show every event, not just admin actions
+              </label>
+            </div>
+          </div>
+        </form>
+
+        {% if not audit_rows %}
+          <p class="text-muted mb-0">Nothing matches.</p>
+        {% else %}
+        <div class="table-responsive">
+          <table class="table align-middle mb-0 comp-table">
+            <thead>
+              <tr class="small"><th>When</th><th>What</th><th>Who</th><th>Details</th></tr>
+            </thead>
+            <tbody>
+            {% for row in audit_rows %}
+              <tr>
+                <td class="small text-nowrap comp-muted">
+                  {{ row.timestamp.strftime('%d %b %Y %H:%M') if row.timestamp else '' }}
+                </td>
+                <td class="small">{{ row.event_type }}</td>
+                {# Ids are meaningless on screen; show the account they belong to. #}
+                <td class="small comp-muted">{{ audit_labels.get(row.user_id, row.user_id or '—') }}</td>
+                <td class="small comp-muted" style="word-break:break-all">{{ row.details }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if audit_truncated %}
+        <p class="text-muted small mb-0 mt-2">
+          Showing the {{ audit_limit }} most recent matches — narrow the search to see older ones.
+        </p>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
     {# ---- Existing grants ------------------------------------------------- #}
     <div class="card rounded-4 border-0 shadow-sm">
       <div class="card-body">

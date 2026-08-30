@@ -80,6 +80,35 @@ def _discount_view() -> dict:
     }
 
 
+def _audit_view() -> dict:
+    """Template values for the Recent activity card.
+
+    The filters come from the query string, so a useful view can be bookmarked
+    and shared with the next admin rather than rebuilt by hand each time.
+    """
+    filters = {
+        "who": (request.args.get("who") or "").strip(),
+        "event": (request.args.get("event") or "").strip(),
+        "date_from": (request.args.get("from") or "").strip(),
+        "date_to": (request.args.get("to") or "").strip(),
+        "text": (request.args.get("q") or "").strip(),
+    }
+    # Everything, not just admin actions, when the box is ticked. The rest of the
+    # log is session traffic and is noise on this page by default.
+    admin_only = request.args.get("all") != "1"
+    rows, truncated = admin_access.search_audit(
+        _tm.db, _tm.AuditLog, _tm.Clinician, admin_only=admin_only, **filters)
+    return {
+        "audit_rows": rows,
+        "audit_truncated": truncated,
+        "audit_filters": filters,
+        "audit_admin_only": admin_only,
+        "audit_event_types": admin_access.audit_event_types(_tm.AuditLog),
+        "audit_labels": admin_access.account_labels(_tm.Clinician),
+        "audit_limit": admin_access.AUDIT_PAGE_LIMIT,
+    }
+
+
 def register_admin_routes(app):
 
     @app.route("/accessadmin")
@@ -104,6 +133,7 @@ def register_admin_routes(app):
             # With billing off there is no checkout for a code to be typed into,
             # so the whole card is hidden rather than shown doing nothing.
             **_discount_view(),
+            **_audit_view(),
             totp_available=bool(config.ADMIN_TOTP_SECRET),
             factors_required=config.ADMIN_FACTORS_REQUIRED,
         )

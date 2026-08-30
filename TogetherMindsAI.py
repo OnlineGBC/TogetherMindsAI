@@ -1201,6 +1201,19 @@ def not_found_handler(e):
     which of the two it was."""
     if _wants_json():
         return jsonify({"error": "not_found"}), 404
+    # Remember where they were headed, so signing in brings them back to it
+    # instead of dropping them on the dashboard. Asking for /accessadmin while
+    # signed out lands here, and that is the case worth fixing.
+    #
+    # Stashed in the SESSION, deliberately not put in the login link. A visible
+    # ?next= would appear only for paths that really exist, which would tell a
+    # prober that /accessadmin is a real page — exactly what returning 404
+    # instead of 403 is meant to hide. In the session the two pages stay
+    # identical, and it costs nothing to remember a path that turns out not to
+    # exist: that one simply 404s again.
+    nxt = _safe_next(request.path)
+    if nxt:
+        session["post_login_next"] = nxt
     try:
         return render_template("404.html"), 404
     except Exception:                      # never let the error page error
