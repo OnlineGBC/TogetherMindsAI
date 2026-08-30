@@ -75,7 +75,6 @@ def _codes_view() -> dict:
         "promo_codes": admin_access.list_promo_codes(_tm.PromoCode),
         # Read from Stripe, which is the only place that actually counts them.
         "promo_uses": admin_access.promo_code_uses(_tm.PromoCode),
-        "promo_min_kept": admin_access.MIN_KEPT_PCT,
     }
 
 

@@ -110,17 +110,12 @@ def test_the_two_shares_need_not_add_to_fifty():
     assert admin_access.split_error(30, 30) is None
 
 
-def test_a_split_that_leaves_nothing_is_refused():
-    """50% off AND 50% commission collects less than it pays out — the exact
-    mistake this guard exists for."""
-    assert admin_access.split_error(50, 50) is not None
-
-
-def test_a_split_that_leaves_less_than_the_card_fee_is_refused():
-    """Stripe takes about 4.7% of a $16 plan. Below that a sale costs more to
-    make than it brings in."""
-    assert admin_access.split_error(60, 38) is not None    # keeps 2%
-    assert admin_access.split_error(60, 35) is None        # keeps 5%
+def test_any_split_the_admin_chooses_is_accepted():
+    """The console does not argue with the numbers — it shows what is left over
+    and saves what was asked for. Only what Stripe itself rejects is refused."""
+    assert admin_access.split_error(50, 50) is None
+    assert admin_access.split_error(60, 38) is None
+    assert admin_access.split_error(100, 0) is None
 
 
 def test_a_discount_outside_one_to_a_hundred_is_refused():
@@ -197,11 +192,11 @@ def test_the_max_uses_cap_is_handed_to_stripe(client):
         assert mk.call_args.args[2] == 10
 
 
-def test_a_bad_split_never_reaches_stripe(client):
+def test_a_discount_stripe_would_reject_never_reaches_it(client):
     with app.app_context():
         with patch.object(billing, "create_promo_code") as mk:
             with pytest.raises(ValueError):
-                _add(discount_pct=50, commission_pct=50)
+                _add(discount_pct=0, commission_pct=10)
         mk.assert_not_called()
 
 
@@ -270,13 +265,13 @@ def test_adding_through_the_console_is_written_to_the_audit_log(client):
     _as_verified_admin(client, check)
 
 
-def test_a_bad_split_is_reported_and_nothing_is_saved(client):
+def test_a_percentage_out_of_range_is_reported_and_nothing_is_saved(client):
     def check():
         html = client.post("/accessadmin/code",
-                           data={"label": "Easton", "discount_pct": "50",
-                                 "commission_pct": "50"},
+                           data={"label": "Easton", "discount_pct": "0",
+                                 "commission_pct": "10"},
                            follow_redirects=True).get_data(as_text=True)
-        assert "does not cover the card fee" in html
+        assert "between 1 and 100" in html
         with app.app_context():
             assert PromoCode.query.count() == 0
     _as_verified_admin(client, check)
@@ -376,12 +371,7 @@ def test_a_plain_code_has_no_partner(client):
         assert row.kept_pct == 0        # a 100% off code keeps nothing, by design
 
 
-def test_a_hundred_percent_code_is_still_allowed(client):
-    """The testing code gives everything away and earns nothing. The guard is
-    about the two shares TOGETHER exceeding what there is, not about generosity."""
+def test_a_hundred_percent_code_is_allowed(client):
+    """The testing code gives everything away and earns nothing."""
     assert admin_access.split_error(100, 0) is None
 
-
-def test_a_hundred_percent_code_cannot_pay_a_commission():
-    """The worst case there is: collect nothing, owe someone a share of it."""
-    assert admin_access.split_error(100, 10) is not None

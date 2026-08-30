@@ -475,34 +475,23 @@ def account_labels(Clinician) -> dict:
 # report is the only thing between it and someone being paid wrongly.
 # ---------------------------------------------------------------------------
 
-# Stripe takes roughly 2.9% + 30c, which on a $16 plan is about 4.7%. Below this
-# a sale would cost more to make than it brings in, so a pair that leaves less is
-# refused rather than saved and discovered later on an invoice.
-MIN_KEPT_PCT = 5
-
-
 def split_error(discount_pct, commission_pct):
-    """Why this pair cannot be saved, or None if it is fine."""
+    """Why this pair cannot be saved, or None if it is fine.
+
+    Only what the numbers have to be to work at all: whole numbers, and a
+    discount in the range Stripe accepts for percent_off. Whatever split the
+    admin wants between the customer and the partner is theirs to choose — the
+    console shows what is left over and does not argue with it.
+    """
     try:
         discount = int(discount_pct)
         commission = int(commission_pct)
     except (TypeError, ValueError):
         return "Enter both percentages as whole numbers."
     if not (1 <= discount <= 100):
-        return "The discount must be between 1 and 100."
+        return "The discount must be between 1 and 100."   # Stripe's own range
     if not (0 <= commission <= 100):
         return "The commission must be between 0 and 100."
-    # A 100%-off code is fine as long as nobody is owed a share of it: no money
-    # changes hands, so there is no card fee and nothing to lose. This is what
-    # the free testing code is. Pair it with a commission and you would collect
-    # nothing while owing someone — the worst case there is.
-    if discount == 100:
-        return ("A 100% off code cannot pay a commission — nothing is collected "
-                "to pay it from.") if commission else None
-    kept = 100 - discount - commission
-    if kept < MIN_KEPT_PCT:
-        return (f"That leaves you {kept}%, which does not cover the card fee. "
-                f"Keep at least {MIN_KEPT_PCT}%.")
     return None
 
 
