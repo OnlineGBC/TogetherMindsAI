@@ -38,6 +38,9 @@ import billing
 import config
 import roles
 from TogetherMindsAI import app
+# After the app module: routes_billing imports it, so importing this first leaves
+# TogetherMindsAI half-built and its route registration fails.
+import routes_billing
 from models import (db, init_encryption, Clinician, PromoCode, Referral,
                     ReferralPayment, AuditLog)
 
@@ -844,6 +847,128 @@ def test_the_same_invoice_delivered_twice_pays_once(client):
         client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
     with app.app_context():
         assert ReferralPayment.query.count() == 1
+
+
+# ---------------------------------------------------------------------------
+# What a failed webhook does.
+#
+# Answering 200 tells Stripe the event was dealt with and it never comes back.
+# Right for plan state, which the next event corrects. Wrong for money: one
+# database hiccup and the payment is gone with nothing to show it existed.
+# ---------------------------------------------------------------------------
+
+def _boom(*a, **kw):
+    raise RuntimeError("database hiccup")
+
+
+def test_a_failed_payment_asks_stripe_to_send_it_again(client):
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch.object(routes_billing, "_record_collected_payment", _boom), \
+         patch("billing.verify_webhook", return_value=_paid_event()):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 500
+
+
+def test_a_failed_checkout_asks_stripe_to_send_it_again(client):
+    """It carries the top-up money, the referral and the hours. If it fails,
+    someone has paid and received nothing."""
+    with app.app_context():
+        _clinician()
+        _code()
+    with patch.object(routes_billing, "_apply_checkout_completed", _boom), \
+         patch("billing.verify_webhook", return_value=_checkout_event()):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 500
+
+
+def test_a_failed_plan_update_is_not_retried(client):
+    """A stale plan is corrected by the next subscription event. Retrying it for
+    three days would add noise, not safety."""
+    with app.app_context():
+        _clinician()
+    event = {"type": "customer.subscription.updated",
+             "data": {"object": {"customer": "cus_1", "status": "active"}}}
+    with patch.object(routes_billing, "_apply_subscription_change", _boom), \
+         patch("billing.verify_webhook", return_value=event):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+
+
+def test_a_retried_payment_is_not_paid_twice(client):
+    """Retrying is only safe because replaying cannot double-pay. Proven here
+    rather than assumed: the first delivery fails, the second succeeds."""
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch.object(routes_billing, "_record_collected_payment", _boom), \
+         patch("billing.verify_webhook", return_value=_paid_event()):
+        first = client.post("/stripe/webhook", data=b"{}",
+                            headers={"Stripe-Signature": "ok"})
+    assert first.status_code == 500
+    # Stripe delivers the same event again, and this time nothing is wrong.
+    with patch("billing.verify_webhook", return_value=_paid_event()):
+        second = client.post("/stripe/webhook", data=b"{}",
+                             headers={"Stripe-Signature": "ok"})
+        third = client.post("/stripe/webhook", data=b"{}",
+                            headers={"Stripe-Signature": "ok"})
+    assert second.status_code == 200 and third.status_code == 200
+    with app.app_context():
+        assert ReferralPayment.query.count() == 1
+        _, totals = _report()
+        assert totals["owed_cents"] == 120
+
+
+def test_a_retried_topup_grants_the_hours_once(client):
+    """The same proof for the other money event."""
+    from models import HoursGrant
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch.object(routes_billing, "_record_topup_payment", _boom), \
+         patch("billing.verify_webhook", return_value=_topup_event()):
+        first = client.post("/stripe/webhook", data=b"{}",
+                            headers={"Stripe-Signature": "ok"})
+    assert first.status_code == 500
+    with patch("billing.verify_webhook", return_value=_topup_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with app.app_context():
+        assert HoursGrant.query.filter_by(kind="topup").count() == 1
+        assert ReferralPayment.query.count() == 1
+        assert Referral.query.count() == 1
+
+
+def test_a_payment_that_worked_still_answers_yes(client):
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch("billing.verify_webhook", return_value=_paid_event()):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+
+
+def test_a_forged_webhook_is_still_refused_outright(client):
+    """Not retried: an unsigned request is not a delivery that went wrong."""
+    with patch("billing.verify_webhook", return_value=None):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "bad"})
+    assert rv.status_code == 400
+
+
+def test_only_the_money_events_are_retried():
+    """Records the decision in code, not just in a conversation."""
+    assert set(routes_billing.MUST_RETRY) == {
+        "invoice.paid", "checkout.session.completed"}
+    for state_event in ("customer.subscription.created",
+                        "customer.subscription.updated",
+                        "customer.subscription.deleted"):
+        assert state_event not in routes_billing.MUST_RETRY, state_event
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,32 @@ import TogetherMindsAI as _tm
 
 
 # ---------------------------------------------------------------------------
+# Which failures Stripe must deliver again.
+#
+# Answering 200 tells Stripe the event was dealt with, and it never comes back.
+# That is right for an event whose state the NEXT event will correct, and wrong
+# for money: one database hiccup and the payment is gone with nothing to show it
+# ever happened.
+#
+# So money events answer 500 on failure and Stripe retries with backoff for about
+# three days. Plan-state events keep answering 200 — a stale plan is fixed by the
+# next subscription event, and retrying it forever would add noise, not safety.
+#
+# Replaying these is safe, which is what makes retrying them possible at all:
+# hours.grant_topup is keyed on the Stripe payment, referral_from_checkout allows
+# one referral per clinician, record_payment is deduped on stripe_ref, and setting
+# plan to PAID twice is a no-op. The one thing a replay does repeat is the audit
+# row, and a duplicate there is noise in an append-only log — deduping it would
+# mean adding state to the audit path, which is worse than a repeated line.
+# ---------------------------------------------------------------------------
+
+MUST_RETRY = (
+    "invoice.paid",                 # subscription money
+    "checkout.session.completed",   # top-up money, the referral, and the hours
+)
+
+
+# ---------------------------------------------------------------------------
 # Webhook event application — resolve the clinician and update their plan.
 # ---------------------------------------------------------------------------
 
@@ -375,4 +401,9 @@ def register_billing_routes(app):
         except Exception:
             _tm.db.session.rollback()
             _tm.app.logger.error("stripe webhook handling error (%s)", etype)
+            if etype in MUST_RETRY:
+                # 500 so Stripe delivers it again. Answering 200 here told Stripe
+                # the money had been dealt with when it had not, and it never came
+                # back — one database hiccup and that payment was gone for good.
+                return jsonify({"error": "retry"}), 500
         return jsonify({"received": True}), 200
