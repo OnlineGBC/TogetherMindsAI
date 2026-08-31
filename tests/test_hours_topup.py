@@ -177,7 +177,7 @@ def test_a_caregiver_sees_their_balance_and_a_buy_button(client):
         _clinician(role=roles.CAREGIVER)
     _login(client)
     with patch.object(config, "BILLING_ENABLED", True):
-        body = client.get("/billing").get_data(as_text=True)
+        body = client.get("/pricing").get_data(as_text=True)
     assert "Recording time" in body
     assert "Add 40 hours" in body
     assert "not a subscription" in body        # says plainly what they are buying
@@ -188,5 +188,5 @@ def test_other_roles_are_not_shown_recording_time(client):
         _clinician(role=roles.PSYCHOTHERAPIST)
     _login(client)
     with patch.object(config, "BILLING_ENABLED", True):
-        body = client.get("/billing").get_data(as_text=True)
+        body = client.get("/pricing").get_data(as_text=True)
     assert "Add 40 hours" not in body

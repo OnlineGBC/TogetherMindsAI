@@ -116,7 +116,7 @@ def test_subscription_plan_and_status_from_dict():
 def test_billing_page_is_public_without_login(client):
     """Pricing is public: an anonymous visitor gets the page (200), not a redirect.
     The subscribe button sends them to clinician sign-in rather than checkout."""
-    rv = client.get("/billing")
+    rv = client.get("/pricing")
     assert rv.status_code == 200
     assert b"Sign in to subscribe" in rv.data
 
@@ -125,16 +125,16 @@ def test_billing_page_shows_current_plan(client):
     with app.app_context():
         _clinician(plan="paid", status="active")
     _login(client)
-    rv = client.get("/billing")
+    rv = client.get("/pricing")
     assert rv.status_code == 200
-    assert b"Plans" in rv.data
+    assert b"Pricing" in rv.data
 
 
 def test_success_banner_confirms_when_plan_active(client):
     with app.app_context():
         _clinician(plan="paid", status="active")
     _login(client)
-    body = client.get("/billing?success=1").data.decode()
+    body = client.get("/pricing?success=1").data.decode()
     assert "You're subscribed" in body
     assert "being activated" not in body      # no stale "activating" message
     assert "Current plan" in body             # current-plan button, not "Your plan"
@@ -148,7 +148,7 @@ def test_success_banner_pending_when_still_free(client):
         _clinician(plan="free", status=None)
     _login(client)
     with patch.object(config, "BILLING_ENABLED", True):
-        body = client.get("/billing?success=1").data.decode()
+        body = client.get("/pricing?success=1").data.decode()
     assert "being activated" in body
 
 
@@ -159,7 +159,7 @@ def test_billing_shows_renewal_date(client):
         c.current_period_end = datetime(2026, 7, 15, tzinfo=timezone.utc)
         db.session.commit()
     _login(client)
-    body = client.get("/billing").data.decode()
+    body = client.get("/pricing").data.decode()
     assert "Renews on" in body and "15 Jul 2026" in body
 
 
@@ -410,9 +410,9 @@ def test_copilot_runs_ai_for_a_paid_clinician(client):
 
 
 def test_billing_routes_extracted_to_module(client):
-    """The billing routes now live in routes_billing.py but are attached with
-    their ORIGINAL endpoint names, so url_for(...) and templates are unchanged."""
-    for ep in ("billing_page", "billing_checkout", "billing_portal", "stripe_webhook"):
+    """The billing routes live in routes_billing.py. The customer-facing page is
+    `pricing_page` at /pricing; the POST endpoints keep their original names."""
+    for ep in ("pricing_page", "billing_checkout", "billing_portal", "stripe_webhook"):
         assert ep in app.view_functions, ep
         assert app.view_functions[ep].__module__ == "routes_billing", ep
 

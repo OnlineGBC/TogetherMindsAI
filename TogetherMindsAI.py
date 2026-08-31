@@ -3187,7 +3187,7 @@ def session_summary(session_id):
         return jsonify({
             "locked": True,
             "message": "The AI session summary is part of the Pro plan.",
-            "upgrade_url": url_for("billing_page"),
+            "upgrade_url": url_for("pricing_page"),
         }), 402
     return jsonify(_session_summary_payload(session_id, ts))
 
@@ -3607,7 +3607,7 @@ def _warn_recording_hours(clinician, minutes_left: int, threshold) -> None:
             subject = f"TogetherMindsAI — {left} of recording time"
             lead = (f"You have {left} of recording time this month. "
                     "You can add 40 more hours for $9.99 at any time.")
-        url = f"{config.PUBLIC_BASE_URL}/billing"
+        url = f"{config.PUBLIC_BASE_URL}/pricing"
         plain = f"{lead}\n\nManage your plan: {url}\n\n{_sent_at_line()}\n"
         html = ('<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;">'
                 f'<p style="font-size:15px;">{lead}</p>'
@@ -4700,13 +4700,13 @@ def on_recording_request(data):
     if not _has_recording(_clin):
         emit("recording_unavailable",
              {"message": "Recording is a Premium-plan feature.",
-              "action": {"text": "Upgrade in Plans & billing", "url": "/billing"}})
+              "action": {"text": "See Pricing", "url": "/pricing"}})
         return
     if not _has_recording_time(_clin):
         emit("recording_unavailable",
              {"message": "You have used all your recording hours.",
-              "action": {"text": "Add 40 more for $9.99 in Plans & billing",
-                         "url": "/billing"}})
+              "action": {"text": "Add 40 more for $9.99 on the Pricing page",
+                         "url": "/pricing"}})
         return
     if _needs_record_authorisation(session_id):
         emit("recording_unavailable",
@@ -4864,7 +4864,7 @@ import routes_oauth
 routes_oauth.register_oauth_routes(app)
 
 # Billing routes — same pattern: defined in routes_billing.py, attached here with
-# their original endpoint names (billing_page, billing_checkout, billing_portal,
+# their original endpoint names (pricing_page, billing_checkout, billing_portal,
 # stripe_webhook). The Stripe logic stays in billing.py.
 import routes_billing
 routes_billing.register_billing_routes(app)

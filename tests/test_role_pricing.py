@@ -131,7 +131,7 @@ def test_a_caregiver_sees_their_own_price_only(client):
     with app.app_context():
         _clinician(role=roles.CAREGIVER)
     _login(client)
-    body = client.get("/billing").data.decode()
+    body = client.get("/pricing").data.decode()
     assert "$9.99" in body
     assert "$16" not in body           # not shown someone else's tier
 
@@ -140,7 +140,7 @@ def test_a_coach_sees_the_clinical_price_but_no_icd_promise(client):
     with app.app_context():
         _clinician(role=roles.HYPNOTHERAPIST)
     _login(client)
-    body = client.get("/billing").data.decode()
+    body = client.get("/pricing").data.decode()
     assert "$16" in body
     assert "ICD" not in body           # never advertised to a role that cannot have it
 
@@ -149,7 +149,7 @@ def test_a_psychotherapist_is_offered_icd_codes(client):
     with app.app_context():
         _clinician(role=roles.PSYCHOTHERAPIST)
     _login(client)
-    body = client.get("/billing").data.decode()
+    body = client.get("/pricing").data.decode()
     assert "ICD and billing codes" in body
 
 
@@ -158,7 +158,7 @@ def test_a_caregiver_is_not_promised_chat_or_ai(client):
     with app.app_context():
         _clinician(role=roles.CAREGIVER)
     _login(client)
-    body = client.get("/billing").data.decode()
+    body = client.get("/pricing").data.decode()
     for promise in ("AI co-pilot suggestions", "AI session recap",
                     "Full session transcript", "Guided reflections chat"):
         assert promise not in body, promise
@@ -176,6 +176,6 @@ def test_a_comped_account_is_told_so_and_not_asked_to_pay(client):
         admin_access.grant(db, CompAccess, "friend@example.com", "", "admin@x")
     _login(client)
     with patch.object(config, "BILLING_ENABLED", True):
-        body = client.get("/billing").data.decode()
+        body = client.get("/pricing").data.decode()
     assert "granted by your practice" in body
     assert "Subscribe" not in body          # nothing to buy

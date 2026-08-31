@@ -188,8 +188,8 @@ def test_billing_page_is_public(client):
     """The pricing page must be viewable WITHOUT signing in (it's public pricing).
     Anonymous visitors see a plan and its price, and are pointed at sign-in rather
     than 403-ing on checkout."""
-    rv = client.get("/billing")
-    assert rv.status_code == 200, "GET /billing must not redirect to login"
+    rv = client.get("/pricing")
+    assert rv.status_code == 200, "GET /pricing must not redirect to login"
     body = rv.data
     # Price follows the role now. A signed-out visitor sees the default view:
     # the clinical price, and an invitation to sign in rather than a checkout.

@@ -12,11 +12,16 @@ _has_ai_analysis, _has_recording, _session_clinician) stay in the app because
 they're used app-wide. This module owns only the HTTP routes + the webhook
 event-application helpers.
 
-`register_billing_routes(app)` attaches the routes with their ORIGINAL endpoint
-names (billing_page, billing_checkout, billing_portal, stripe_webhook), so every
-`url_for(...)` and template link is unchanged. `billing` and `config` are used
+`register_billing_routes(app)` attaches the routes: pricing_page,
+billing_checkout, billing_portal, stripe_webhook. `billing` and `config` are used
 as their own modules (the tests patch them there); other app-owned names are
 looked up on the app module at request time (via `_tm`).
+
+The customer-facing page lives at /pricing and its endpoint is `pricing_page`.
+/billing still answers, permanently redirecting — links to the old address are
+already out in emails sent to real clinicians. The POST endpoints keep their
+/billing/... paths: they are form actions nobody ever sees or types, so moving
+them would be risk with no benefit.
 """
 from datetime import datetime, timezone
 
@@ -335,7 +340,22 @@ def register_billing_routes(app):
     """Attach the billing routes to `app`. Called once at app import."""
 
     @app.route("/billing")
-    def billing_page():
+    def billing_page_moved():
+        """The page's old address. Kept because links to it are already OUT THERE:
+        recording-retention emails sent to real clinicians carry a /billing link
+        (see _recording_retention_sweep), and those must not land on a 404 months
+        later. 301 so browsers and search engines learn the new one.
+
+        The query string is carried across. Any Stripe Checkout created before this
+        moved has a success_url of /billing?success=1, so dropping it would send
+        those customers to a page that never says their payment worked.
+        """
+        target = url_for("pricing_page")
+        query = request.query_string.decode()
+        return redirect(target + ("?" + query if query else ""), code=301)
+
+    @app.route("/pricing")
+    def pricing_page():
         # Public pricing page — viewable without signing in. Personalized fields
         # stay empty for anonymous visitors; only a signed-in clinician sees
         # their own plan / renewal / manage-subscription. Subscribing still
@@ -389,12 +409,12 @@ def register_billing_routes(app):
             abort(404)
         clin = _tm.db.session.get(_tm.Clinician, cid)
         role = roles.role_of(clin)
-        base = url_for("billing_page", _external=True, _scheme="https")
+        base = url_for("pricing_page", _external=True, _scheme="https")
         url = billing.create_checkout_url(clin, role, base + "?success=1", base + "?canceled=1")
         _tm.db.session.commit()                # persist any newly-created stripe_customer_id
         if not url:
             flash("Could not start checkout. Please try again.", "warning")
-            return redirect(url_for("billing_page"))
+            return redirect(url_for("pricing_page"))
         _tm.log_event("billing_checkout_started", user_id=cid, role=role)
         return redirect(url, code=303)
 
@@ -411,13 +431,13 @@ def register_billing_routes(app):
         clin = _tm.db.session.get(_tm.Clinician, cid)
         if not config.BILLING_ENABLED or roles.role_of(clin) != roles.CAREGIVER:
             abort(404)
-        base = url_for("billing_page", _external=True, _scheme="https")
+        base = url_for("pricing_page", _external=True, _scheme="https")
         url = billing.create_topup_checkout_url(
             clin, base + "?hours=1", base + "?canceled=1")
         _tm.db.session.commit()          # persist any newly-created customer id
         if not url:
             flash("Could not start checkout. Please try again.", "warning")
-            return redirect(url_for("billing_page"))
+            return redirect(url_for("pricing_page"))
         _tm.log_event("hours_topup_started", user_id=cid)
         return redirect(url, code=303)
 
@@ -428,12 +448,12 @@ def register_billing_routes(app):
             abort(403)
         clin = _tm.db.session.get(_tm.Clinician, cid)
         if not (clin and clin.stripe_customer_id):
-            return redirect(url_for("billing_page"))
+            return redirect(url_for("pricing_page"))
         url = billing.create_portal_url(clin.stripe_customer_id,
-                                        url_for("billing_page", _external=True, _scheme="https"))
+                                        url_for("pricing_page", _external=True, _scheme="https"))
         if not url:
             flash("Could not open the billing portal. Please try again.", "warning")
-            return redirect(url_for("billing_page"))
+            return redirect(url_for("pricing_page"))
         return redirect(url, code=303)
 
     @app.route("/stripe/webhook", methods=["POST"])

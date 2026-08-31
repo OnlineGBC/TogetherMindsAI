@@ -85,12 +85,6 @@
                 <li class="nav-item">
                     <a class="nav-link" href="/therapist"><i class="bi bi-clipboard2-pulse me-1"></i>My sessions</a>
                 </li>
-                {# Clinicians only: subscriptions are per clinician, so a client
-                   account has nothing to manage here. Hidden mid-session with the
-                   rest of the nav. #}
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('billing_page') }}"><i class="bi bi-credit-card me-1"></i>Plans &amp; billing</a>
-                </li>
                 {% elif current_client_account_id %}
                 <li class="nav-item">
                     <a class="nav-link" href="/me/sessions"><i class="bi bi-clock-history me-1"></i>Your sessions</a>
@@ -103,6 +97,19 @@
                     <a class="nav-link" href="{{ url_for('client_login') }}"><i class="bi bi-person-circle me-1"></i>Client sign-in</a>
                 </li>
                 {% endif %}
+                {# Last, and shown to EVERYONE — signed out, client or clinician.
+                   It used to sit inside the clinician branch, so a visitor could
+                   not find out what the software costs without signing up first,
+                   which is backwards. For a clinician this lands in the same
+                   position the old "Plans & billing" link held.
+
+                   Still inside the not-in-live-session block on purpose: the nav
+                   hides Home and the sessions list mid-call so nobody wanders out
+                   of a session, and offering to browse prices during someone's
+                   therapy session is exactly that. #}
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('pricing_page') }}"><i class="bi bi-credit-card me-1"></i>Pricing</a>
+                </li>
                 {% endif %}
                 {% if current_clinician_id or current_client_account_id %}
                 <li class="nav-item dropdown">

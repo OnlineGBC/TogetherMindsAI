@@ -96,7 +96,7 @@ def test_the_bar_matches_the_signed_in_practitioner(client):
     with app.app_context():
         _clinician(role=roles.HYPNOTHERAPIST)
     _login(client)
-    body = client.get("/billing").get_data(as_text=True)
+    body = client.get("/pricing").get_data(as_text=True)
     assert "supporting your practitioner" in body
     assert "supporting your clinician" not in body
 
@@ -105,7 +105,7 @@ def test_a_caregiver_is_not_told_about_clinical_care(client):
     with app.app_context():
         _clinician(role=roles.CAREGIVER)
     _login(client)
-    body = client.get("/billing").get_data(as_text=True)
+    body = client.get("/pricing").get_data(as_text=True)
     assert "helps you watch and record" in body
     assert "your clinician" not in body
 
@@ -119,7 +119,7 @@ def test_crisis_numbers_show_for_every_role(client):
             db.session.commit()
             _clinician(role=role)
         _login(client)
-        body = client.get("/billing").get_data(as_text=True)
+        body = client.get("/pricing").get_data(as_text=True)
         assert "988" in body, role
         assert "741741" in body, role
         assert "findahelpline.com" in body, role

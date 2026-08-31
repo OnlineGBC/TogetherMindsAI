@@ -386,8 +386,8 @@ function _tcLoadSummary(sessionId) {
             if (err && err.locked) {
                 var d = err.data || {};
                 body.appendChild(_tcEl("div", "tcs-note", d.message || "The AI session summary is a Plus feature."));
-                var a = _tcEl("a", "tcs-upgrade", "Upgrade in Plans & billing");
-                a.href = d.upgrade_url || "/billing";
+                var a = _tcEl("a", "tcs-upgrade", "See Pricing");
+                a.href = d.upgrade_url || "/pricing";
                 a.target = "_blank"; a.rel = "noopener noreferrer";
                 body.appendChild(a);
                 return;

@@ -561,7 +561,7 @@
 {# Not just "is the therapist" — the ROLE must actually have the co-pilot. A
    monitor room has no words for it to read, so the panel could only sit empty.
    Gated here as well as at the call below, so the script is not even fetched. #}
-{% if is_therapist and has_copilot %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}?v=2026-07-24-b"></script>{% endif %}
+{% if is_therapist and has_copilot %}<script src="{{ url_for('static', filename='js/therapist-console.js') }}?v=2026-08-30-a"></script>{% endif %}
 <script nonce="{{ csp_nonce }}">
     history.replaceState(null, '', '/');
     var USER_ID    = "{{ user_id }}";

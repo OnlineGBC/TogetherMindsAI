@@ -187,8 +187,8 @@ def test_upgrade_message_carries_a_link_to_billing(enc_client):
         msgs = [e for e in t.get_received() if e["name"] == "recording_unavailable"]
         assert len(msgs) == 1
         payload = msgs[0]["args"][0]
-        assert payload["action"]["url"] == "/billing"
-        assert "Plans & billing" in payload["action"]["text"]
+        assert payload["action"]["url"] == "/pricing"
+        assert "Pricing" in payload["action"]["text"]
 
 
 def test_out_of_hours_message_carries_a_link_to_billing(enc_client):
@@ -202,7 +202,7 @@ def test_out_of_hours_message_carries_a_link_to_billing(enc_client):
         t.emit("recording_request", {"session_id": sid, "user_id": "ther-1"})
         msgs = [e for e in t.get_received() if e["name"] == "recording_unavailable"]
         assert len(msgs) == 1
-        assert msgs[0]["args"][0]["action"]["url"] == "/billing"
+        assert msgs[0]["args"][0]["action"]["url"] == "/pricing"
 
 
 def test_request_ignored_from_non_therapist(enc_client):
