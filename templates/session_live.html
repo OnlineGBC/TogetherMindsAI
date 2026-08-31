@@ -217,34 +217,22 @@
             <!-- Video pane (center): people see each other here -->
             <div class="video-pane card border-0 shadow-sm rounded-4" id="rtcPanel">
                 <div class="card-body p-3 d-flex flex-column">
-                    <div id="rtcConsent">
-                        <div class="d-flex align-items-start gap-2">
-                            <i class="bi bi-mic-fill text-primary-green fs-5 mt-1"></i>
-                            <div class="small">
-                                <strong>Join audio &amp; live transcription.</strong>
-                                Your microphone is shared with others in this session. Your speech is
-                                <strong>transcribed to text by an automated (AI) service</strong>, and that
-                                text becomes part of the session transcript — your {{ words.practitioner }}'s
-                                confidential record. Your session is <strong>not recorded by default</strong> — only the
-                                text is kept. Recording the audio/video is a separate, optional feature that
-                                stays off unless <strong>every participant consents</strong>, and anyone can
-                                decline or stop it at any time. If a session is recorded, the
-                                audio/video recording is kept for <strong>30 days</strong> and then
-                                permanently deleted; the written transcript is kept as the
-                                {{ words.record }} for <strong>up to 6 years</strong>.
-                                This session is also supported by a private <strong>AI co-pilot</strong> that
-                                assists your {{ words.practitioner }}; it does not replace their judgment.
-                                Speech and text are handled by our service providers under signed HIPAA
-                                agreements — see our <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.
-                                By joining, you <strong>consent to live AI transcription</strong> as described;
-                                you may decline by not joining audio.
-                            </div>
-                        </div>
-                        <button class="btn btn-primary-green rounded-3 mt-2" id="rtcJoinBtn">
-                            <i class="bi bi-mic-fill me-2"></i>Join audio &amp; transcription
-                        </button>
-                    </div>
-                    <div id="rtcLive" class="d-none flex-column flex-grow-1">
+                    {# There used to be a "Join audio & transcription" block here,
+                       restating the transcription / recording / retention / HIPAA
+                       disclosure and gating the call behind a button.
+
+                       Removed because it was a DUPLICATE. consent_gate.html says
+                       the same thing per session, before anyone reaches this room,
+                       and unlike this block it is actually recorded — an audit row
+                       (consent_acknowledged), a transcript line, and a note to the
+                       clinician (see _record_consent). This block stored nothing;
+                       it only hid a div. So the consent record is unchanged and a
+                       click is gone.
+
+                       Audio and video now start on load, which is what a telehealth
+                       session is. Both the Getting Started page and the per-session
+                       gate say so before anyone gets here. #}
+                    <div id="rtcLive" class="flex-column flex-grow-1">
                         <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
                             <span class="badge bg-secondary" id="rtcStatus">connecting…</span>
                             <!-- Mic / Camera / Transcription controls live in the always-visible
@@ -818,8 +806,12 @@
 <script src="{{ url_for('static', filename='vendor/livekit-client.umd.min.js') }}"></script>
 <script nonce="{{ csp_nonce }}">
 (function () {
-    var joinBtn = document.getElementById("rtcJoinBtn");
-    if (!joinBtn) return;
+    // The whole RTC layer used to be guarded on the "Join audio" button existing.
+    // That button is gone, so the guard now keys on the live panel — otherwise
+    // removing the button would have silently disabled mic, camera, captions and
+    // transcription in every session.
+    var livePanel = document.getElementById("rtcLive");
+    if (!livePanel) return;
     var statusEl   = document.getElementById("rtcStatus");
     var captionsEl = document.getElementById("rtcCaptions");
     // Control-strip pills (always visible). Mic / Camera / Transcription are the
@@ -919,7 +911,6 @@
     }); }
 
     async function joinAudio() {
-        document.getElementById("rtcConsent").classList.add("d-none");
         document.getElementById("rtcLive").classList.remove("d-none");
         setStatus("connecting…", "bg-warning text-dark");
 
@@ -949,9 +940,30 @@
         await lkRoom.connect(lk.url, lk.token);
 
         // One mic stream feeds BOTH the call and the transcription.
-        micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-        });
+        //
+        // Mic AND camera are asked for in ONE getUserMedia call on purpose: two
+        // calls mean two browser permission prompts, one after the other, at the
+        // start of a therapy session. One call is one prompt.
+        //
+        // A monitor room watches someone else's camera and has no own-video, so it
+        // asks for audio only — a prompt for a camera that is never published
+        // would be asking for something we do not use.
+        var _wantVideo = {% if is_monitor %}false{% else %}true{% endif %};
+        try {
+            micStream = await navigator.mediaDevices.getUserMedia({
+                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                video: _wantVideo
+            });
+        } catch (e) {
+            // Both refused, or no devices. The room stays usable for chat, and the
+            // pills show the truth rather than claiming the mic is live.
+            console.error("mic/camera unavailable", e);
+            setStatus("no mic or camera", "bg-danger");
+            sttEnabled = false; setSttIndicator(false);
+            updateMicPill(); updateCamPill();
+            return;
+        }
+
         micAudioTrack = micStream.getAudioTracks()[0];
         _watchMicTrack(micAudioTrack);
         await lkRoom.localParticipant.publishTrack(micAudioTrack, { source: LivekitClient.Track.Source.Microphone });
@@ -964,6 +976,20 @@
         if (HAS_TRANSCRIPT) { startSTT(); }
         setSttIndicator(HAS_TRANSCRIPT);
         updateMicPill();
+
+        // 3) Camera on, from the stream we already have permission for. Both the
+        // Getting Started page and the per-session consent gate say the session
+        // starts with audio and video enabled, so this is what makes that true.
+        //
+        // Awaited last and caught separately: a camera that will not start must
+        // leave the call up on audio, not take the session down with it.
+        if (_wantVideo) {
+            try {
+                await cameraOn(micStream.getVideoTracks()[0] || null);
+            } catch (e) {
+                console.error("camera did not start (audio still live)", e);
+            }
+        }
         updateCamPill();
     }
 
@@ -1096,8 +1122,11 @@
         micStream = micAudioTrack = camTrack = lkRoom = null;
         sttEnabled = false; muted = false;
         setSttIndicator(false); updateMicPill(); updateCamPill();
-        document.getElementById("rtcLive").classList.add("d-none");
-        document.getElementById("rtcConsent").classList.remove("d-none");
+        // The live panel STAYS visible. It used to be swapped back for the
+        // "Join audio" consent block, and that block no longer exists — hiding the
+        // panel with nothing to replace it would leave an empty pane. The pills
+        // already show that mic, camera and transcription are off, and tapping any
+        // of them rejoins.
     }
 
     // Re-acquire the microphone after the OS ended/interrupted it (common on mobile
@@ -1179,8 +1208,14 @@
         } catch (e) { console.error("background apply failed (video still works)", e); }
     }
 
-    async function cameraOn() {
-        camTrack = await LivekitClient.createLocalVideoTrack();
+    async function cameraOn(existing) {
+        // `existing` is a raw MediaStreamTrack we already hold, from the single
+        // audio+video permission prompt at join. Reusing it avoids opening the
+        // camera a second time — which on some devices fails outright, because the
+        // first handle still has it.
+        camTrack = existing
+            ? new LivekitClient.LocalVideoTrack(existing)
+            : await LivekitClient.createLocalVideoTrack();
         await applyBackground();
         await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
         addTile("local", "You", camTrack.attach());
@@ -1228,8 +1263,14 @@
         bgImageURL = URL.createObjectURL(f); bgMode = "image"; applyBackground();
     });
 
-    joinBtn.addEventListener("click", function () {
-        joinAudio().catch(function (err) { console.error("RTC error:", err); setStatus("error", "bg-danger"); });
+    // Audio and video start on their own. This is a telehealth session, and both
+    // the Getting Started page and the per-session consent gate say it begins with
+    // them enabled — so waiting for a click would have made those notices false.
+    //
+    // The .catch stays: a browser that refuses the devices must leave an error on
+    // screen, not an unhandled rejection in the console.
+    joinAudio().catch(function (err) {
+        console.error("RTC error:", err); setStatus("error", "bg-danger");
     });
     if (muteBtn) muteBtn.addEventListener("click", function () {
         // Not joined yet → tapping Mic joins audio (turns your mic on).

@@ -152,7 +152,8 @@ WORDING = {
         "service": "professional care",
         "attestation": ("I am a licensed professional. The AI co-pilot is an assistive "
                         "aid only — it does not diagnose, treat, or replace my clinical "
-                        "judgement, and I remain responsible for the session."),
+                        "judgement, and I remain responsible for the session. "
+                        "This session will start with audio and video enabled, although I will be able to turn it off."),
         "disclaimer_lead": ("TogetherMindsAI is an AI assistant supporting your clinician"),
         "disclaimer_rest": ("not a replacement for their professional care. "
                             "In a crisis, contact your clinician; if they are unavailable"),
@@ -165,7 +166,8 @@ WORDING = {
         "service": "their service",
         "attestation": ("I am a qualified practitioner. The AI co-pilot is an assistive "
                         "aid only — it does not diagnose or treat, and I remain "
-                        "responsible for the session."),
+                        "responsible for the session. "
+                        "This session will start with audio and video enabled, although I will be able to turn it off."),
         "disclaimer_lead": ("TogetherMindsAI is an AI assistant supporting your practitioner"),
         "disclaimer_rest": ("it is not mental-health care and does not replace it. "
                             "In a crisis"),
@@ -177,7 +179,8 @@ WORDING = {
         "record": "recording",
         "service": "care",
         "attestation": ("I confirm I am authorised to record this person. I am their "
-                        "parent or guardian, or I have their permission."),
+                        "parent or guardian, or I have their permission. "
+                        "This session will start with audio and video enabled, although I will be able to turn it off."),
         "disclaimer_lead": ("TogetherMindsAI helps you watch and record"),
         "disclaimer_rest": ("it is not medical advice and does not replace a doctor. "
                             "In an emergency, call 911"),

@@ -22,6 +22,13 @@
 
         <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-4 small">
+                {# First, because it is the thing that happens the moment they
+                   continue. This is the per-session gate and the one that is
+                   RECORDED — audit row, transcript line, and a note to the
+                   clinician — so a notice about how the session begins belongs
+                   here and not only on the Getting Started page. #}
+                <p class="mb-2">This session will start with <strong>audio and video enabled</strong>,
+                    although you can turn either off at any time from the controls in the session.</p>
                 <p class="mb-2">Your speech in this session is <strong>transcribed to text by an automated (AI)
                     service</strong>, and that text becomes part of the session transcript — your
                     {{ words.practitioner }}'s confidential record. Your session is
