@@ -130,6 +130,53 @@ def _record_collected_payment(*, customer_id, stripe_ref, amount_cents, currency
     return row
 
 
+# Whether this process has already emailed about an unreadable discount.
+#
+# Once the payload shape breaks it breaks for EVERY invoice, so the first email
+# says everything the tenth would. Without this you would get one per renewal, all
+# identical.
+#
+# A module flag rather than a stored one, deliberately: no new column, and it
+# resets when the process restarts, so a deploy that has not fixed the problem
+# raises it again. Being told twice is the point — being told once and missing it
+# is how this goes quiet. Cloud Run runs several instances, so expect a handful
+# rather than exactly one.
+_unreadable_discount_emailed = False
+
+
+def _warn_discount_unreadable():
+    """Tell the admins the payout report has stopped being able to attribute.
+
+    Never raises: this runs after the money is already recorded, and a mail
+    problem must not turn a successful payment into a failed webhook.
+    """
+    global _unreadable_discount_emailed
+    if _unreadable_discount_emailed:
+        return
+    to = [a for a in (config.ADMIN_EMAILS or []) if a]
+    if not to:
+        return
+    subject = "TogetherMindsAI — partner payouts cannot read discount codes"
+    body = (
+        "A customer paid an invoice with a discount on it, but Stripe did not "
+        "tell us which discount code was used.\n\n"
+        "What this means: new sign-ups through a partner's code may not be "
+        "recorded, so those partners would earn nothing and the payout report "
+        "would look empty rather than wrong.\n\n"
+        "What to check: the Stripe webhook endpoint's API version. The field that "
+        "carries the code was replaced in newer versions. If the endpoint was "
+        "recreated recently it will have moved to a newer version on its own.\n\n"
+        "Payments are still being recorded. It is only the link to the partner "
+        "that is missing.\n")
+    try:
+        _tm._send_email(to, subject, body,
+                        "<p>" + body.replace("\n\n", "</p><p>") + "</p>")
+        _unreadable_discount_emailed = True
+    except Exception:
+        # Not marked as sent, so the next invoice tries again.
+        _tm.app.logger.warning("could not email admins about unreadable discount")
+
+
 def _attribute_from_invoice(obj):
     """Attribute the referral from the invoice itself, if checkout has not yet.
 
@@ -144,6 +191,9 @@ def _attribute_from_invoice(obj):
     makes the order stop mattering. Whichever event lands first does the work; the
     other finds it already done.
 
+    Returns True when a discount was applied but no code could be read, so the
+    caller can raise the alarm AFTER the money is safely recorded.
+
     Never raises: recording the payment matters more than tidy attribution.
     """
     try:
@@ -157,7 +207,8 @@ def _attribute_from_invoice(obj):
                 _tm.app.logger.warning(
                     "invoice discount carries no readable promotion code — "
                     "payout attribution from the invoice is not working")
-            return
+                return True
+            return False
         row = admin_access.referral_from_invoice(
             _tm.db, _tm.Referral, _tm.PromoCode, _tm.Clinician,
             promo_id=promo_id, customer_id=obj.get("customer"),
@@ -169,6 +220,7 @@ def _attribute_from_invoice(obj):
     except Exception:
         _tm.db.session.rollback()
         _tm.app.logger.warning("referral not recorded from invoice")
+    return False
 
 
 def _apply_invoice_paid(obj):
@@ -183,7 +235,7 @@ def _apply_invoice_paid(obj):
     """
     # Attribution FIRST, so a first payment that overtook the checkout event still
     # has a referral to attach itself to.
-    _attribute_from_invoice(obj)
+    unreadable = _attribute_from_invoice(obj)
     # `or {}` rather than a dict default: Stripe sends the key with a null value,
     # and a default would not save us from calling .get on None.
     when = (obj.get("status_transitions") or {}).get("paid_at") or obj.get("created")
@@ -191,6 +243,11 @@ def _apply_invoice_paid(obj):
         customer_id=obj.get("customer"), stripe_ref=obj.get("id"),
         amount_cents=obj.get("amount_paid"), currency=obj.get("currency"),
         when=when)
+    # LAST, and only after the money is safely recorded. Sending mail is slow and
+    # can fail, and a failure here now means Stripe redelivers the payment — so
+    # this must never sit in front of the thing it is warning about.
+    if unreadable:
+        _warn_discount_unreadable()
 
 
 def _record_topup_payment(obj, clin):

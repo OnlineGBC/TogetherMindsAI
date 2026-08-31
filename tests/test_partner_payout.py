@@ -37,6 +37,7 @@ import admin_access
 import billing
 import config
 import roles
+import TogetherMindsAI as _tm
 from TogetherMindsAI import app
 # After the app module: routes_billing imports it, so importing this first leaves
 # TogetherMindsAI half-built and its route registration fails.
@@ -714,6 +715,141 @@ def test_an_unreadable_discount_is_written_to_the_log(client):
         client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
     said = " ".join(str(c) for c in warned.call_args_list)
     assert "promotion code" in said
+
+
+@pytest.fixture
+def fresh_alert():
+    """The one-email-per-process flag, reset so each test starts unsent."""
+    routes_billing._unreadable_discount_emailed = False
+    yield
+    routes_billing._unreadable_discount_emailed = False
+
+
+def _unreadable_event(**obj):
+    """A discounted invoice whose code cannot be read — ids only, no code."""
+    return _paid_event_with_code(discount=None, **obj)
+
+
+def test_an_unreadable_discount_emails_the_admins(client, fresh_alert):
+    """A log line nobody reads is not a warning. This is the one failure that
+    looks like nothing at all: payments keep working, partners silently stop
+    earning, and the report looks empty rather than wrong."""
+    with app.app_context():
+        _clinician()
+    with patch.object(config, "ADMIN_EMAILS", ["admin@x.com"]), \
+         patch.object(_tm, "_send_email") as sent, \
+         patch("billing.verify_webhook", return_value=_unreadable_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    sent.assert_called_once()
+    to, subject, plain = sent.call_args.args[0], sent.call_args.args[1], sent.call_args.args[2]
+    assert to == ["admin@x.com"]
+    assert "discount" in subject.lower()
+    # It has to say what to check, or it is just an alarm with no next step.
+    assert "API version" in plain
+
+
+def test_a_readable_discount_emails_nobody(client, fresh_alert):
+    with app.app_context():
+        _clinician()
+        _code()
+    with patch.object(config, "ADMIN_EMAILS", ["admin@x.com"]), \
+         patch.object(_tm, "_send_email") as sent, \
+         patch("billing.verify_webhook", return_value=_paid_event_with_code()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    sent.assert_not_called()
+
+
+def test_a_full_price_invoice_emails_nobody(client, fresh_alert):
+    """Most invoices have no discount at all. They are not a problem."""
+    with app.app_context():
+        _clinician()
+    event = _paid_event_with_code(discount=None, discounts=[],
+                                 total_discount_amounts=[])
+    with patch.object(config, "ADMIN_EMAILS", ["admin@x.com"]), \
+         patch.object(_tm, "_send_email") as sent, \
+         patch("billing.verify_webhook", return_value=event):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    sent.assert_not_called()
+
+
+def test_the_same_problem_is_only_emailed_once(client, fresh_alert):
+    """Once the payload shape breaks it breaks for EVERY invoice, so the first
+    email says everything the tenth would."""
+    with app.app_context():
+        _clinician()
+    with patch.object(config, "ADMIN_EMAILS", ["admin@x.com"]), \
+         patch.object(_tm, "_send_email") as sent:
+        for ref in ("in_a", "in_b", "in_c"):
+            with patch("billing.verify_webhook",
+                       return_value=_unreadable_event(id=ref)):
+                client.post("/stripe/webhook", data=b"{}",
+                            headers={"Stripe-Signature": "ok"})
+    assert sent.call_count == 1
+
+
+def test_a_failed_email_is_tried_again_on_the_next_invoice(client, fresh_alert):
+    """Marking it sent when the send failed would lose the warning for the life of
+    the process."""
+    with app.app_context():
+        _clinician()
+    with patch.object(config, "ADMIN_EMAILS", ["admin@x.com"]), \
+         patch.object(_tm, "_send_email",
+                      side_effect=[RuntimeError("smtp down"), None]) as sent:
+        for ref in ("in_a", "in_b"):
+            with patch("billing.verify_webhook",
+                       return_value=_unreadable_event(id=ref)):
+                client.post("/stripe/webhook", data=b"{}",
+                            headers={"Stripe-Signature": "ok"})
+    assert sent.call_count == 2
+
+
+def test_a_failed_email_still_records_the_payment(client, fresh_alert):
+    """The money matters more than the warning about it — and a failure here would
+    otherwise make Stripe redeliver a payment that was already recorded."""
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch.object(config, "ADMIN_EMAILS", ["admin@x.com"]), \
+         patch.object(_tm, "_send_email", side_effect=RuntimeError("smtp down")), \
+         patch("billing.verify_webhook", return_value=_unreadable_event()):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    with app.app_context():
+        assert ReferralPayment.query.count() == 1
+
+
+def test_the_payment_is_recorded_before_the_email_is_attempted(client, fresh_alert):
+    """Order matters: sending mail is slow and can fail, so it must never sit in
+    front of the thing it is warning about."""
+    order = []
+    with app.app_context():
+        _clinician()
+        _referral()
+    real = admin_access.record_payment
+
+    def spy(*a, **kw):
+        order.append("payment")
+        return real(*a, **kw)
+
+    with patch.object(config, "ADMIN_EMAILS", ["admin@x.com"]), \
+         patch.object(admin_access, "record_payment", spy), \
+         patch.object(_tm, "_send_email", lambda *a, **kw: order.append("email")), \
+         patch("billing.verify_webhook", return_value=_unreadable_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    assert order == ["payment", "email"]
+
+
+def test_no_admins_configured_means_no_email(client, fresh_alert):
+    with app.app_context():
+        _clinician()
+    with patch.object(config, "ADMIN_EMAILS", []), \
+         patch.object(_tm, "_send_email") as sent, \
+         patch("billing.verify_webhook", return_value=_unreadable_event()):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    sent.assert_not_called()
 
 
 def test_an_invoice_for_an_unknown_customer_attributes_nothing(client):
