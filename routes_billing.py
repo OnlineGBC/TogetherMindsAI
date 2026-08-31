@@ -78,27 +78,21 @@ def _record_referral(obj, clin):
         _tm.app.logger.warning("referral not recorded for checkout")
 
 
-def _apply_invoice_paid(obj):
-    """Record a payment Stripe collected from a referred customer.
+def _record_collected_payment(*, customer_id, stripe_ref, amount_cents, currency,
+                              when):
+    """Record money Stripe collected from a referred customer.
 
-    This is where the money comes from, and it is taken as Stripe reports it —
-    `amount_paid`, what actually arrived after the discount. Working it out from a
-    list price would overpay every partner, every month.
+    The one funnel for both kinds of payment, so the rules that decide what a
+    partner earns — the duplicate guard, the one-year window, the share stored at
+    the time — live in exactly one place and cannot drift apart.
 
-    Fires on renewals as well as the first charge, which is the point: a partner
-    earns for a year, so every payment in that year has to be seen.
+    `when` is a Unix timestamp from Stripe, or None.
     """
     import admin_access
-    paid = obj.get("amount_paid")
-    # `or {}` rather than a default: Stripe sends the key with a null value, and a
-    # dict default would not save us from calling .get on None.
-    when = (obj.get("status_transitions") or {}).get("paid_at") or obj.get("created")
     row = admin_access.record_payment(
         _tm.db, _tm.Referral, _tm.ReferralPayment,
-        customer_id=obj.get("customer"),
-        stripe_ref=obj.get("id"),
-        amount_cents=paid,
-        currency=obj.get("currency"),
+        customer_id=customer_id, stripe_ref=stripe_ref,
+        amount_cents=amount_cents, currency=currency,
         paid_at=(datetime.fromtimestamp(when, tz=timezone.utc) if when
                  else datetime.now(timezone.utc)),
     )
@@ -107,6 +101,54 @@ def _apply_invoice_paid(obj):
                       amount_cents=row.amount_cents,
                       commission_cents=row.commission_cents,
                       in_window=row.in_window)
+    return row
+
+
+def _apply_invoice_paid(obj):
+    """Record a SUBSCRIPTION payment Stripe collected.
+
+    The amount is taken as Stripe reports it — `amount_paid`, what actually
+    arrived after the discount. Working it out from a list price would overpay
+    every partner, every month.
+
+    Fires on renewals as well as the first charge, which is the point: a partner
+    earns for a year, so every payment in that year has to be seen.
+    """
+    # `or {}` rather than a dict default: Stripe sends the key with a null value,
+    # and a default would not save us from calling .get on None.
+    when = (obj.get("status_transitions") or {}).get("paid_at") or obj.get("created")
+    _record_collected_payment(
+        customer_id=obj.get("customer"), stripe_ref=obj.get("id"),
+        amount_cents=obj.get("amount_paid"), currency=obj.get("currency"),
+        when=when)
+
+
+def _record_topup_payment(obj, clin):
+    """Record a one-off hours purchase as money collected from a referral.
+
+    A top-up is mode="payment", so Stripe creates no invoice and invoice.paid
+    never fires — the checkout session is the only place this money appears.
+    `amount_total` is what the customer paid after the discount came off.
+
+    Called ONLY from the top-up branch below, and that is what stops a
+    subscription being counted twice: a subscription checkout never reaches here,
+    so its money can only ever arrive via invoice.paid.
+
+    Never raises: the hours have already been granted, and a bookkeeping failure
+    must not cost someone the time they just bought.
+    """
+    try:
+        _record_collected_payment(
+            customer_id=obj.get("customer"),
+            # The same reference hours.grant_topup keys on, so both agree on what
+            # "this payment" means.
+            stripe_ref=obj.get("payment_intent") or obj.get("id"),
+            amount_cents=obj.get("amount_total"),
+            currency=obj.get("currency"),
+            when=obj.get("created"))
+    except Exception:
+        _tm.db.session.rollback()
+        _tm.app.logger.warning("top-up payment not recorded for payout")
 
 
 def _apply_checkout_completed(obj):
@@ -127,6 +169,8 @@ def _apply_checkout_completed(obj):
         _tm.log_event("recording_hours_purchased", user_id=clin.id,
                       minutes=(granted.minutes if granted else 0),
                       duplicate=granted is None)
+        # Hours first, payout second: the purchase is what they paid for.
+        _record_topup_payment(obj, clin)
         return
 
     # One paid plan now; what it unlocks is decided by the account's role.

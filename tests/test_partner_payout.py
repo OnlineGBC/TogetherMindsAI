@@ -110,7 +110,12 @@ def _pay(paid_at=None, **kw):
 
 
 def _checkout_event(**obj):
-    base = {"customer": "cus_1", "client_reference_id": "clin-1",
+    """A SUBSCRIPTION checkout. It carries amount_total like any other session —
+    which is exactly why the money must not be read from here: invoice.paid
+    reports the same charge, and counting both would pay the partner twice."""
+    base = {"id": "cs_sub", "customer": "cus_1", "client_reference_id": "clin-1",
+            "payment_intent": None, "amount_total": 600, "currency": "usd",
+            "created": int(NOW.timestamp()),
             "metadata": {"clinician_id": "clin-1", "plan": "paid"},
             "discounts": [{"coupon": None, "promotion_code": "promo_x"}]}
     base.update(obj)
@@ -570,6 +575,109 @@ def test_a_collected_payment_with_no_paid_at_still_lands(client):
     assert rv.status_code == 200
     with app.app_context():
         assert ReferralPayment.query.count() == 1
+
+
+def _topup_event(**obj):
+    """A one-off hours purchase. mode="payment", so Stripe makes no invoice and
+    invoice.paid never fires — this session is the only place the money appears."""
+    base = {"id": "cs_1", "customer": "cus_1", "client_reference_id": "clin-1",
+            "payment_intent": "pi_1", "amount_total": 999, "currency": "usd",
+            "created": int(NOW.timestamp()),
+            "metadata": {"clinician_id": "clin-1", "kind": billing.TOPUP_KIND}}
+    base.update(obj)
+    return {"type": "checkout.session.completed", "data": {"object": base}}
+
+
+def test_a_topup_counts_as_money_collected_from_the_referral(client):
+    """A top-up has no invoice, so without this the partner would earn nothing on
+    a purchase their referral really paid for."""
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch("billing.verify_webhook", return_value=_topup_event()):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    with app.app_context():
+        row = ReferralPayment.query.first()
+        assert row.amount_cents == 999          # amount_total, after the discount
+        assert row.commission_cents == 200      # 20% of $9.99, rounded half up
+        assert row.stripe_ref == "pi_1"
+
+
+def test_a_topup_shows_up_in_what_is_owed(client):
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch("billing.verify_webhook", return_value=_topup_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with app.app_context():
+        _, totals = _report()
+        assert totals["collected_cents"] == 999 and totals["owed_cents"] == 200
+
+
+def test_a_subscription_checkout_records_no_payment(client):
+    """The money for a subscription comes from invoice.paid alone. Counting the
+    checkout session as well would pay every partner twice on the first month."""
+    with app.app_context():
+        _clinician()
+        _code()
+    with patch("billing.verify_webhook", return_value=_checkout_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with app.app_context():
+        assert Referral.query.count() == 1      # attribution still recorded
+        assert ReferralPayment.query.count() == 0
+
+
+def test_the_same_topup_delivered_twice_pays_once(client):
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch("billing.verify_webhook", return_value=_topup_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with app.app_context():
+        assert ReferralPayment.query.count() == 1
+
+
+def test_a_topup_that_cannot_be_recorded_still_grants_the_hours(client):
+    """They have already paid for the time. Bookkeeping must not cost them it."""
+    from models import HoursGrant
+    with app.app_context():
+        _clinician()
+        _referral()
+    with patch.object(admin_access, "record_payment",
+                      side_effect=RuntimeError("boom")), \
+         patch("billing.verify_webhook", return_value=_topup_event()), \
+         patch.object(app.logger, "error") as generic_error:
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    with app.app_context():
+        assert HoursGrant.query.filter_by(kind="topup").count() == 1
+        assert ReferralPayment.query.count() == 0
+    # Handled where it happened, and named. Letting it reach the webhook's catch-all
+    # would log "stripe webhook handling error" and say nothing about payouts.
+    generic_error.assert_not_called()
+
+
+def test_a_topup_by_someone_nobody_referred_is_not_credited_to_a_partner(client):
+    """A referral DOES exist here, for a different customer. Matching on anything
+    looser than the customer id would hand a stranger's purchase to that partner."""
+    with app.app_context():
+        _clinician()                       # clin-1 / cus_1, Easton's referral
+        _referral()
+        _clinician(cid="clin-2", customer="cus_2", email="stranger@example.com")
+    event = _topup_event(customer="cus_2", client_reference_id="clin-2",
+                         payment_intent="pi_stranger",
+                         metadata={"clinician_id": "clin-2",
+                                   "kind": billing.TOPUP_KIND})
+    with patch("billing.verify_webhook", return_value=event):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    with app.app_context():
+        assert ReferralPayment.query.count() == 0
 
 
 def test_the_same_invoice_delivered_twice_pays_once(client):
