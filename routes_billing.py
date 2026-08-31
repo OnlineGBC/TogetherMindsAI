@@ -104,6 +104,47 @@ def _record_collected_payment(*, customer_id, stripe_ref, amount_cents, currency
     return row
 
 
+def _attribute_from_invoice(obj):
+    """Attribute the referral from the invoice itself, if checkout has not yet.
+
+    Stripe creates checkout.session.completed and invoice.paid in the same instant
+    and does not promise which is DELIVERED first. It really does go both ways —
+    of this account's two live sign-ups, one arrived in each order. When the
+    invoice came first there was no referral to attach the money to, so the first
+    payment was dropped, and because the webhook answers 200 either way Stripe
+    never retried it.
+
+    The invoice names the promotion code too, so attributing from here as well
+    makes the order stop mattering. Whichever event lands first does the work; the
+    other finds it already done.
+
+    Never raises: recording the payment matters more than tidy attribution.
+    """
+    try:
+        import admin_access
+        promo_id = admin_access.promo_id_from_invoice(obj)
+        if not promo_id:
+            if admin_access.discount_unreadable(obj):
+                # Warning, not info: info does not reach Cloud Run's logs, and a
+                # discount we cannot read is how this report goes quiet without
+                # anything appearing to be broken. See discount_unreadable.
+                _tm.app.logger.warning(
+                    "invoice discount carries no readable promotion code — "
+                    "payout attribution from the invoice is not working")
+            return
+        row = admin_access.referral_from_invoice(
+            _tm.db, _tm.Referral, _tm.PromoCode, _tm.Clinician,
+            promo_id=promo_id, customer_id=obj.get("customer"),
+            now=datetime.now(timezone.utc))
+        if row is not None:
+            _tm.log_event("referral_recorded", user_id=row.clinician_id,
+                          code=row.code, commission_pct=row.commission_pct,
+                          source="invoice")
+    except Exception:
+        _tm.db.session.rollback()
+        _tm.app.logger.warning("referral not recorded from invoice")
+
+
 def _apply_invoice_paid(obj):
     """Record a SUBSCRIPTION payment Stripe collected.
 
@@ -114,6 +155,9 @@ def _apply_invoice_paid(obj):
     Fires on renewals as well as the first charge, which is the point: a partner
     earns for a year, so every payment in that year has to be seen.
     """
+    # Attribution FIRST, so a first payment that overtook the checkout event still
+    # has a referral to attach itself to.
+    _attribute_from_invoice(obj)
     # `or {}` rather than a dict default: Stripe sends the key with a null value,
     # and a default would not save us from calling .get on None.
     when = (obj.get("status_transitions") or {}).get("paid_at") or obj.get("created")

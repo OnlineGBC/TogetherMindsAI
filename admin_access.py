@@ -789,6 +789,83 @@ def promo_id_from_checkout(obj) -> str:
     return ""
 
 
+def promo_id_from_invoice(obj) -> str:
+    """The Stripe promotion code id behind this invoice's discount, or "".
+
+    A SECOND, independent way to attribute the same referral, and the reason the
+    order the two webhooks arrive in no longer matters. Stripe creates
+    checkout.session.completed and invoice.paid in the same instant and does not
+    promise which is delivered first — and it really does go both ways, seen on
+    this account's own live events. When the invoice landed first there was no
+    referral yet, so the first payment was dropped and never retried.
+
+    Read from `discount` (an expanded object carrying `promotion_code`) and from
+    `discounts` when its entries arrive as objects rather than bare ids.
+
+    Callers should use `discount_unreadable` to notice the case where a discount
+    was applied but no code could be read from it — see why there.
+    """
+    disc = obj.get("discount")
+    if isinstance(disc, dict):
+        promo = disc.get("promotion_code")
+        if isinstance(promo, dict):
+            promo = promo.get("id")
+        if promo:
+            return str(promo)
+    for entry in (obj.get("discounts") or []):
+        promo = entry.get("promotion_code") if isinstance(entry, dict) else None
+        if isinstance(promo, dict):
+            promo = promo.get("id")
+        if promo:
+            return str(promo)
+    return ""
+
+
+def discount_unreadable(obj) -> bool:
+    """True when money was discounted but no promotion code could be read.
+
+    Worth saying out loud, because this is how the payout report would go quiet
+    without anything looking broken.
+
+    The field carrying the code — `discount` — is the one Stripe has DEPRECATED in
+    versions after 2024-12-18.acacia. Its replacement, `discounts`, arrives as bare
+    discount ids with no code in them:
+
+        discount   -> {..., "promotion_code": "promo_1U3o..."}   readable
+        discounts  -> ["di_1U3oNsDi3Epx6qKW5hJkAI94"]            just an id
+
+    So if this endpoint is ever pinned to a newer version — most likely by being
+    recreated, since a new endpoint takes the account's current version rather than
+    this one — attribution from the invoice would silently stop. Resolving a bare id
+    takes another API call, which is not worth adding to every payment while the
+    code is sitting right there. A warning is: it turns a silent loss into a line
+    in the log.
+    """
+    discounted = bool(obj.get("total_discount_amounts") or obj.get("discount")
+                      or obj.get("discounts"))
+    return discounted and not promo_id_from_invoice(obj)
+
+
+def referral_from_invoice(db, Referral, PromoCode, Clinician, *, promo_id,
+                          customer_id, now):
+    """Attribute a referral from an invoice, when checkout has not done it yet.
+
+    The clinician is found by their Stripe customer id, which is always already
+    stored: billing_checkout commits it before redirecting to Stripe, so it exists
+    before any webhook about that customer can arrive.
+
+    Returns the row, or None when there is nothing to attribute.
+    """
+    if not (promo_id and customer_id):
+        return None
+    clin = Clinician.query.filter_by(stripe_customer_id=customer_id).first()
+    if clin is None:
+        return None
+    return referral_from_checkout(db, Referral, PromoCode, promo_id=promo_id,
+                                  clinician_id=clin.id, customer_id=customer_id,
+                                  now=now)
+
+
 def referral_from_checkout(db, Referral, PromoCode, *, promo_id, clinician_id,
                            customer_id, now):
     """Record who referred this customer. Returns the row, or None.

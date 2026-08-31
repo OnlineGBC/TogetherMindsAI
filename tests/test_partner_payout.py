@@ -577,6 +577,161 @@ def test_a_collected_payment_with_no_paid_at_still_lands(client):
         assert ReferralPayment.query.count() == 1
 
 
+# ---------------------------------------------------------------------------
+# Webhook ORDER.
+#
+# Stripe creates checkout.session.completed and invoice.paid in the same instant
+# and does not promise which is delivered first. Both orders were seen on the live
+# account: of two real sign-ups, one arrived each way. Every test above feeds the
+# events in a sensible order, which is exactly why none of them caught this.
+# ---------------------------------------------------------------------------
+
+def _paid_event_with_code(**obj):
+    """invoice.paid as Stripe really sends it — the invoice names the promotion
+    code too, in the expanded `discount` object."""
+    base = {"id": "in_first", "customer": "cus_1", "amount_paid": 600,
+            "currency": "usd",
+            "status_transitions": {"paid_at": int(NOW.timestamp())},
+            "subscription": "sub_1", "billing_reason": "subscription_create",
+            "total_discount_amounts": [{"amount": 400, "discount": "di_1"}],
+            "discounts": ["di_1"],          # bare id, as Stripe sends it
+            "discount": {"id": "di_1", "promotion_code": "promo_x",
+                         "coupon": {"id": "tmai_discount_40off"}}}
+    base.update(obj)
+    return {"type": "invoice.paid", "data": {"object": base}}
+
+
+def test_the_first_payment_still_counts_when_it_overtakes_the_checkout(client):
+    """The live bug. invoice.paid arrived a second BEFORE checkout on one of two
+    real sign-ups. There was no referral yet, so the money was dropped — and since
+    the webhook answers 200 either way, Stripe never retried it."""
+    with app.app_context():
+        _clinician()                        # customer id is stored before checkout
+        _code()
+    with patch("billing.verify_webhook", return_value=_paid_event_with_code()):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    with app.app_context():
+        ref = Referral.query.first()
+        assert ref is not None and ref.code == "EASTON-AB12"
+        assert ref.commission_pct == 20
+        pay = ReferralPayment.query.first()
+        assert pay is not None and pay.amount_cents == 600
+        assert pay.commission_cents == 120
+
+
+def test_the_checkout_arriving_afterwards_does_not_pay_twice(client):
+    """Both events name the same code. Whichever lands first does the work."""
+    with app.app_context():
+        _clinician()
+        _code()
+    with patch("billing.verify_webhook", return_value=_paid_event_with_code()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with patch("billing.verify_webhook", return_value=_checkout_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with app.app_context():
+        assert Referral.query.count() == 1
+        assert ReferralPayment.query.count() == 1
+        _, totals = _report()
+        assert totals["owed_cents"] == 120
+
+
+def test_the_usual_order_still_works(client):
+    """Checkout first, then the invoice — the order that was already fine."""
+    with app.app_context():
+        _clinician()
+        _code()
+    with patch("billing.verify_webhook", return_value=_checkout_event()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with patch("billing.verify_webhook", return_value=_paid_event_with_code()):
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    with app.app_context():
+        assert Referral.query.count() == 1
+        assert ReferralPayment.query.count() == 1
+
+
+def test_a_renewal_for_someone_with_no_code_records_nothing(client):
+    """Most customers are nobody's referral. Their renewals must stay out of it.
+
+    A partner code DOES exist here, and a real clinician is paying full price.
+    Anything looser than "this invoice names this code" would hand that partner a
+    share of a sale they had nothing to do with.
+    """
+    with app.app_context():
+        _clinician()
+        _code()
+    event = _paid_event_with_code(discount=None, discounts=[],
+                                 total_discount_amounts=[])
+    with patch("billing.verify_webhook", return_value=event):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    with app.app_context():
+        assert Referral.query.count() == 0
+        assert ReferralPayment.query.count() == 0
+
+
+def test_the_invoice_reader_handles_both_shapes():
+    """`discount` is the expanded object Stripe sends on this API version;
+    `discounts` may carry objects instead of bare ids on another."""
+    assert admin_access.promo_id_from_invoice(
+        {"discount": {"promotion_code": "promo_9"}}) == "promo_9"
+    assert admin_access.promo_id_from_invoice(
+        {"discount": {"promotion_code": {"id": "promo_9"}}}) == "promo_9"
+    assert admin_access.promo_id_from_invoice(
+        {"discounts": [{"promotion_code": "promo_9"}]}) == "promo_9"
+    # Bare discount ids carry no code — this is the deprecated-field trap.
+    assert admin_access.promo_id_from_invoice({"discounts": ["di_1"]}) == ""
+    assert admin_access.promo_id_from_invoice({}) == ""
+
+
+def test_a_discount_with_no_readable_code_is_noticed():
+    """The failure that looks like nothing at all: money was discounted, so a
+    partner may be owed, but no code can be read. Silence here is how the report
+    goes quiet without anything appearing broken."""
+    assert admin_access.discount_unreadable(
+        {"total_discount_amounts": [{"amount": 400, "discount": "di_1"}],
+         "discounts": ["di_1"]}) is True
+    # Readable, so nothing to say.
+    assert admin_access.discount_unreadable(
+        {"discount": {"promotion_code": "promo_9"}}) is False
+    # No discount at all — an ordinary full-price invoice.
+    assert admin_access.discount_unreadable({}) is False
+
+
+def test_an_unreadable_discount_is_written_to_the_log(client):
+    """Warning, not info: info never reaches Cloud Run's logs, so it could not be
+    used to diagnose this in production."""
+    with app.app_context():
+        _clinician()
+    event = _paid_event_with_code(discount=None)        # ids only, no code
+    with patch("billing.verify_webhook", return_value=event), \
+         patch.object(app.logger, "warning") as warned:
+        client.post("/stripe/webhook", data=b"{}", headers={"Stripe-Signature": "ok"})
+    said = " ".join(str(c) for c in warned.call_args_list)
+    assert "promotion code" in said
+
+
+def test_an_invoice_for_an_unknown_customer_attributes_nothing(client):
+    """No clinician holds that Stripe customer id, so there is nobody to credit.
+
+    A clinician DOES exist here, under a different customer id. Matching on
+    anything looser would credit the referral to the wrong person entirely.
+    """
+    with app.app_context():
+        _code()
+        _clinician(cid="clin-9", customer="cus_someone_else",
+                   email="other@example.com")
+    event = _paid_event_with_code(customer="cus_nobody", id="in_nobody")
+    with patch("billing.verify_webhook", return_value=event):
+        rv = client.post("/stripe/webhook", data=b"{}",
+                         headers={"Stripe-Signature": "ok"})
+    assert rv.status_code == 200
+    with app.app_context():
+        assert Referral.query.count() == 0
+
+
 def _topup_event(**obj):
     """A one-off hours purchase. mode="payment", so Stripe makes no invoice and
     invoice.paid never fires — this session is the only place the money appears."""
