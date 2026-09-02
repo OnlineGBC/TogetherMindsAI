@@ -134,11 +134,30 @@ def test_continuing_still_needs_the_box_ticked(client):
 # The clinician's attestation — every role
 # ---------------------------------------------------------------------------
 
-def test_every_role_is_told_the_session_starts_with_audio_and_video():
-    """All three, so no practitioner is told less than another about how their
-    session begins."""
-    for role in (roles.PSYCHOTHERAPIST, roles.HYPNOTHERAPIST, roles.CAREGIVER):
+def test_the_clinical_roles_are_told_the_session_starts_with_audio_and_video():
+    """Both roles that run a two-way session, so neither is told less than the
+    other about how their session begins."""
+    for role in (roles.PSYCHOTHERAPIST, roles.HYPNOTHERAPIST):
         assert AV_CLINICIAN in roles.WORDING[role]["attestation"], role
+
+
+def test_a_caregiver_is_not_told_their_own_camera_will_start():
+    """A monitor room watches SOMEONE ELSE'S camera and publishes none of its own
+    (see _wantVideo in session_live.html). The shared sentence would have had a
+    caregiver tick a box saying their video starts when it never does."""
+    text = roles.WORDING[roles.CAREGIVER]["attestation"]
+    assert AV_CLINICIAN not in text
+    assert "my microphone enabled" in text
+    assert "I will be able to turn it off" in text
+    # What actually happens: they watch and listen to the other camera.
+    assert "see and hear the camera I am monitoring" in text
+
+
+def test_no_role_is_left_silent_about_how_the_session_begins():
+    """Different wording per role is fine. Saying nothing is not."""
+    for role in (roles.PSYCHOTHERAPIST, roles.HYPNOTHERAPIST, roles.CAREGIVER):
+        text = roles.WORDING[role]["attestation"]
+        assert "will start with" in text, role
 
 
 def test_each_role_keeps_what_it_already_attested():

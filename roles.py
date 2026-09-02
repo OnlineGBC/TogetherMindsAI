@@ -178,9 +178,14 @@ WORDING = {
         "console_title": "Monitor",
         "record": "recording",
         "service": "care",
+        # A monitor room watches SOMEONE ELSE'S camera and publishes none of its
+        # own, so the shared "audio and video enabled" sentence would have had a
+        # caregiver tick a box saying their video starts when it does not.
         "attestation": ("I confirm I am authorised to record this person. I am their "
                         "parent or guardian, or I have their permission. "
-                        "This session will start with audio and video enabled, although I will be able to turn it off."),
+                        "This session will start with my microphone enabled, although "
+                        "I will be able to turn it off. I will see and hear the camera "
+                        "I am monitoring."),
         "disclaimer_lead": ("TogetherMindsAI helps you watch and record"),
         "disclaimer_rest": ("it is not medical advice and does not replace a doctor. "
                             "In an emergency, call 911"),
