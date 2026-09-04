@@ -1,0 +1,54 @@
+{# What a clinician sees after a successful EHR launch.
+
+   PHASE 1 ONLY. It exists to prove the launch returned real data from the chart,
+   and it is replaced the moment there is a real destination to send them to.
+
+   Deliberately NOT extending base.html: a SMART launch opens inside the EHR, in
+   an embedded frame or a tab the EHR controls, and the app's navbar and crisis
+   bar do not belong there. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EHR launch — TogetherMindsAI</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+           margin: 2rem; max-width: 40rem; color: #212529; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1rem; margin-top: 1.5rem; }
+    dt { font-weight: 600; margin-top: .75rem; }
+    dd { margin: 0; }
+    .muted { color: #6c757d; }
+    code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Launch worked</h1>
+  <p class="muted">
+    {{ vendor_label }} &middot; read live from the chart. Nothing was saved.
+  </p>
+
+  <h2>Patient</h2>
+  <dl>
+    <dt>Name</dt><dd>{{ patient.name or "not given" }}</dd>
+    <dt>Date of birth</dt><dd>{{ patient.birth_date or "not given" }}</dd>
+    <dt>Gender</dt><dd>{{ patient.gender or "not given" }}</dd>
+    <dt>FHIR id</dt><dd><code>{{ patient.id or "—" }}</code></dd>
+  </dl>
+
+  <h2>Encounter</h2>
+  {% if encounter and encounter.id %}
+  <dl>
+    <dt>Status</dt><dd>{{ encounter.status or "not given" }}</dd>
+    <dt>Started</dt><dd>{{ encounter.start or "not given" }}</dd>
+    <dt>FHIR id</dt><dd><code>{{ encounter.id }}</code></dd>
+  </dl>
+  {% else %}
+  <p class="muted">The launch carried no encounter.</p>
+  {% endif %}
+
+  <h2>Granted</h2>
+  <p class="muted"><code>{{ scope or "not reported" }}</code></p>
+</body>
+</html>

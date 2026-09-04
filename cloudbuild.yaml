@@ -137,8 +137,11 @@ steps:
       # BILLING_ENABLED=true puts entitlements into force: AI analysis and recording
       # now require an active pro/premium subscription OR a comp grant from
       # /accessadmin. With it false, every clinician got premium regardless.
+      # EHR_ENABLED=true switches on /ehr/launch and /ehr/callback (SMART on FHIR
+      # launch out of Epic). With it false both routes 404, so the integration is
+      # invisible. Phase 1 is read-only and stores nothing.
       - --set-env-vars
-      - BILLING_ENABLED=true,RECORDING_ENABLED=true
+      - BILLING_ENABLED=true,RECORDING_ENABLED=true,EHR_ENABLED=true
       # Stripe secrets PINNED to :2 = LIVE keys (verified: :1 is sk_test_, :2 is
       # sk_live_). Still pinned rather than :latest so a new secret version cannot
       # silently change what production charges against. To revert to test mode,
@@ -160,6 +163,16 @@ steps:
       - STRIPE_PRICE_CAREGIVER=STRIPE_PRICE_CAREGIVER:latest
       - --set-secrets
       - STRIPE_PRICE_HOURS_TOPUP=STRIPE_PRICE_HOURS_TOPUP:latest
+      # EHR launch (SMART on FHIR). Not pinned to a version: the client id is an
+      # identifier, and the sandbox secret gets rotated — :latest resolves to the
+      # newest ENABLED version, so a rotation takes effect on the next deploy
+      # without editing this file. Both are sandbox-only; a production
+      # confidential client uses asymmetric JWT auth against a JWKS we would have
+      # to host, which is a later job.
+      - --set-secrets
+      - EPIC_CLIENT_ID=EPIC_CLIENT_ID:latest
+      - --set-secrets
+      - EPIC_SANDBOX_CLIENT_SECRET=EPIC_SANDBOX_CLIENT_SECRET:latest
       # min-instances must always be 1 — keeps a warm worker so couple/group
       # SocketIO sessions don't pay a 10-15s cold-start penalty on first message.
       - --min-instances
