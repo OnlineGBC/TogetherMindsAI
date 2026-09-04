@@ -4875,6 +4875,13 @@ routes_billing.register_billing_routes(app)
 import routes_admin
 routes_admin.register_admin_routes(app)
 
+# SMART on FHIR launch out of an EHR (Epic, Oracle Health) — same pattern. Both
+# routes 404 unless EHR_ENABLED is on, so this is invisible in production until it
+# is switched on deliberately. Phase 1 stores nothing: no patient identifier
+# reaches the database.
+import routes_ehr
+routes_ehr.register_ehr_routes(app)
+
 
 if __name__ == "__main__":
     _debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"

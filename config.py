@@ -199,6 +199,42 @@ STRIPE_PRICE_PRO: str       = os.environ.get("STRIPE_PRICE_PRO", "")
 STRIPE_PRICE_PREMIUM: str   = os.environ.get("STRIPE_PRICE_PREMIUM", "")
 
 # ---------------------------------------------------------------------------
+# EHR integration — SMART on FHIR launch from inside Epic / Oracle Health.
+#
+# OFF by default, and the routes 404 while it is off, the same way the admin
+# console hides itself. Nothing about this appears in production until it is
+# switched on deliberately.
+#
+# EHR_ALLOWED_ISS is not optional. /ehr/launch is handed a FHIR base URL by the
+# EHR and then trusts it — for discovery, and to send an authorization code to.
+# Without an allowlist anyone could launch us at a server they control and
+# collect our client id and codes. So only these bases are ever accepted.
+# Comma-separated; the Epic sandbox is the default.
+# ---------------------------------------------------------------------------
+
+EHR_ENABLED: bool = os.environ.get("EHR_ENABLED", "false").lower() in ("1", "true", "yes")
+
+EPIC_CLIENT_ID: str = os.environ.get("EPIC_CLIENT_ID", "")
+# Sandbox only. Production confidential clients use asymmetric JWT auth against a
+# JWKS we would have to host, which is a later job.
+EPIC_SANDBOX_CLIENT_SECRET: str = os.environ.get("EPIC_SANDBOX_CLIENT_SECRET", "")
+
+_default_iss = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4"
+EHR_ALLOWED_ISS: tuple = tuple(
+    s.strip().rstrip("/")
+    for s in os.environ.get("EHR_ALLOWED_ISS", _default_iss).split(",")
+    if s.strip()
+)
+
+# What we ask for at launch. Kept here rather than in code so a customer that
+# grants less can be accommodated without a deploy.
+#   launch      the EHR tells us which patient is open
+#   fhirUser    who the clinician is
+#   *.read      the two resources phase 1 reads
+EHR_SCOPES: str = os.environ.get(
+    "EHR_SCOPES", "launch openid fhirUser patient/Patient.read patient/Encounter.read")
+
+# ---------------------------------------------------------------------------
 # Feedback form — Gmail SMTP send (no DB storage, no audit log)
 # ---------------------------------------------------------------------------
 
