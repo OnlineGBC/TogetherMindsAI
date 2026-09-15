@@ -387,6 +387,52 @@ class SessionSummary(db.Model):
         return f"<SessionSummary session={self.session_id} msgs={self.message_count}>"
 
 
+class EhrLaunchContext(db.Model):
+    """What a SMART on FHIR launch left behind, so a note can be written back
+    later — after the session, which is when the summary exists.
+
+    WHY THIS TABLE EXISTS AT ALL. The access token arrives at /ehr/callback,
+    before the session has happened. The note is written 30-60 minutes later.
+    The token cannot bridge that gap in the Flask session, because Flask's
+    default session is a SIGNED COOKIE, not an encrypted one — anyone holding
+    the cookie can read its contents, and this is a live bearer token to a FHIR
+    server full of patient data.
+
+    WHAT IS AND IS NOT KEPT. FHIR ids only. patient_fhir_id and
+    encounter_fhir_id are here because a DocumentReference cannot be addressed
+    without them. Name, date of birth and gender are deliberately absent: they
+    are read live from the chart and rendered, and never stored, so this table
+    is a set of pointers and not a patient index.
+
+    LIFETIME. One row per launch, deleted as soon as the note is written and
+    swept once the token has expired — the token is useless after that and a
+    dead credential sitting in a table is only a liability.
+    """
+    __tablename__ = "ehr_launch_contexts"
+
+    # A launch id we mint, NOT the EHR's launch token: that token is single-use
+    # and belongs to Epic, and naming our own row after it would leak it into
+    # logs and URLs.
+    launch_id         = db.Column(db.String(36), primary_key=True)
+    iss               = db.Column(db.String(255), nullable=False)
+    patient_fhir_id   = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
+    encounter_fhir_id = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    fhir_user         = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    access_token      = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=False)
+    # TIMESTAMP, not DATETIME: DATETIME is not a valid Postgres type. These are
+    # created by create_all() on a fresh table, but the type still has to be one
+    # Postgres accepts or the table is never created at all.
+    token_expires_at  = db.Column(db.DateTime, nullable=False)
+    created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Set when the note lands, so a second press of the button can say "already
+    # written" instead of putting a duplicate progress note in the chart.
+    written_at        = db.Column(db.DateTime, nullable=True)
+    written_reference = db.Column(db.String(255), nullable=True)
+
+    def __repr__(self):
+        return f"<EhrLaunchContext launch={self.launch_id} written={bool(self.written_at)}>"
+
+
 class SessionHidden(db.Model):
     """Marks that a participant hid a (therapist-led) session from THEIR OWN view.
 

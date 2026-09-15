@@ -48,8 +48,10 @@ import base64
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
@@ -299,6 +301,58 @@ def context_from_token(payload) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# How long the token is good for.
+#
+# Phase 2 writes a note AFTER a session, which is minutes to an hour after the
+# token arrived. So the expiry stops being a detail and becomes a thing we have
+# to hold. "Requires Persistent Access" is off on our Epic registration, so
+# there is no refresh token — when this runs out the write is simply gone, and
+# saying so is better than sending a dead bearer token at a chart.
+# ---------------------------------------------------------------------------
+
+# Used when the token response did not say how long it has. Short deliberately:
+# assuming a LONG life is the dangerous direction — it produces a write attempt
+# with a token the server already dropped, and the clinician sees a failure they
+# cannot act on. A short guess just asks them to launch again.
+FALLBACK_TOKEN_SECONDS = 300
+
+# Do not attempt a write inside this much of the expiry. A chart write is one
+# round trip plus Epic's own processing, and a token that dies mid-write is the
+# worst case: we cannot tell a refusal from a note that landed.
+EXPIRY_MARGIN_SECONDS = 60
+
+
+def token_expiry(expires_in, now) -> datetime:
+    """When the access token dies, as an absolute UTC time.
+
+    Absolute, not a duration, because it gets stored and read back later by a
+    different request — a duration would silently mean "from whenever you happen
+    to read this".
+    """
+    try:
+        seconds = int(expires_in)
+    except (TypeError, ValueError):
+        seconds = FALLBACK_TOKEN_SECONDS
+    if seconds <= 0:
+        seconds = FALLBACK_TOKEN_SECONDS
+    return now + timedelta(seconds=seconds)
+
+
+def token_usable(expires_at, now, margin_seconds=EXPIRY_MARGIN_SECONDS) -> bool:
+    """True when there is enough of the token left to attempt a write.
+
+    A missing expiry counts as NOT usable. An unknown expiry on a credential we
+    are about to write a medical record with is not a thing to be optimistic
+    about.
+    """
+    if not expires_at:
+        return False
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at - timedelta(seconds=margin_seconds) > now
+
+
+# ---------------------------------------------------------------------------
 # Talking to the FHIR server.
 #
 # One object holding the base, the token and the transport. The transport is
@@ -404,6 +458,129 @@ def encounter_summary(resource) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Writing a note back into the chart — phase 2.
+#
+# This is the half that is not reversible. A read that goes wrong shows a
+# clinician a blank field; a write that goes wrong puts a permanent entry in
+# someone's medical record, and taking it back is a job for the health system's
+# own staff, not for a delete button here. So everything below refuses rather
+# than guesses, and the caller is expected to have had a human approve the text.
+# ---------------------------------------------------------------------------
+
+LOINC_SYSTEM = "http://loinc.org"
+
+# LOINC 11506-3 "Progress note". A recap of one session is a progress note, not a
+# consult note. It is a DEFAULT and not a constant because each health system
+# maps document types in its own build — a code a customer has not mapped is
+# refused at write time, so this has to be settable per deployment.
+NOTE_TYPE_CODE = "11506-3"
+NOTE_TYPE_DISPLAY = "Progress note"
+
+# FHIR's own id rule (R4 §Resource.id). Enforced because these ids come from the
+# EHR and then get pasted into a reference string: an id carrying a slash would
+# silently change which resource we claim to be writing against.
+_FHIR_ID = re.compile(r"^[A-Za-z0-9\-.]{1,64}$")
+
+
+def valid_fhir_id(value) -> bool:
+    return bool(_FHIR_ID.match(str(value or "")))
+
+
+def document_reference_body(*, note_text, patient_id, encounter_id=None,
+                            author=None, now=None,
+                            type_code=NOTE_TYPE_CODE,
+                            type_display=NOTE_TYPE_DISPLAY,
+                            content_type="text/plain") -> dict:
+    """The DocumentReference we ask the EHR to create.
+
+    A pure function returning a dict, so the exact bytes we would send are
+    assertable in a test without a network or a token. That matters more here
+    than anywhere else in this file: this is the shape of a permanent medical
+    record entry.
+
+    The note travels base64-encoded inside content.attachment.data, which is how
+    FHIR carries document bodies — `contentType` says how to read it back.
+    """
+    text = (note_text or "").strip()
+    if not text:
+        # A blank progress note in a chart is worse than no note: it looks like
+        # the clinician documented the session and found nothing to say.
+        raise EhrRefused("refusing to write an empty note to a chart")
+    if not valid_fhir_id(patient_id):
+        raise EhrRefused("refusing to write a note without a usable patient id")
+    if encounter_id and not valid_fhir_id(encounter_id):
+        raise EhrRefused("encounter id is not a usable FHIR id")
+
+    body = {
+        "resourceType": "DocumentReference",
+        "status": "current",
+        # docStatus final, not preliminary: a clinician read this text and
+        # pressed the button. Calling it preliminary would misdescribe that.
+        "docStatus": "final",
+        "type": {
+            "coding": [{"system": LOINC_SYSTEM, "code": type_code,
+                        "display": type_display}],
+            "text": type_display,
+        },
+        "subject": {"reference": "Patient/" + str(patient_id)},
+        "content": [{
+            "attachment": {
+                "contentType": content_type,
+                "data": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+            }
+        }],
+    }
+    if now is not None:
+        body["date"] = now.astimezone(timezone.utc).isoformat().replace(
+            "+00:00", "Z")
+    if encounter_id:
+        body["context"] = {
+            "encounter": [{"reference": "Encounter/" + str(encounter_id)}]
+        }
+    if author:
+        # fhirUser from the token response is an absolute URL to a Practitioner,
+        # which is a legal Reference.reference — passed through as given rather
+        # than reassembled, because we did not build it and cannot improve it.
+        body["author"] = [{"reference": str(author)}]
+    return body
+
+
+def created_reference(response) -> str:
+    """Where the EHR says it put the thing we created, or "".
+
+    A FHIR create answers 201 with a Location header, and the body is allowed to
+    be EMPTY. So "no JSON came back" is a success here, not a failure, and the
+    transport hands us a dict carrying the status and the location instead. Get
+    this wrong and a clinician sees an error for a note that landed, presses the
+    button again, and the chart gets two.
+    """
+    if not isinstance(response, dict):
+        return ""
+    loc = response.get("_location") or response.get("location") or ""
+    if loc:
+        return str(loc)
+    if response.get("resourceType") == "DocumentReference" and response.get("id"):
+        return "DocumentReference/" + str(response["id"])
+    return ""
+
+
+def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
+               now=None, type_code=NOTE_TYPE_CODE,
+               type_display=NOTE_TYPE_DISPLAY) -> dict:
+    """Build the note and create it. Returns what the EHR said about it.
+
+    Thin on purpose — the decisions are in `document_reference_body`, which is
+    testable without a transport, and the sending is in `FhirClient.create`,
+    which refuses outright when it was built read-only.
+    """
+    body = document_reference_body(
+        note_text=note_text, patient_id=patient_id, encounter_id=encounter_id,
+        author=author, now=now, type_code=type_code, type_display=type_display)
+    response = client.create("DocumentReference", body)
+    return {"reference": created_reference(response), "sent": body}
+
+
+# ---------------------------------------------------------------------------
 # The flow.
 #
 # Both halves live here rather than in the route, so the sequence itself is
@@ -454,9 +631,15 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
                   post_json=None):
     """Steps 4-5. Returns the patient and encounter, reduced for display.
 
-    Nothing is persisted here and nothing is persisted by the caller in phase 1.
-    Whether patient identity belongs in this app is a real decision, and it
-    should be made on purpose rather than arrived at because a spike wrote a row.
+    Nothing is persisted HERE — this function still touches no database, which is
+    what keeps the flow testable by calling it.
+
+    Phase 2's caller does persist, and the question the phase 1 version of this
+    docstring left open has been answered on purpose: FHIR IDS ONLY. The patient
+    id and encounter id are kept, because a note cannot be addressed without
+    them. The name, the date of birth and the gender are NOT, because keeping
+    them would quietly turn this database into a patient index, which is a
+    different product with different obligations.
     """
     if not (code and state and expected_state and verifier and iss and token_url):
         raise EhrRefused("callback is missing something a launch would have left")
@@ -497,6 +680,16 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
         "scope": ctx["scope"],
         "vendor": vendor_for_iss(tenant["iss"]),
         "client": client,          # phase 2 writes through this
+        # --- what phase 2 needs to write a note later, once the session has
+        # actually happened. The ids are duplicated out of `patient` and
+        # `encounter` so a caller storing them never has to reach into a dict
+        # shaped for a screen.
+        "iss": tenant["iss"],
+        "patient_id": ctx["patient"] or None,
+        "encounter_id": ctx["encounter"] or None,
+        "access_token": ctx["access_token"],
+        "expires_in": ctx["expires_in"],
+        "fhir_user": ctx["fhir_user"],
     }
 
 

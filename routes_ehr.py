@@ -1,32 +1,49 @@
 """
 routes_ehr.py
 -------------
-The two HTTP endpoints for a SMART on FHIR launch out of an EHR.
+The HTTP endpoints for a SMART on FHIR launch out of an EHR.
 
-  GET /ehr/launch     the EHR sends the clinician here, with iss + launch
-  GET /ehr/callback   the EHR sends them back here, with code + state
+  GET  /ehr/launch      the EHR sends the clinician here, with iss + launch
+  GET  /ehr/callback    the EHR sends them back here, with code + state
+  POST /ehr/write-note  the clinician files a reviewed note into the chart
 
 This module owns ONLY what HTTP owns: reading a request, keeping launch state in
 the session, turning an ehr.EhrError into a status code, and rendering. The flow
-itself — discover, redirect, exchange, read — lives in ehr.py, so it can be
-tested by calling a function and a second vendor does not put a second copy of
-the sequence inside another view.
+itself — discover, redirect, exchange, read, write — lives in ehr.py, so it can
+be tested by calling a function and a second vendor does not put a second copy
+of the sequence inside another view.
 
-PHASE 1 — nothing is stored. The token and PKCE verifier live in the Flask
-session for the length of the launch and are dropped afterwards. No patient
-identifier reaches the database.
+WHAT IS STORED, AND WHY IT CHANGED. Phase 1 stored nothing. Phase 2 has to,
+because the note is written after the session while the token arrives before it.
+What is kept is one EhrLaunchContext row: the FHIR ids, the access token, and
+its expiry. FHIR IDS ONLY — no name, no date of birth, no gender. Those are read
+live, rendered, and never written down, so this stays a set of pointers rather
+than a patient index.
 
-Both routes 404 when EHR_ENABLED is off, the same way the admin console hides
+The token lives in the DATABASE, encrypted — not in the Flask session. Flask's
+default session is a signed cookie, not an encrypted one, so its contents are
+readable by anyone holding it. Only the launch id, a pointer we mint, goes in
+the cookie.
+
+TWO SWITCHES, NOT ONE. EHR_ENABLED makes the launch work; EHR_WRITE_ENABLED
+makes the chart writable. A read going wrong shows a clinician a stale field. A
+write going wrong leaves a permanent entry in a medical record. Those do not
+deserve the same switch.
+
+Every route 404s when its switch is off, the same way the admin console hides
 itself, so this is invisible in production until it is switched on.
 """
 
 import logging
+import uuid
+from datetime import datetime, timezone
 
 from flask import (session, request, redirect, render_template, abort, url_for)
 
 import config
 import ehr
 import TogetherMindsAI as _tm
+from models import db, EhrLaunchContext
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +52,15 @@ _STATE = "_ehr_state"
 _VERIFIER = "_ehr_verifier"
 _ISS = "_ehr_iss"
 _TOKEN_URL = "_ehr_token_url"
+# The launch id is a POINTER to a server-side row, which is the only thing in
+# this list safe to keep in a cookie session. Flask signs the cookie but does not
+# encrypt it, so the access token itself lives in the database and never here.
+_LAUNCH_ID = "_ehr_launch_id"
+
+# Longest note we will accept from the form. A progress note is prose; anything
+# past this is a paste accident or someone probing, and either way the chart
+# should not receive it.
+MAX_NOTE_CHARS = 20000
 
 # The one place an ehr error becomes an HTTP status. Keeping the mapping here is
 # what lets ehr.py raise meaning instead of status codes.
@@ -103,13 +129,77 @@ def _post_form(url, data, headers=None):
 
 
 def _post_json(url, body, headers=None):
-    """Not used in phase 1. Passed to the flow so writing a note in phase 2 needs
-    no change here."""
+    """Create a FHIR resource. Phase 2's note goes through here.
+
+    A FHIR create answers 201 with a Location header and is ALLOWED to return an
+    empty body — Epic normally does. So this cannot just call resp.json(): that
+    raises on an empty body, the caller reports a failure for a note that landed,
+    the clinician presses the button again, and the chart ends up with two
+    progress notes. The status and the location are handed back under underscore
+    keys so `ehr.created_reference` can read them without pretending they came
+    from the server's JSON.
+    """
     import requests
     resp = requests.post(url, json=body, headers=headers or {},
                          timeout=ehr.TIMEOUT_SECONDS)
     resp.raise_for_status()
-    return resp.json()
+    out = {}
+    if (resp.content or b"").strip():
+        try:
+            parsed = resp.json()
+            if isinstance(parsed, dict):
+                out = dict(parsed)
+        except ValueError:
+            # 201 with a body we cannot parse is still a successful create. The
+            # Location header is what we actually needed.
+            pass
+    out.setdefault("_status", resp.status_code)
+    out.setdefault("_location", resp.headers.get("Location")
+                   or resp.headers.get("Content-Location") or "")
+    return out
+
+
+# --- the launch context row ------------------------------------------------
+
+def _save_launch_context(done, now):
+    """Keep what a later write needs, and nothing else. Returns the launch id.
+
+    Called only when writing is switched on and the launch actually carried a
+    patient — with no patient there is nothing to address a note to, so there is
+    no reason to hold a token.
+    """
+    launch_id = str(uuid.uuid4())
+    db.session.add(EhrLaunchContext(
+        launch_id=launch_id,
+        iss=done["iss"],
+        patient_fhir_id=str(done["patient_id"]),
+        encounter_fhir_id=(str(done["encounter_id"])
+                           if done["encounter_id"] else None),
+        fhir_user=(str(done["fhir_user"]) if done["fhir_user"] else None),
+        access_token=done["access_token"],
+        token_expires_at=ehr.token_expiry(done["expires_in"], now),
+        created_at=now,
+    ))
+    db.session.commit()
+    return launch_id
+
+
+def _sweep_expired_contexts(now):
+    """Drop rows whose token has died.
+
+    An expired access token cannot be used for anything, so a row holding one is
+    pure liability. Swept on the way through a launch rather than on a timer:
+    there is no scheduler here, and the only moment this table grows is a launch.
+    """
+    try:
+        (EhrLaunchContext.query
+         .filter(EhrLaunchContext.token_expires_at < now)
+         .delete(synchronize_session=False))
+        db.session.commit()
+    except Exception:
+        # Housekeeping must never be the reason a launch fails.
+        db.session.rollback()
+        log.warning("EHR launch-context sweep failed", exc_info=True)
 
 
 def register_ehr_routes(app):
@@ -179,8 +269,120 @@ def register_ehr_routes(app):
                       had_patient=bool(done["patient"]["id"]),
                       had_encounter=bool(done["encounter"]["id"]))
 
+        # Phase 2: hold the token server-side so a note can be written after the
+        # session. Only when writing is on AND there is a patient to address.
+        now = datetime.now(timezone.utc)
+        can_write = bool(config.EHR_WRITE_ENABLED and done["patient_id"])
+        session.pop(_LAUNCH_ID, None)
+        if can_write:
+            _sweep_expired_contexts(now)
+            session[_LAUNCH_ID] = _save_launch_context(done, now)
+
         return render_template("ehr_result.html",
                                vendor_label=ehr.vendor_label(done["vendor"]),
                                patient=done["patient"],
                                encounter=done["encounter"],
-                               scope=done["scope"])
+                               scope=done["scope"],
+                               can_write=can_write,
+                               note_text="",
+                               written=None,
+                               error=None)
+
+    @app.route("/ehr/write-note", methods=["POST"])
+    def ehr_write_note():
+        """File the clinician's reviewed note into the chart.
+
+        A POST from a plain form, not a socket emit, because this is a
+        state-changing action against someone else's system of record and the
+        simplest reliable transport is the right one.
+
+        It CONFIRMS before it moves: every outcome renders this same page saying
+        what happened. Nothing here redirects on success and nothing abandons the
+        page on failure, because a clinician who is not told whether the note
+        landed will press the button again.
+        """
+        _require_enabled()
+        if not config.EHR_WRITE_ENABLED:
+            # Same reasoning as the feature flag on the launch routes: a route
+            # nobody is meant to know about should not confirm it exists.
+            abort(404)
+
+        def page(error=None, written=None, note_text="", ctx=None):
+            # 200 even when the write failed. The response IS the answer the
+            # clinician has to read, and an error status inside the EHR's
+            # embedded browser risks the EHR replacing our page with its own.
+            # The failure is recorded at warning level for diagnosis.
+            return render_template(
+                "ehr_result.html",
+                vendor_label=ehr.vendor_label(
+                    ehr.vendor_for_iss(ctx.iss) if ctx else ""),
+                patient={"id": None, "name": None, "birth_date": None,
+                         "gender": None},
+                encounter={"id": None, "status": None, "start": None},
+                scope="", can_write=bool(ctx and not ctx.written_at),
+                note_text=note_text, written=written, error=error)
+
+        launch_id = session.get(_LAUNCH_ID)
+        ctx = (db.session.get(EhrLaunchContext, launch_id)
+               if launch_id else None)
+        if ctx is None:
+            _tm.app.logger.warning("EHR note write had no launch context")
+            return page(error="This launch is no longer open. Start again from "
+                              "the patient's chart in Epic.")
+
+        if ctx.written_at:
+            # Not an error and not a second write. Saying "already filed" is the
+            # whole point of keeping the row after success.
+            return page(written=ctx.written_reference or "already filed", ctx=ctx,
+                        error=None)
+
+        note_text = (request.form.get("note_text") or "").strip()
+        if not note_text:
+            return page(error="There is nothing written to file.", ctx=ctx)
+        if len(note_text) > MAX_NOTE_CHARS:
+            return page(error="That note is too long to file (limit %d "
+                              "characters)." % MAX_NOTE_CHARS,
+                        note_text=note_text[:MAX_NOTE_CHARS], ctx=ctx)
+
+        now = datetime.now(timezone.utc)
+        if not ehr.token_usable(ctx.token_expires_at, now):
+            # No refresh token exists — "Requires Persistent Access" is off on
+            # the Epic registration — so this is genuinely unrecoverable here.
+            # Say so plainly instead of sending a dead token at a chart.
+            _tm.app.logger.warning("EHR note write refused: token expired")
+            return page(error="The Epic session timed out before this was "
+                              "filed. Relaunch from the chart and file it "
+                              "again — nothing was written.",
+                        note_text=note_text, ctx=ctx)
+
+        client = ehr.FhirClient(iss=ctx.iss, token=ctx.access_token,
+                                fetch_json=_fetch_json, post_json=_post_json)
+        try:
+            result = ehr.write_note(
+                client=client, note_text=note_text,
+                patient_id=ctx.patient_fhir_id,
+                encounter_id=ctx.encounter_fhir_id,
+                author=ctx.fhir_user, now=now,
+                type_code=config.EHR_NOTE_TYPE_CODE,
+                type_display=config.EHR_NOTE_TYPE_DISPLAY)
+        except ehr.EhrError as exc:
+            _tm.app.logger.warning("EHR note write stopped (%s): %s",
+                                   type(exc).__name__, exc)
+            return page(error="Epic did not accept the note, so nothing was "
+                              "filed. The text below is unchanged — you can try "
+                              "again.", note_text=note_text, ctx=ctx)
+
+        ctx.written_at = now
+        ctx.written_reference = result["reference"] or "filed"
+        # The token has done its only job. Dropping it here rather than waiting
+        # for the sweep means a written note leaves no live credential behind.
+        ctx.access_token = ""
+        db.session.commit()
+
+        # Metadata only, again: whether it landed, never what it said.
+        _tm.log_event("ehr_note_written",
+                      vendor=ehr.vendor_for_iss(ctx.iss),
+                      chars=len(note_text),
+                      had_encounter=bool(ctx.encounter_fhir_id))
+
+        return page(written=ctx.written_reference, ctx=ctx)

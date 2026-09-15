@@ -231,8 +231,33 @@ EHR_ALLOWED_ISS: tuple = tuple(
 #   launch      the EHR tells us which patient is open
 #   fhirUser    who the clinician is
 #   *.read      the two resources phase 1 reads
+#   DocumentReference.write  phase 2 writes the session recap back to the chart
+#
+# NOTE on patient/ vs user/: we ask for patient/ and the Epic sandbox grants
+# user/ (observed 2026-09-13: "user/Encounter.read user/Patient.read fhirUser
+# launch launch/encounter launch/patient openid"). Epic translates by
+# application audience, and ours is registered for Clinicians. Left as patient/
+# because that is what has been proven to work end to end; changing it to match
+# the grant would be editing a working request to look tidier.
 EHR_SCOPES: str = os.environ.get(
-    "EHR_SCOPES", "launch openid fhirUser patient/Patient.read patient/Encounter.read")
+    "EHR_SCOPES", "launch openid fhirUser patient/Patient.read "
+                  "patient/Encounter.read patient/DocumentReference.write")
+
+# Writing has its OWN switch, separate from EHR_ENABLED.
+#
+# Reading is recoverable: the worst case shows a clinician a stale field. Writing
+# is not — a DocumentReference is a permanent entry in a medical record, and
+# unpicking a wrong one is work for the health system's own staff. So a launch
+# can be switched on for testing without the chart being writable, and turning
+# writes on is a separate, deliberate act.
+EHR_WRITE_ENABLED: bool = os.environ.get(
+    "EHR_WRITE_ENABLED", "false").lower() in ("1", "true", "yes")
+
+# Which kind of document we say we are filing. Configurable because every health
+# system maps document types in its own Epic build, and a code a customer has not
+# mapped is refused at write time. Default is LOINC "Progress note".
+EHR_NOTE_TYPE_CODE: str = os.environ.get("EHR_NOTE_TYPE_CODE", "11506-3")
+EHR_NOTE_TYPE_DISPLAY: str = os.environ.get("EHR_NOTE_TYPE_DISPLAY", "Progress note")
 
 # ---------------------------------------------------------------------------
 # Feedback form — Gmail SMTP send (no DB storage, no audit log)

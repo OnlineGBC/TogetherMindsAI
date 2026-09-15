@@ -1,11 +1,17 @@
-{# What a clinician sees after a successful EHR launch.
-
-   PHASE 1 ONLY. It exists to prove the launch returned real data from the chart,
-   and it is replaced the moment there is a real destination to send them to.
+{# What a clinician sees after an EHR launch, and where they file a note.
 
    Deliberately NOT extending base.html: a SMART launch opens inside the EHR, in
    an embedded frame or a tab the EHR controls, and the app's navbar and crisis
-   bar do not belong there. #}
+   bar do not belong there.
+
+   Rendered by three different outcomes — the launch itself, a filed note, and a
+   refused note — so every branch below has to read sensibly with the patient
+   block empty. After a write there is no fresh read from the chart, because a
+   write is not a reason to go and re-read a patient.
+
+   The note box is pre-filled by the caller and edited by the clinician. Nothing
+   here files anything on its own: a progress note is a permanent medical record
+   entry, and the button press is the approval. #}
 <!doctype html>
 <html lang="en">
 <head>
@@ -21,20 +27,52 @@
     dd { margin: 0; }
     .muted { color: #6c757d; }
     code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+    textarea { width: 100%; min-height: 12rem; font: inherit; padding: .5rem;
+               border: 1px solid #ced4da; border-radius: 4px; resize: vertical; }
+    button { font: inherit; padding: .5rem 1rem; border: 0; border-radius: 4px;
+             background: #0d6efd; color: #fff; cursor: pointer; }
+    .banner { padding: .75rem 1rem; border-radius: 4px; margin-top: 1rem; }
+    .ok   { background: #d1e7dd; border: 1px solid #a3cfbb; }
+    .bad  { background: #f8d7da; border: 1px solid #f1aeb5; }
+    .warn { font-size: .9rem; color: #664d03; margin-top: .5rem; }
   </style>
 </head>
 <body>
   <h1>Launch worked</h1>
   <p class="muted">
-    {{ vendor_label }} &middot; read live from the chart. Nothing was saved.
+    {{ vendor_label }} &middot; read live from the chart.
+    {% if can_write %}
+      Nothing is filed until you press the button below.
+    {% else %}
+      Nothing was saved.
+    {% endif %}
   </p>
 
+  {% if written %}
+  <div class="banner ok">
+    <strong>Filed in the chart.</strong>
+    <div class="muted"><code>{{ written }}</code></div>
+    <p class="muted" style="margin:.5rem 0 0">
+      This note is now part of the patient's record. Changing or removing it is
+      done in Epic, not here.
+    </p>
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div class="banner bad">
+    <strong>Not filed.</strong>
+    <div>{{ error }}</div>
+  </div>
+  {% endif %}
+
+  {% if patient and patient.id %}
   <h2>Patient</h2>
   <dl>
     <dt>Name</dt><dd>{{ patient.name or "not given" }}</dd>
     <dt>Date of birth</dt><dd>{{ patient.birth_date or "not given" }}</dd>
     <dt>Gender</dt><dd>{{ patient.gender or "not given" }}</dd>
-    <dt>FHIR id</dt><dd><code>{{ patient.id or "—" }}</code></dd>
+    <dt>FHIR id</dt><dd><code>{{ patient.id }}</code></dd>
   </dl>
 
   <h2>Encounter</h2>
@@ -50,5 +88,25 @@
 
   <h2>Granted</h2>
   <p class="muted"><code>{{ scope or "not reported" }}</code></p>
+  {% endif %}
+
+  {% if can_write %}
+  <h2>Note for the chart</h2>
+  <form method="post" action="{{ url_for('ehr_write_note') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label for="note_text" class="muted">
+      Read this through and change anything that is not right. It is filed
+      exactly as it appears here.
+    </label>
+    <textarea id="note_text" name="note_text"
+              placeholder="The session recap goes here.">{{ note_text or "" }}</textarea>
+    <p class="warn">
+      Filing adds a permanent progress note to the patient's record. The Epic
+      session expires about an hour after launch — after that you will need to
+      relaunch from the chart.
+    </p>
+    <button type="submit">File this note in the chart</button>
+  </form>
+  {% endif %}
 </body>
 </html>
