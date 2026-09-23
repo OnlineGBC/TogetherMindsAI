@@ -139,9 +139,12 @@ steps:
       # /accessadmin. With it false, every clinician got premium regardless.
       # EHR_ENABLED=true switches on /ehr/launch and /ehr/callback (SMART on FHIR
       # launch out of Epic). With it false both routes 404, so the integration is
-      # invisible. Phase 1 is read-only and stores nothing.
+      # invisible. EHR_WRITE_ENABLED=true additionally switches on /ehr/write-note,
+      # /ehr/load-summary, /ehr/add-billing-code — filing a note back into the
+      # chart. Separate from EHR_ENABLED on purpose: a read going wrong shows a
+      # stale field, a write going wrong leaves a permanent chart entry.
       - --set-env-vars
-      - BILLING_ENABLED=true,RECORDING_ENABLED=true,EHR_ENABLED=true
+      - BILLING_ENABLED=true,RECORDING_ENABLED=true,EHR_ENABLED=true,EHR_WRITE_ENABLED=true
       # Stripe secrets PINNED to :2 = LIVE keys (verified: :1 is sk_test_, :2 is
       # sk_live_). Still pinned rather than :latest so a new secret version cannot
       # silently change what production charges against. To revert to test mode,
