@@ -3,9 +3,10 @@ routes_ehr.py
 -------------
 The HTTP endpoints for a SMART on FHIR launch out of an EHR.
 
-  GET  /ehr/launch      the EHR sends the clinician here, with iss + launch
-  GET  /ehr/callback    the EHR sends them back here, with code + state
-  POST /ehr/write-note  the clinician files a reviewed note into the chart
+  GET  /ehr/launch        the EHR sends the clinician here, with iss + launch
+  GET  /ehr/callback      the EHR sends them back here, with code + state
+  POST /ehr/load-summary  optionally pull a TMAI session's recap into the note
+  POST /ehr/write-note    the clinician files a reviewed note into the chart
 
 This module owns ONLY what HTTP owns: reading a request, keeping launch state in
 the session, turning an ehr.EhrError into a status code, and rendering. The flow
@@ -34,16 +35,19 @@ Every route 404s when its switch is off, the same way the admin console hides
 itself, so this is invisible in production until it is switched on.
 """
 
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 
 from flask import (session, request, redirect, render_template, abort, url_for)
+from sqlalchemy import func as sa_func
 
 import config
 import ehr
 import TogetherMindsAI as _tm
-from models import db, EhrLaunchContext
+from models import db, EhrLaunchContext, SessionSummary, TherapySession, friendly_name_key
+from session_id import SESSION_ID_LENGTH
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +65,11 @@ _LAUNCH_ID = "_ehr_launch_id"
 # past this is a paste accident or someone probing, and either way the chart
 # should not receive it.
 MAX_NOTE_CHARS = 20000
+
+# A Session ID or friendly name is short by construction (SESSION_ID_LENGTH, or
+# the friendly-name limit enforced when it was set) — well past this is not a
+# real lookup.
+MAX_SESSION_LOOKUP_CHARS = 200
 
 # The one place an ehr error becomes an HTTP status. Keeping the mapping here is
 # what lets ehr.py raise meaning instead of status codes.
@@ -202,6 +211,42 @@ def _sweep_expired_contexts(now):
         log.warning("EHR launch-context sweep failed", exc_info=True)
 
 
+def _find_tmai_session(raw: str):
+    """Resolve a clinician-typed Session ID, "SessionID-FriendlyName" combined
+    form, or friendly name on its own, to a TherapySession. Same lookup the
+    console's own rejoin form uses, so a clinician can paste the same thing
+    they would paste there. Case-insensitive throughout."""
+    ts = TherapySession.query.filter(
+        sa_func.upper(TherapySession.id) == raw.upper()
+    ).first()
+    if not ts and len(raw) > SESSION_ID_LENGTH:
+        ts = TherapySession.query.filter(
+            sa_func.upper(TherapySession.id) == raw[:SESSION_ID_LENGTH].upper()
+        ).first()
+    if not ts:
+        ts = TherapySession.query.filter(
+            TherapySession.friendly_name_key == friendly_name_key(raw)
+        ).first()
+    return ts
+
+
+def _render_result(*, error=None, written=None, note_text="", ctx=None,
+                    notice=None):
+    """The one place phase 2's outcomes are rendered — a filed note, a refused
+    note, or a loaded recap — so every branch reads sensibly with the patient
+    block empty. 200 even on failure or a notice: the response IS what the
+    clinician has to read next, not a status code."""
+    return render_template(
+        "ehr_result.html",
+        vendor_label=ehr.vendor_label(
+            ehr.vendor_for_iss(ctx.iss) if ctx else ""),
+        patient={"id": None, "name": None, "birth_date": None,
+                 "gender": None},
+        encounter={"id": None, "status": None, "start": None},
+        scope="", can_write=bool(ctx and not ctx.written_at),
+        note_text=note_text, written=written, error=error, notice=notice)
+
+
 def register_ehr_routes(app):
     """Attach the EHR routes to `app`. Called once at app import."""
 
@@ -286,7 +331,8 @@ def register_ehr_routes(app):
                                can_write=can_write,
                                note_text="",
                                written=None,
-                               error=None)
+                               error=None,
+                               notice=None)
 
     @app.route("/ehr/write-note", methods=["POST"])
     def ehr_write_note():
@@ -307,20 +353,7 @@ def register_ehr_routes(app):
             # nobody is meant to know about should not confirm it exists.
             abort(404)
 
-        def page(error=None, written=None, note_text="", ctx=None):
-            # 200 even when the write failed. The response IS the answer the
-            # clinician has to read, and an error status inside the EHR's
-            # embedded browser risks the EHR replacing our page with its own.
-            # The failure is recorded at warning level for diagnosis.
-            return render_template(
-                "ehr_result.html",
-                vendor_label=ehr.vendor_label(
-                    ehr.vendor_for_iss(ctx.iss) if ctx else ""),
-                patient={"id": None, "name": None, "birth_date": None,
-                         "gender": None},
-                encounter={"id": None, "status": None, "start": None},
-                scope="", can_write=bool(ctx and not ctx.written_at),
-                note_text=note_text, written=written, error=error)
+        page = _render_result  # 200 even on failure — see _render_result.
 
         launch_id = session.get(_LAUNCH_ID)
         ctx = (db.session.get(EhrLaunchContext, launch_id)
@@ -386,3 +419,76 @@ def register_ehr_routes(app):
                       had_encounter=bool(ctx.encounter_fhir_id))
 
         return page(written=ctx.written_reference, ctx=ctx)
+
+    @app.route("/ehr/load-summary", methods=["POST"])
+    def ehr_load_summary():
+        """Load a TogetherMindsAI session's cached recap into the note box, so
+        the clinician is not typing the whole thing by hand.
+
+        Loads only. Nothing here reaches Epic — it fills the textarea on this
+        same page, and "File this note in the chart" is still the only button
+        that writes anything, same as if the clinician had typed it themself.
+        """
+        _require_enabled()
+        if not config.EHR_WRITE_ENABLED:
+            abort(404)
+
+        page = _render_result
+
+        launch_id = session.get(_LAUNCH_ID)
+        ctx = (db.session.get(EhrLaunchContext, launch_id)
+               if launch_id else None)
+        if ctx is None:
+            return page(error="This launch is no longer open. Start again "
+                              "from the patient's chart in Epic.")
+        if ctx.written_at:
+            return page(written=ctx.written_reference or "already filed",
+                        ctx=ctx)
+
+        raw = (request.form.get("tmai_session") or "").strip()
+        if not raw:
+            return page(error="Enter the TogetherMindsAI session ID or name "
+                              "to load its recap.", ctx=ctx)
+        if len(raw) > MAX_SESSION_LOOKUP_CHARS:
+            return page(error="That is not a session ID or name.", ctx=ctx)
+
+        ts = _find_tmai_session(raw)
+        if ts is None:
+            return page(error="No TogetherMindsAI session found for that ID "
+                              "or name.", ctx=ctx)
+
+        summary_row = db.session.get(SessionSummary, ts.id)
+        if summary_row is None:
+            return page(error="No summary is cached for that session yet. "
+                              "Open its summary in TogetherMindsAI, then come "
+                              "back and load it here.", ctx=ctx)
+
+        try:
+            payload = json.loads(summary_row.payload)
+        except ValueError:
+            return page(error="That session's summary could not be read.",
+                        ctx=ctx)
+
+        clinical = (payload.get("clinical") or "").strip()
+        codes_rationale = (payload.get("codes_rationale") or "").strip()
+        parts = []
+        if clinical:
+            parts.append(clinical)
+        if codes_rationale:
+            parts.append("Coding considerations:\n" + codes_rationale)
+        note_text = "\n\n".join(parts)[:MAX_NOTE_CHARS]
+        if not note_text:
+            return page(error="That session's summary has no recap or "
+                              "coding notes to load.", ctx=ctx)
+
+        ctx.session_id = ts.id
+        db.session.commit()
+
+        # Metadata only, same rule as everywhere else in this file: which
+        # session it came from, never what the recap said.
+        _tm.log_event("ehr_summary_loaded", vendor=ehr.vendor_for_iss(ctx.iss),
+                      chars=len(note_text))
+
+        return page(note_text=note_text, ctx=ctx,
+                    notice="Loaded from that session. Review before filing — "
+                          "nothing has been sent to the chart.")

@@ -1023,6 +1023,19 @@ if not config.IS_TESTING:
             except Exception:
                 db.session.rollback()  # column already exists
 
+    # Which TogetherMindsAI session a chart note was loaded from ("Load recap").
+    # ehr_launch_contexts already existed before this column, so create_all()
+    # will never add it on its own. TEXT, not VARCHAR — it holds ciphertext,
+    # like the other ids on this table.
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text(
+                "ALTER TABLE ehr_launch_contexts ADD COLUMN session_id TEXT"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
+
     # Move the one-off discount code into the merged promo_codes table. The two
     # cards became one, so the live 100%-off testing code has to appear in the
     # list with everything else. Copies the record only — the Stripe code itself

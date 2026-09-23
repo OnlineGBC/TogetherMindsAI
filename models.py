@@ -428,6 +428,12 @@ class EhrLaunchContext(db.Model):
     # written" instead of putting a duplicate progress note in the chart.
     written_at        = db.Column(db.DateTime, nullable=True)
     written_reference = db.Column(db.String(255), nullable=True)
+    # Which TogetherMindsAI session this launch's note was loaded from, if the
+    # clinician used "Load recap" to pull one in. Encrypted like the FHIR ids
+    # above: combined with them it points at a specific conversation, so it
+    # gets the same treatment. Not set until "Load recap" is used — a launch
+    # with a hand-typed note never has this.
+    session_id        = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
 
     def __repr__(self):
         return f"<EhrLaunchContext launch={self.launch_id} written={bool(self.written_at)}>"

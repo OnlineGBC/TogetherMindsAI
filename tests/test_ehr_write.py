@@ -52,7 +52,8 @@ import ehr
 import TogetherMindsAI as _tm
 from TogetherMindsAI import app
 import routes_ehr
-from models import db, init_encryption, EhrLaunchContext, AuditLog
+from models import (db, init_encryption, EhrLaunchContext, AuditLog,
+                     SessionSummary, TherapySession, friendly_name_key)
 
 init_encryption(TEST_KEY)
 
@@ -394,6 +395,10 @@ def test_the_write_route_is_not_exempt_from_csrf():
     assert "ehr_write_note" not in _tm._CSRF_EXEMPT
 
 
+def test_the_load_summary_route_is_not_exempt_from_csrf():
+    assert "ehr_load_summary" not in _tm._CSRF_EXEMPT
+
+
 def test_a_press_with_no_open_launch_says_so_and_writes_nothing(client):
     """The session expired or the cookie is from another launch. Stay on the
     page and say what to do, rather than 500 or redirect somewhere."""
@@ -580,3 +585,121 @@ def test_expired_contexts_are_swept(client):
 
         assert db.session.get(EhrLaunchContext, "dead") is None
         assert db.session.get(EhrLaunchContext, "alive") is not None
+
+
+# ===========================================================================
+# Loading a session recap ("Load recap") into the note box
+# ===========================================================================
+
+TMAI_SESSION_ID = "AAAABBBBCCCCDDDD"   # SESSION_ID_LENGTH characters
+
+
+def _session_row(session_id=TMAI_SESSION_ID, friendly_name=None):
+    now = datetime.now(timezone.utc)
+    ts = TherapySession(
+        id=session_id, mode="solo", created_by="clinician-1", created_at=now,
+        friendly_name=friendly_name,
+        friendly_name_key=friendly_name_key(friendly_name) if friendly_name else None,
+    )
+    db.session.add(ts)
+    db.session.commit()
+    return ts
+
+
+def _summary_row(session_id=TMAI_SESSION_ID, clinical="Client recap here.",
+                  codes_rationale="F41.1 fits the anxiety discussed."):
+    payload = {"session_id": session_id, "clinical": clinical,
+               "codes_rationale": codes_rationale, "codes": [],
+               "client_recap": "", "disclaimer": "", "narrative_available": True,
+               "cached": False}
+    row = SessionSummary(session_id=session_id, payload=json.dumps(payload),
+                         message_count=4)
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
+def test_loading_a_recap_is_invisible_while_writing_is_off(client):
+    with _WriteOn(EHR_WRITE_ENABLED=False):
+        assert client.post("/ehr/load-summary").status_code == 404
+
+
+def test_loading_a_recap_fills_the_note_with_clinical_and_coding_notes(client):
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row()
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": TMAI_SESSION_ID})
+
+    assert b"Client recap here." in rv.data
+    assert b"Coding considerations:" in rv.data
+    assert b"F41.1 fits the anxiety discussed." in rv.data
+    assert b"nothing has been sent to the chart" in rv.data
+
+    ctx = db.session.get(EhrLaunchContext, "launch-1")
+    assert ctx.session_id == TMAI_SESSION_ID
+
+
+def test_loading_a_recap_by_friendly_name(client):
+    with _WriteOn():
+        _context_row()
+        _session_row(friendly_name="Smith weekly")
+        _summary_row()
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": "Smith weekly"})
+
+    assert b"Client recap here." in rv.data
+
+
+def test_loading_a_recap_never_reaches_epic(client):
+    """Loading fills a textarea. It must not be indistinguishable from filing
+    — the only thing that may ever POST to Epic is "File this note"."""
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row()
+        _hold(client)
+        with patch.object(routes_ehr, "_post_json") as post:
+            client.post("/ehr/load-summary",
+                       data={"tmai_session": TMAI_SESSION_ID})
+    post.assert_not_called()
+
+
+def test_loading_a_recap_for_an_unknown_session_refuses(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": "no-such-session"})
+    assert b"No TogetherMindsAI session found" in rv.data
+
+
+def test_loading_a_recap_with_no_cached_summary_refuses(client):
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": TMAI_SESSION_ID})
+    assert b"No summary is cached" in rv.data
+
+
+def test_the_linked_session_id_is_encrypted_at_rest(client):
+    """Same rule as the FHIR ids on this row: read the RAW bytes, not the
+    ORM's decrypted view."""
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row()
+        _hold(client)
+        client.post("/ehr/load-summary", data={"tmai_session": TMAI_SESSION_ID})
+
+        raw = db.session.execute(db.text(
+            "SELECT session_id FROM ehr_launch_contexts"
+        )).first()
+
+    assert raw[0] != TMAI_SESSION_ID
+    assert TMAI_SESSION_ID not in raw[0]

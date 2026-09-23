@@ -34,7 +34,10 @@
     .banner { padding: .75rem 1rem; border-radius: 4px; margin-top: 1rem; }
     .ok   { background: #d1e7dd; border: 1px solid #a3cfbb; }
     .bad  { background: #f8d7da; border: 1px solid #f1aeb5; }
+    .info { background: #e2e3e5; border: 1px solid #c8ccd0; }
     .warn { font-size: .9rem; color: #664d03; margin-top: .5rem; }
+    input[type="text"] { width: 100%; font: inherit; padding: .5rem;
+               border: 1px solid #ced4da; border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -66,6 +69,10 @@
   </div>
   {% endif %}
 
+  {% if notice %}
+  <div class="banner info">{{ notice }}</div>
+  {% endif %}
+
   {% if patient and patient.id %}
   <h2>Patient</h2>
   <dl>
@@ -91,6 +98,18 @@
   {% endif %}
 
   {% if can_write %}
+  <h2>Load a session recap (optional)</h2>
+  <form method="post" action="{{ url_for('ehr_load_summary') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <label for="tmai_session" class="muted">
+      TogetherMindsAI session ID or name. Loads that session's cached recap
+      and coding notes into the note below — nothing is filed by this button.
+    </label>
+    <input type="text" id="tmai_session" name="tmai_session"
+           placeholder="Session ID or name" />
+    <button type="submit">Load recap</button>
+  </form>
+
   <h2>Note for the chart</h2>
   <form method="post" action="{{ url_for('ehr_write_note') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
