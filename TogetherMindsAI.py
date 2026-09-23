@@ -29,11 +29,12 @@ from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 from cryptography.exceptions import InvalidSignature
 
-from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, CompAccess, AdminAuthCode, DiscountCode, PromoCode, Referral, ReferralPayment, HoursGrant, RecordAuthorisation, init_encryption, friendly_name_key
+from models import db, User, ChatMessage, Exercise, RateLimitEntry, TherapySession, AuditLog, Clinician, ClientAccount, SessionParticipant, NotificationLog, CopilotCard, SessionSummary, SessionHidden, SessionRecording, SessionStateCert, SessionLocation, CompAccess, AdminAuthCode, DiscountCode, PromoCode, Referral, ReferralPayment, HoursGrant, RecordAuthorisation, init_encryption, friendly_name_key
 from authlib.integrations.flask_client import OAuth
 from ai_therapist import detect_crisis
 import copilot
 import clinical_summary
+import billing_codes
 import recording
 import billing
 import admin_access
@@ -2218,6 +2219,15 @@ def session_consent_post(session_id):
     log_event("client_location_attested", session_id=session_id, user_id=user_id,
               location=loc, place=_loc_label(loc))
 
+    # Home-or-not is a separate fact from the state above (billing Place-of-
+    # Service, not licensure) — persisted, not cookie-only, since the EHR note
+    # this feeds is written well after the session. Defaults to "home": the
+    # common case, and a missing/malformed value should not read as "not home".
+    at_home = (request.form.get("at_home") or "1") != "0"
+    db.session.add(SessionLocation(session_id=session_id, user_id=user_id,
+                                   at_home=at_home))
+    db.session.commit()
+
     _record_consent(session_id, user_id)
     consented = session.get("consented_sessions", [])
     if session_id not in consented:
@@ -3095,6 +3105,33 @@ def _session_copilot_cards(session_id: str) -> list:
     return out
 
 
+def _session_duration_minutes(session_id: str) -> "float | None":
+    """How long the session ran, from the span of its own transcript. Not an
+    added timestamp — the transcript IS a record of when people were talking
+    (AssemblyAI writes therapist-led speech into ChatMessage as it happens),
+    so its first-to-last span is a real measurement, not a guess. None when
+    there is nothing to measure (no messages at all), rather than a fabricated
+    duration."""
+    from sqlalchemy import func as _sa_func
+    bounds = (db.session.query(_sa_func.min(ChatMessage.timestamp),
+                               _sa_func.max(ChatMessage.timestamp))
+             .filter(ChatMessage.session_id == session_id).first())
+    if not bounds or bounds[0] is None or bounds[1] is None:
+        return None
+    return (bounds[1] - bounds[0]).total_seconds() / 60.0
+
+
+def _session_at_home(session_id: str) -> "bool | None":
+    """The client's most recent home/not-home attestation for this session, or
+    None when none was ever recorded (e.g. no licence gate applied, so the
+    question was never asked)."""
+    row = (SessionLocation.query
+           .filter_by(session_id=session_id)
+           .order_by(SessionLocation.attested_at.desc())
+           .first())
+    return row.at_home if row else None
+
+
 def _session_summary_payload(session_id: str, ts) -> dict:
     """Therapist-only summary payload, cached per session and reused while the
     conversation is unchanged (keyed on message count) — generation is a slow LLM
@@ -3129,6 +3166,9 @@ def _session_summary_payload(session_id: str, ts) -> dict:
         "codes_rationale": summary.get("codes_rationale", ""),
         "client_recap": summary.get("client_recap", ""),
         "narrative_available": bool(clinical),
+        "cpt_suggestion": billing_codes.psychotherapy_cpt(
+            ts.mode if ts else "solo", _session_duration_minutes(session_id)),
+        "pos": billing_codes.place_of_service(_session_at_home(session_id)),
         "cached": False,
     }
     # Only cache once the clinical narrative succeeded, so a transient LLM

@@ -35,7 +35,7 @@ from datetime import datetime, timezone, timedelta
 
 import TogetherMindsAI as tm
 from TogetherMindsAI import app, session_pending_state
-from models import db, init_encryption, TherapySession, SessionStateCert, AuditLog
+from models import db, init_encryption, TherapySession, SessionStateCert, SessionLocation, AuditLog
 from session_id import generate_session_id
 
 init_encryption(TEST_KEY)
@@ -81,10 +81,12 @@ def _actor(user_id):
     return c
 
 
-def _consent(actor_client, sid, state, country=None):
+def _consent(actor_client, sid, state, country=None, at_home=None):
     data = {"state": state, "location_attest": "1"}
     if country:
         data["country"] = country
+    if at_home is not None:
+        data["at_home"] = at_home
     return actor_client.post(f"/session/{sid}/consent", data=data)
 
 
@@ -167,6 +169,43 @@ def test_intl_certify_flow_and_pending_label(enc_client):
     with app.app_context():
         assert _cert_row(sid, "C:FR").decision == "certified"
     assert c1.get(f"/therapy/group/{sid}").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Home / not-home attestation (billing Place-of-Service) — a separate fact
+# from the state attestation above.
+# ---------------------------------------------------------------------------
+
+def test_at_home_defaults_to_home_when_not_answered(enc_client):
+    """Silence must not read as 'not home' — a missing answer defaults to the
+    common case, not to the one that changes what a claim pays."""
+    with app.app_context():
+        sid = _seed_session()
+    _consent(_actor("client-1"), sid, "NJ")
+    with app.app_context():
+        row = SessionLocation.query.filter_by(session_id=sid).first()
+        assert row is not None
+        assert row.at_home is True
+
+
+def test_at_home_no_is_recorded(enc_client):
+    with app.app_context():
+        sid = _seed_session()
+    _consent(_actor("client-1"), sid, "NJ", at_home="0")
+    with app.app_context():
+        row = SessionLocation.query.filter_by(session_id=sid).first()
+        assert row.at_home is False
+
+
+def test_at_home_is_recorded_regardless_of_the_licensure_decision(enc_client):
+    """The Place-of-Service fact is not conditioned on whether the clinician
+    has certified the state — it is billing, not licensure, and must be on
+    file even while the client is held on the waiting page."""
+    with app.app_context():
+        sid = _seed_session()
+    _consent(_actor("client-1"), sid, "NJ", at_home="0")   # NJ not yet certified → held
+    with app.app_context():
+        assert SessionLocation.query.filter_by(session_id=sid).count() == 1
 
 
 def test_declined_intl_shows_worldwide_crisis(enc_client):

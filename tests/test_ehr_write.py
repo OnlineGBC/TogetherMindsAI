@@ -607,10 +607,12 @@ def _session_row(session_id=TMAI_SESSION_ID, friendly_name=None):
 
 
 def _summary_row(session_id=TMAI_SESSION_ID, clinical="Client recap here.",
-                  codes_rationale="F41.1 fits the anxiety discussed."):
+                  codes_rationale="F41.1 fits the anxiety discussed.",
+                  cpt_suggestion=None, pos=None):
     payload = {"session_id": session_id, "clinical": clinical,
                "codes_rationale": codes_rationale, "codes": [],
                "client_recap": "", "disclaimer": "", "narrative_available": True,
+               "cpt_suggestion": cpt_suggestion, "pos": pos,
                "cached": False}
     row = SessionSummary(session_id=session_id, payload=json.dumps(payload),
                          message_count=4)
@@ -685,6 +687,81 @@ def test_loading_a_recap_with_no_cached_summary_refuses(client):
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": TMAI_SESSION_ID})
     assert b"No summary is cached" in rv.data
+
+
+def test_loading_a_recap_appends_cpt_and_pos_as_billing_considerations(client):
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row(cpt_suggestion={"code": "90834", "label": "Psychotherapy, 45 minutes"},
+                    pos={"code": "10", "label": "Telehealth Provided in Patient's Home"})
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": TMAI_SESSION_ID})
+
+    assert b"Billing code considerations:" in rv.data
+    assert b"CPT 90834" in rv.data
+    assert b"Place of Service 10" in rv.data
+
+
+def test_loading_a_recap_omits_billing_considerations_when_unknown(client):
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row(cpt_suggestion=None, pos=None)
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": TMAI_SESSION_ID})
+
+    assert b"Billing code considerations:" not in rv.data
+
+
+# ===========================================================================
+# Adding a hand-picked internist E&M code
+# ===========================================================================
+
+def test_add_billing_code_is_invisible_while_writing_is_off(client):
+    with _WriteOn(EHR_WRITE_ENABLED=False):
+        assert client.post("/ehr/add-billing-code").status_code == 404
+
+
+def test_add_billing_code_appends_to_whatever_is_in_the_box(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "Existing recap text.",
+                               "em_code": "99213"})
+
+    assert b"Existing recap text." in rv.data
+    assert b"Billing code considerations:" in rv.data
+    assert b"CPT 99213" in rv.data
+    assert b"established patient" in rv.data
+    assert b"Review before filing" in rv.data
+
+
+def test_add_billing_code_never_reaches_epic(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        with patch.object(routes_ehr, "_post_json") as post:
+            client.post("/ehr/add-billing-code",
+                       data={"note_text": "", "em_code": "99213"})
+    post.assert_not_called()
+
+
+def test_add_billing_code_refuses_an_unlisted_code(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "00000"})
+    assert b"Pick a billing code from the list" in rv.data
+    assert b"x" in rv.data      # existing text preserved, not wiped
+
+
+def test_the_add_billing_code_route_is_not_exempt_from_csrf():
+    assert "ehr_add_billing_code" not in _tm._CSRF_EXEMPT
 
 
 def test_the_linked_session_id_is_encrypted_at_rest(client):

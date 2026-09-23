@@ -36,7 +36,7 @@
     .bad  { background: #f8d7da; border: 1px solid #f1aeb5; }
     .info { background: #e2e3e5; border: 1px solid #c8ccd0; }
     .warn { font-size: .9rem; color: #664d03; margin-top: .5rem; }
-    input[type="text"] { width: 100%; font: inherit; padding: .5rem;
+    input[type="text"], select { width: 100%; font: inherit; padding: .5rem;
                border: 1px solid #ced4da; border-radius: 4px; }
   </style>
 </head>
@@ -98,21 +98,41 @@
   {% endif %}
 
   {% if can_write %}
-  <h2>Load a session recap (optional)</h2>
-  <form method="post" action="{{ url_for('ehr_load_summary') }}">
+  {# One form, three buttons. Each button's formaction sends the SAME fields
+     (session lookup, note text, chosen E&M code) to a different route, so
+     "Load recap" and "Add billing code" can both edit the textarea below
+     without losing whatever the clinician already typed. Only "File this
+     note" ever reaches Epic. #}
+  <form method="post" action="{{ url_for('ehr_write_note') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+
+    <h2>Load a session recap (optional)</h2>
     <label for="tmai_session" class="muted">
-      TogetherMindsAI session ID or name. Loads that session's cached recap
-      and coding notes into the note below — nothing is filed by this button.
+      TogetherMindsAI session ID or name. Loads that session's cached recap,
+      coding notes, and suggested billing codes into the note below.
     </label>
     <input type="text" id="tmai_session" name="tmai_session"
            placeholder="Session ID or name" />
-    <button type="submit">Load recap</button>
-  </form>
+    <button type="submit" formaction="{{ url_for('ehr_load_summary') }}">
+      Load recap
+    </button>
 
-  <h2>Note for the chart</h2>
-  <form method="post" action="{{ url_for('ehr_write_note') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <h2>Add an internist billing code (optional)</h2>
+    <label for="em_code" class="muted">
+      TogetherMindsAI has no exam findings to pick one of these itself — this
+      is your own selection, added to the note below for your review.
+    </label>
+    <select id="em_code" name="em_code">
+      <option value="" selected disabled>Select a billing code…</option>
+      {% for c in em_codes %}
+      <option value="{{ c.code }}">{{ c.code }} — {{ c.label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" formaction="{{ url_for('ehr_add_billing_code') }}">
+      Add billing code
+    </button>
+
+    <h2>Note for the chart</h2>
     <label for="note_text" class="muted">
       Read this through and change anything that is not right. It is filed
       exactly as it appears here.
@@ -124,7 +144,9 @@
       session expires about an hour after launch — after that you will need to
       relaunch from the chart.
     </p>
-    <button type="submit">File this note in the chart</button>
+    <button type="submit" formaction="{{ url_for('ehr_write_note') }}">
+      File this note in the chart
+    </button>
   </form>
   {% endif %}
 </body>

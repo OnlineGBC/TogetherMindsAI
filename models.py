@@ -311,6 +311,34 @@ class SessionStateCert(db.Model):
         return f"<SessionStateCert session={self.session_id} state={self.state} {self.decision}>"
 
 
+class SessionLocation(db.Model):
+    """Whether the client said they were at home or somewhere else for this
+    session — captured on the same consent gate as SessionStateCert's state
+    question, but answering a different one.
+
+    The state question is about LICENSURE: which state's rules govern whether
+    this clinician may treat this client. This is about BILLING: insurance
+    Place-of-Service codes pay differently, and sometimes only cover
+    telehealth at all, depending on whether the patient was physically at
+    home. Reusing the state answer for this would answer the wrong question,
+    so it is its own fact.
+
+    Persisted (not cookie-only, unlike the state attestation) because the EHR
+    note is written after the session, sometimes hours later, well past when
+    a cookie-only value would still be in front of anyone.
+    """
+    __tablename__ = "session_locations"
+
+    id          = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    session_id  = db.Column(db.String(36), index=True, nullable=False)
+    user_id     = db.Column(db.String(36), nullable=True)
+    at_home     = db.Column(db.Boolean, nullable=False, default=True)
+    attested_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    def __repr__(self):
+        return f"<SessionLocation session={self.session_id} at_home={self.at_home}>"
+
+
 class NotificationLog(db.Model):
     """Durable ledger of one-shot/annual notifications already sent.
 

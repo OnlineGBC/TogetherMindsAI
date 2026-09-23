@@ -33,8 +33,10 @@ os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 from datetime import datetime, timezone, timedelta
 
 import clinical_summary
-from TogetherMindsAI import app, _surfaced_codes, _session_summary_payload, _transcript_data
-from models import db, init_encryption, TherapySession, ChatMessage, CopilotCard
+from TogetherMindsAI import (app, _surfaced_codes, _session_summary_payload,
+                             _transcript_data, _session_duration_minutes,
+                             _session_at_home)
+from models import db, init_encryption, TherapySession, ChatMessage, CopilotCard, SessionLocation
 from session_id import generate_session_id
 
 init_encryption(TEST_KEY)
@@ -338,6 +340,88 @@ def test_progress_page_blocks_other_users(enc_client):
         s["user_id"] = "user-A"
     assert enc_client.get("/progress/user-B/solo").status_code == 403   # someone else's
     assert enc_client.get("/progress/user-A/solo").status_code == 200   # your own
+
+
+# ---------------------------------------------------------------------------
+# Session duration + home attestation → CPT / Place-of-Service in the payload
+# ---------------------------------------------------------------------------
+
+def test_duration_is_the_span_of_the_transcript(enc_client):
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        db.session.query(ChatMessage).filter_by(session_id=sid).delete()
+        start = datetime(2026, 9, 22, 10, 0, 0, tzinfo=timezone.utc)
+        db.session.add(ChatMessage(session_id=sid, user_id="ther-1", text="hi",
+                                   timestamp=start))
+        db.session.add(ChatMessage(session_id=sid, user_id="client-1", text="bye",
+                                   timestamp=start + timedelta(minutes=45)))
+        db.session.commit()
+        minutes = _session_duration_minutes(sid)
+    assert minutes == pytest.approx(45.0, abs=0.01)
+
+
+def test_duration_is_none_with_no_messages(enc_client):
+    with app.app_context():
+        sid = generate_session_id()
+        db.session.add(TherapySession(
+            id=sid, mode="solo", created_by="ther-1",
+            created_at=datetime.now(timezone.utc), therapist_id="ther-1"))
+        db.session.commit()
+        assert _session_duration_minutes(sid) is None
+
+
+def test_at_home_reads_the_most_recent_attestation(enc_client):
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        now = datetime.now(timezone.utc)
+        db.session.add(SessionLocation(session_id=sid, user_id="client-1",
+                                       at_home=True, attested_at=now))
+        db.session.add(SessionLocation(session_id=sid, user_id="client-1",
+                                       at_home=False, attested_at=now + timedelta(seconds=1)))
+        db.session.commit()
+        assert _session_at_home(sid) is False
+
+
+def test_at_home_is_none_when_never_attested(enc_client):
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        assert _session_at_home(sid) is None
+
+
+def test_summary_payload_carries_cpt_and_pos(enc_client):
+    with app.app_context():
+        sid = _seed_therapist_session("ther-1", "client-1")
+        ts = db.session.get(TherapySession, sid)
+        start = datetime(2026, 9, 22, 10, 0, 0, tzinfo=timezone.utc)
+        db.session.query(ChatMessage).filter_by(session_id=sid).delete()
+        db.session.add(ChatMessage(session_id=sid, user_id="ther-1", text="hi",
+                                   timestamp=start))
+        db.session.add(ChatMessage(session_id=sid, user_id="client-1", text="bye",
+                                   timestamp=start + timedelta(minutes=45)))
+        db.session.add(SessionLocation(session_id=sid, user_id="client-1", at_home=True))
+        db.session.commit()
+        gen = MagicMock(return_value={"clinical": "c", "codes_rationale": "", "client_recap": ""})
+        with patch("clinical_summary.generate", gen):
+            payload = _session_summary_payload(sid, ts)
+    assert payload["cpt_suggestion"]["code"] == "90834"
+    assert payload["pos"] == {"code": "10", "label": "Telehealth Provided in Patient's Home"}
+
+
+def test_summary_payload_omits_cpt_and_pos_when_unknown(enc_client):
+    """No messages to measure and no attestation on file → both omitted,
+    never guessed."""
+    with app.app_context():
+        sid = generate_session_id()
+        db.session.add(TherapySession(
+            id=sid, mode="solo", created_by="ther-1",
+            created_at=datetime.now(timezone.utc), therapist_id="ther-1"))
+        db.session.commit()
+        ts = db.session.get(TherapySession, sid)
+        gen = MagicMock(return_value={"clinical": "", "codes_rationale": "", "client_recap": ""})
+        with patch("clinical_summary.generate", gen):
+            payload = _session_summary_payload(sid, ts)
+    assert payload["cpt_suggestion"] is None
+    assert payload["pos"] is None
 
 
 def test_therapist_docx_still_works_when_narrative_fails(enc_client):

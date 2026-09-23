@@ -3,10 +3,11 @@ routes_ehr.py
 -------------
 The HTTP endpoints for a SMART on FHIR launch out of an EHR.
 
-  GET  /ehr/launch        the EHR sends the clinician here, with iss + launch
-  GET  /ehr/callback      the EHR sends them back here, with code + state
-  POST /ehr/load-summary  optionally pull a TMAI session's recap into the note
-  POST /ehr/write-note    the clinician files a reviewed note into the chart
+  GET  /ehr/launch            the EHR sends the clinician here, with iss + launch
+  GET  /ehr/callback          the EHR sends them back here, with code + state
+  POST /ehr/load-summary      optionally pull a TMAI session's recap into the note
+  POST /ehr/add-billing-code  optionally add a hand-picked internist E&M code
+  POST /ehr/write-note        the clinician files a reviewed note into the chart
 
 This module owns ONLY what HTTP owns: reading a request, keeping launch state in
 the session, turning an ehr.EhrError into a status code, and rendering. The flow
@@ -43,6 +44,7 @@ from datetime import datetime, timezone
 from flask import (session, request, redirect, render_template, abort, url_for)
 from sqlalchemy import func as sa_func
 
+import billing_codes
 import config
 import ehr
 import TogetherMindsAI as _tm
@@ -244,7 +246,8 @@ def _render_result(*, error=None, written=None, note_text="", ctx=None,
                  "gender": None},
         encounter={"id": None, "status": None, "start": None},
         scope="", can_write=bool(ctx and not ctx.written_at),
-        note_text=note_text, written=written, error=error, notice=notice)
+        note_text=note_text, written=written, error=error, notice=notice,
+        em_codes=billing_codes.INTERNIST_EM_CODES)
 
 
 def register_ehr_routes(app):
@@ -332,7 +335,8 @@ def register_ehr_routes(app):
                                note_text="",
                                written=None,
                                error=None,
-                               notice=None)
+                               notice=None,
+                               em_codes=billing_codes.INTERNIST_EM_CODES)
 
     @app.route("/ehr/write-note", methods=["POST"])
     def ehr_write_note():
@@ -476,6 +480,17 @@ def register_ehr_routes(app):
             parts.append(clinical)
         if codes_rationale:
             parts.append("Coding considerations:\n" + codes_rationale)
+
+        billing_lines = []
+        cpt = payload.get("cpt_suggestion")
+        if cpt:
+            billing_lines.append("CPT %s — %s" % (cpt["code"], cpt["label"]))
+        pos = payload.get("pos")
+        if pos:
+            billing_lines.append("Place of Service %s — %s" % (pos["code"], pos["label"]))
+        if billing_lines:
+            parts.append("Billing code considerations:\n" + "\n".join(billing_lines))
+
         note_text = "\n\n".join(parts)[:MAX_NOTE_CHARS]
         if not note_text:
             return page(error="That session's summary has no recap or "
@@ -492,3 +507,45 @@ def register_ehr_routes(app):
         return page(note_text=note_text, ctx=ctx,
                     notice="Loaded from that session. Review before filing — "
                           "nothing has been sent to the chart.")
+
+    @app.route("/ehr/add-billing-code", methods=["POST"])
+    def ehr_add_billing_code():
+        """Add a hand-picked internist E&M code to the note box.
+
+        TMAI has no chief complaint, exam findings, or medical decision-making
+        to go on, so it has no basis to choose one of these itself (see
+        billing_codes.py) — this is the clinician's own pick from a fixed
+        list, added the same way "Load recap" adds text. Nothing here reaches
+        Epic; only "File this note" does.
+        """
+        _require_enabled()
+        if not config.EHR_WRITE_ENABLED:
+            abort(404)
+
+        page = _render_result
+
+        launch_id = session.get(_LAUNCH_ID)
+        ctx = (db.session.get(EhrLaunchContext, launch_id)
+               if launch_id else None)
+        if ctx is None:
+            return page(error="This launch is no longer open. Start again "
+                              "from the patient's chart in Epic.")
+        if ctx.written_at:
+            return page(written=ctx.written_reference or "already filed",
+                        ctx=ctx)
+
+        current = (request.form.get("note_text") or "").rstrip()
+        picked = billing_codes.internist_em_code(
+            (request.form.get("em_code") or "").strip())
+        if picked is None:
+            return page(error="Pick a billing code from the list.",
+                        note_text=current, ctx=ctx)
+
+        addition = "Billing code considerations:\nCPT %s — %s" % (
+            picked["code"], picked["label"])
+        note_text = ((current + "\n\n" + addition) if current else addition
+                    )[:MAX_NOTE_CHARS]
+
+        return page(note_text=note_text, ctx=ctx,
+                    notice="Added that code to the note. Review before "
+                          "filing — nothing has been sent to the chart.")
