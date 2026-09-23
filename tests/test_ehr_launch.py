@@ -30,9 +30,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import base64
 import hashlib
+import json
+import time
 import pytest
+import jwt as _pyjwt
 from unittest.mock import patch
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
@@ -112,6 +117,31 @@ class _Transport:
 def _params(url):
     import urllib.parse
     return dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+
+
+# ---------------------------------------------------------------------------
+# A real RSA keypair, so the identity-token tests verify an actual signature
+# rather than trusting the shape of the code.
+# ---------------------------------------------------------------------------
+
+_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_JWK = json.loads(_pyjwt.algorithms.RSAAlgorithm(
+    _pyjwt.algorithms.RSAAlgorithm.SHA256).to_jwk(_PRIVATE_KEY.public_key()))
+_JWK.update(kid="key1", alg="RS256", use="sig")
+OPENID_CONFIG = {"jwks_uri": "https://fhir.epic.com/oauth2/jwks"}
+JWKS_DOC = {"keys": [_JWK]}
+
+
+def _signed_id_token(claims_over=None, kid="key1"):
+    now = int(time.time())
+    claims = {"sub": "Practitioner/e123",
+              "fhirUser": "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/Practitioner/e123",
+              "iss": ISS, "aud": CLIENT_ID, "exp": now + 300, "iat": now}
+    claims.update(claims_over or {})
+    pem = _PRIVATE_KEY.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption())
+    return _pyjwt.encode(claims, pem, algorithm="RS256", headers={"kid": kid})
 
 
 # ===========================================================================
@@ -367,6 +397,124 @@ def test_a_launch_with_no_patient_is_not_an_error():
     """Normal for a launch opened outside a chart."""
     ctx = ehr.context_from_token({"access_token": "at"})
     assert ctx["patient"] is None and ctx["encounter"] is None
+
+
+# ===========================================================================
+# Verifying WHO the EHR says is logged in (the id_token)
+# ===========================================================================
+
+def test_a_genuine_token_verifies_and_its_fhir_user_is_trusted():
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    fhir_user, verified = ehr.verified_identity(
+        id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
+    assert verified is True
+    assert fhir_user.endswith("/Practitioner/e123")
+
+
+def test_no_id_token_at_all_is_unverified_but_keeps_the_fallback():
+    """Not every launch grants openid/fhirUser scope. Missing entirely must
+    degrade quietly, not raise and take the whole launch down with it."""
+    t = _Transport()
+    fhir_user, verified = ehr.verified_identity(
+        id_token=None, iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
+    assert verified is False
+    assert fhir_user == "unverified-fallback"
+    assert t.get_calls == []          # never even tried
+
+
+def test_a_tampered_signature_is_refused_not_trusted():
+    bad_token = _signed_id_token()[:-4] + "abcd"     # corrupt the signature
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    fhir_user, verified = ehr.verified_identity(
+        id_token=bad_token, iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
+    assert verified is False
+    assert fhir_user == "unverified-fallback"
+
+
+def test_the_wrong_issuer_is_refused():
+    """A genuine signature from the wrong server must not pass — iss has to
+    match the base we actually started this launch with."""
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    token = _signed_id_token({"iss": "https://not-epic.example"})
+    fhir_user, verified = ehr.verified_identity(
+        id_token=token, iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+
+
+def test_the_wrong_audience_is_refused():
+    """The exact attack this exists for: a real, genuinely-signed token meant
+    for a DIFFERENT application must not be accepted by ours."""
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    token = _signed_id_token({"aud": "some-other-app"})
+    fhir_user, verified = ehr.verified_identity(
+        id_token=token, iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+
+
+def test_an_expired_token_is_refused():
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    now = int(time.time())
+    token = _signed_id_token({"exp": now - 60, "iat": now - 3600})
+    fhir_user, verified = ehr.verified_identity(
+        id_token=token, iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+
+
+def test_a_token_signed_by_a_key_not_in_the_published_set_is_refused():
+    """kid points at a key Epic never published for this token — a forged or
+    stale key must not verify just because SOME signature is present."""
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    token = _signed_id_token(kid="key-unknown")
+    fhir_user, verified = ehr.verified_identity(
+        id_token=token, iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+
+
+def test_a_jwks_fetch_failure_degrades_rather_than_raising():
+    t = _Transport(gets=[OPENID_CONFIG, RuntimeError("network down")])
+    fhir_user, verified = ehr.verified_identity(
+        id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+    assert fhir_user == "fallback"
+
+
+def test_discovery_missing_jwks_uri_degrades_rather_than_raising():
+    t = _Transport(gets=[{"issuer": ISS}])       # no jwks_uri in the document
+    fhir_user, verified = ehr.verified_identity(
+        id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+
+
+def test_the_whole_flow_carries_the_verified_identity_through():
+    """finish_launch wires verification in without needing a new transport —
+    the same fetch_json used for discovery and reads does the extra two GETs."""
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC, PATIENT, ENCOUNTER],
+                   posts=[dict(TOKEN_OK, id_token=_signed_id_token())])
+    out = ehr.finish_launch(code="c1", state="s", expected_state="s",
+                            verifier="v", iss=ISS, token_url=TOKEN,
+                            redirect_uri=REDIRECT, tenant_for=_tenant(),
+                            fetch_json=t.fetch_json, post_form=t.post_form)
+    assert out["fhir_user_verified"] is True
+    assert out["fhir_user"].endswith("/Practitioner/e123")
+
+
+def test_the_whole_flow_survives_no_id_token_being_granted():
+    t = _Transport(gets=[PATIENT, ENCOUNTER], posts=[TOKEN_OK])
+    out = ehr.finish_launch(code="c1", state="s", expected_state="s",
+                            verifier="v", iss=ISS, token_url=TOKEN,
+                            redirect_uri=REDIRECT, tenant_for=_tenant(),
+                            fetch_json=t.fetch_json, post_form=t.post_form)
+    assert out["fhir_user_verified"] is False
+    assert out["patient"]["name"] == "Camila Maria Lopez"   # launch itself unaffected
 
 
 # ===========================================================================

@@ -24,6 +24,9 @@ tzdata==2026.2
 # TOTP (authenticator app) for the admin comp-access console's 2-of-3 challenge.
 pyotp==2.9.0
 cryptography==44.0.0
+# Verifies Epic's signed identity (id_token) on an EHR launch. Already present
+# transitively via livekit-api, but the EHR launch depends on it directly now.
+pyjwt==2.13.0
 # pinned to 0.41.2 — 0.42.x changed EncryptedType impl from Text to LargeBinary,
 # breaking FernetEngine decryption on PostgreSQL (TypeError: string argument without an encoding)
 sqlalchemy-utils==0.41.2

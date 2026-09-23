@@ -53,6 +53,8 @@ import secrets
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
+import jwt
+
 log = logging.getLogger(__name__)
 
 # How long to wait on an EHR. Short: a clinician is staring at a blank tab, and a
@@ -297,7 +299,95 @@ def context_from_token(payload) -> dict:
         "encounter": payload.get("encounter") or None,
         "scope": payload.get("scope") or "",
         "fhir_user": payload.get("fhirUser") or payload.get("fhir_user") or None,
+        "id_token": payload.get("id_token") or None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Verifying WHO the EHR says is logged in.
+#
+# `fhir_user` above is read straight out of the token response with no check —
+# fine for today's only use (labelling a note's author back to Epic, which Epic
+# itself can cross-check). It stops being fine the moment anything inside TMAI
+# — a login, in particular — decides who someone is FROM this value, because
+# then a token meant for a different application, or a tampered one, would be
+# indistinguishable from a real one. This is that check: signature, issuer, and
+# audience, against Epic's own published keys, not a value we invented.
+# ---------------------------------------------------------------------------
+
+def openid_config_url(iss: str) -> str:
+    return normalise_iss(iss) + "/.well-known/openid-configuration"
+
+
+def jwks_url_from_config(doc) -> str:
+    if not isinstance(doc, dict):
+        raise EhrUnavailable("OpenID configuration was not a JSON object.")
+    url = (doc.get("jwks_uri") or "").strip()
+    if not url:
+        raise EhrUnavailable("OpenID configuration is missing jwks_uri.")
+    return url
+
+
+def select_signing_key(jwks_doc, id_token: str) -> dict:
+    """The JWK matching this token's `kid`, out of an already-fetched key set.
+
+    Epic rotates its signing keys, so the token itself names which one signed
+    it rather than there being a single key to assume.
+    """
+    if not isinstance(jwks_doc, dict) or not isinstance(jwks_doc.get("keys"), list):
+        raise EhrRefused("JWKS document was not in the expected shape.")
+    try:
+        kid = jwt.get_unverified_header(id_token).get("kid")
+    except Exception as exc:
+        raise EhrRefused("identity token header could not be read") from exc
+    for key in jwks_doc["keys"]:
+        if key.get("kid") == kid:
+            return key
+    raise EhrRefused("no signing key matched this identity token's kid")
+
+
+def verify_id_token(*, id_token, jwk, issuer, audience) -> dict:
+    """Verify Epic's signed identity assertion and return its claims.
+
+    The signature alone only proves EPIC signed something. `issuer` and
+    `audience` are what prove it was signed for THIS launch and THIS app —
+    without them, a genuine token issued to a different application could be
+    replayed against ours. Any failure here is a refusal, not a best guess.
+    """
+    try:
+        key = jwt.PyJWK.from_dict(jwk).key
+        claims = jwt.decode(
+            id_token, key=key, algorithms=[jwk.get("alg") or "RS256"],
+            audience=audience, issuer=issuer,
+            options={"require": ["exp", "iat", "iss", "aud"]})
+    except jwt.PyJWTError as exc:
+        raise EhrRefused("identity token did not verify: %s" % exc) from exc
+    return claims
+
+
+def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json):
+    """The clinician identity Epic asserted, verified when possible.
+
+    Returns (fhir_user, verified). NEVER RAISES: missing discovery, a missing
+    id_token, or a failed check must degrade this launch to "unverified", not
+    break an otherwise-successful one — nothing today depends on verification
+    succeeding. `verified=True` is the only value anything security-sensitive
+    (a future login) may act on. `fhir_user` still falls back to the
+    unverified value for today's low-stakes use (labelling a note's author),
+    matching what the launch already did before this existed.
+    """
+    if not id_token:
+        return fallback_fhir_user, False
+    try:
+        config_doc = fetch_json(openid_config_url(iss), headers=None)
+        jwks_doc = fetch_json(jwks_url_from_config(config_doc), headers=None)
+        jwk = select_signing_key(jwks_doc, id_token)
+        claims = verify_id_token(id_token=id_token, jwk=jwk, issuer=iss, audience=audience)
+    except Exception as exc:
+        log.warning("EHR identity token did not verify (%s): %s",
+                    type(exc).__name__, exc)
+        return fallback_fhir_user, False
+    return (claims.get("fhirUser") or fallback_fhir_user), True
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +753,9 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
         raise EhrUnavailable("token exchange failed: %s"
                              % type(exc).__name__) from exc
     ctx = context_from_token(payload)
+    fhir_user, fhir_user_verified = verified_identity(
+        id_token=ctx["id_token"], iss=tenant["iss"], audience=tenant["client_id"],
+        fallback_fhir_user=ctx["fhir_user"], fetch_json=fetch_json)
 
     client = FhirClient(iss=tenant["iss"], token=ctx["access_token"],
                         fetch_json=fetch_json, post_json=post_json)
@@ -689,7 +782,8 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
         "encounter_id": ctx["encounter"] or None,
         "access_token": ctx["access_token"],
         "expires_in": ctx["expires_in"],
-        "fhir_user": ctx["fhir_user"],
+        "fhir_user": fhir_user,
+        "fhir_user_verified": fhir_user_verified,
     }
 
 
