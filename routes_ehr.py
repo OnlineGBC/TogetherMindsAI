@@ -153,6 +153,13 @@ def _post_json(url, body, headers=None):
     import requests
     resp = requests.post(url, json=body, headers=headers or {},
                          timeout=ehr.TIMEOUT_SECONDS)
+    if not resp.ok:
+        # Epic's rejection reason (an OperationOutcome) is diagnostic, not
+        # clinical content — it describes what WE sent wrong (scope, shape),
+        # never what the note said. Logged here because ehr.py's create()
+        # only keeps the exception's type name once it re-raises.
+        log.warning("EHR create refused: %s %s", resp.status_code,
+                   (resp.text or "")[:2000])
     resp.raise_for_status()
     out = {}
     if (resp.content or b"").strip():
