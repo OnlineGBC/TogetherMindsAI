@@ -32,6 +32,7 @@ import base64
 import hashlib
 import json
 import time
+from datetime import datetime, timezone
 import pytest
 import jwt as _pyjwt
 from unittest.mock import patch
@@ -50,9 +51,9 @@ os.environ["FIELD_ENCRYPTION_KEY"] = TEST_KEY
 
 import config
 import ehr
-from TogetherMindsAI import app
+from TogetherMindsAI import app, _ROLE_CHOICE_EXEMPT
 import routes_ehr
-from models import db, init_encryption, AuditLog
+from models import db, init_encryption, AuditLog, Clinician
 
 init_encryption(TEST_KEY)
 
@@ -405,18 +406,30 @@ def test_a_launch_with_no_patient_is_not_an_error():
 
 def test_a_genuine_token_verifies_and_its_fhir_user_is_trusted():
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
     assert verified is True
     assert fhir_user.endswith("/Practitioner/e123")
+    assert subject == "Practitioner/e123"
+
+
+def test_an_unverified_identity_carries_no_subject():
+    """subject is None whenever verified is False — nothing may key a login
+    off a value that was never actually checked."""
+    t = _Transport()
+    _fhir_user, verified, subject = ehr.verified_identity(
+        id_token=None, iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+    assert subject is None
 
 
 def test_no_id_token_at_all_is_unverified_but_keeps_the_fallback():
     """Not every launch grants openid/fhirUser scope. Missing entirely must
     degrade quietly, not raise and take the whole launch down with it."""
     t = _Transport()
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=None, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -427,7 +440,7 @@ def test_no_id_token_at_all_is_unverified_but_keeps_the_fallback():
 def test_a_tampered_signature_is_refused_not_trusted():
     bad_token = _signed_id_token()[:-4] + "abcd"     # corrupt the signature
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=bad_token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -439,7 +452,7 @@ def test_the_wrong_issuer_is_refused():
     match the base we actually started this launch with."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     token = _signed_id_token({"iss": "https://not-epic.example"})
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -450,7 +463,7 @@ def test_the_wrong_audience_is_refused():
     for a DIFFERENT application must not be accepted by ours."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     token = _signed_id_token({"aud": "some-other-app"})
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -460,7 +473,7 @@ def test_an_expired_token_is_refused():
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     now = int(time.time())
     token = _signed_id_token({"exp": now - 60, "iat": now - 3600})
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -471,7 +484,7 @@ def test_a_token_signed_by_a_key_not_in_the_published_set_is_refused():
     stale key must not verify just because SOME signature is present."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     token = _signed_id_token(kid="key-unknown")
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -479,7 +492,7 @@ def test_a_token_signed_by_a_key_not_in_the_published_set_is_refused():
 
 def test_a_jwks_fetch_failure_degrades_rather_than_raising():
     t = _Transport(gets=[OPENID_CONFIG, RuntimeError("network down")])
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -488,7 +501,7 @@ def test_a_jwks_fetch_failure_degrades_rather_than_raising():
 
 def test_discovery_missing_jwks_uri_degrades_rather_than_raising():
     t = _Transport(gets=[{"issuer": ISS}])       # no jwks_uri in the document
-    fhir_user, verified = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -505,6 +518,7 @@ def test_the_whole_flow_carries_the_verified_identity_through():
                             fetch_json=t.fetch_json, post_form=t.post_form)
     assert out["fhir_user_verified"] is True
     assert out["fhir_user"].endswith("/Practitioner/e123")
+    assert out["epic_subject"] == "Practitioner/e123"
 
 
 def test_the_whole_flow_survives_no_id_token_being_granted():
@@ -514,6 +528,7 @@ def test_the_whole_flow_survives_no_id_token_being_granted():
                             redirect_uri=REDIRECT, tenant_for=_tenant(),
                             fetch_json=t.fetch_json, post_form=t.post_form)
     assert out["fhir_user_verified"] is False
+    assert out["epic_subject"] is None
     assert out["patient"]["name"] == "Camila Maria Lopez"   # launch itself unaffected
 
 
@@ -885,3 +900,86 @@ def test_a_vendor_is_named_for_wording_only():
     assert ehr.vendor_for_iss("https://something.else/api") == ""
     assert ehr.vendor_label("epic") == "Epic"
     assert ehr.vendor_label("nonsense") == "EHR"
+
+
+# ===========================================================================
+# Logging the clinician in, when the launch's identity is trustworthy
+# ===========================================================================
+
+def _launch_and_callback(client, id_token=None):
+    """Drive /ehr/launch then /ehr/callback exactly as the browser round-trip
+    would, returning the callback's response."""
+    with _Enabled(), patch.object(routes_ehr, "_fetch_json", return_value=SMART_DOC):
+        rv = client.get("/ehr/launch?iss=" + ISS + "&launch=lk1")
+    state = _params(rv.headers["Location"])["state"]
+
+    token_resp = dict(TOKEN_OK)
+    if id_token:
+        token_resp["id_token"] = id_token
+    gets = ([OPENID_CONFIG, JWKS_DOC, PATIENT, ENCOUNTER] if id_token
+           else [PATIENT, ENCOUNTER])
+    with _Enabled(), \
+         patch.object(routes_ehr, "_post_form", return_value=token_resp), \
+         patch.object(routes_ehr, "_fetch_json", side_effect=gets):
+        return client.get("/ehr/callback?code=c1&state=" + state)
+
+
+def test_a_verified_launch_logs_the_clinician_in(client):
+    rv = _launch_and_callback(client, id_token=_signed_id_token())
+    assert rv.status_code == 200
+    with app.app_context():
+        clin = Clinician.query.filter_by(
+            provider="epic", provider_subject="Practitioner/e123").first()
+        assert clin is not None
+    with client.session_transaction() as s:
+        assert s.get("clinician_id") == clin.id
+        assert s.get("user_id") == clin.id
+
+
+def test_a_repeat_launch_reuses_the_same_account(client):
+    _launch_and_callback(client, id_token=_signed_id_token())
+    with app.app_context():
+        first_id = Clinician.query.filter_by(provider="epic").first().id
+
+    _launch_and_callback(client, id_token=_signed_id_token())
+    with app.app_context():
+        rows = Clinician.query.filter_by(provider="epic").all()
+        assert len(rows) == 1                  # not a second account
+        assert rows[0].id == first_id
+        assert rows[0].last_login_at is not None
+
+
+def test_an_unverified_launch_logs_no_one_in(client):
+    """No id_token granted at all — the launch still works, but nothing
+    trusts an identity that was never checked enough to sign anyone in."""
+    rv = _launch_and_callback(client, id_token=None)
+    assert rv.status_code == 200
+    assert "Camila Maria Lopez" in rv.get_data(as_text=True)
+    with app.app_context():
+        assert Clinician.query.filter_by(provider="epic").count() == 0
+    with client.session_transaction() as s:
+        assert not s.get("clinician_id")
+
+
+def test_a_disabled_epic_account_is_refused_login_but_the_launch_still_works(client):
+    with app.app_context():
+        db.session.add(Clinician(
+            id="clin-epic-1", provider="epic",
+            provider_subject="Practitioner/e123",
+            created_at=datetime.now(timezone.utc),
+            disabled_at=datetime.now(timezone.utc)))
+        db.session.commit()
+
+    rv = _launch_and_callback(client, id_token=_signed_id_token())
+    assert rv.status_code == 200
+    assert "Camila Maria Lopez" in rv.get_data(as_text=True)  # unaffected
+    with client.session_transaction() as s:
+        assert not s.get("clinician_id")
+
+
+def test_the_ehr_endpoints_are_exempt_from_the_role_choice_gate():
+    """Their buttons are POST-only, so bouncing a first-time clinician out to
+    /choose-role mid-launch would 405 on the way back."""
+    for endpoint in ("ehr_launch", "ehr_callback", "ehr_load_summary",
+                     "ehr_add_billing_code", "ehr_write_note"):
+        assert endpoint in _ROLE_CHOICE_EXEMPT, endpoint

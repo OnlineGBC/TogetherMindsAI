@@ -368,16 +368,19 @@ def verify_id_token(*, id_token, jwk, issuer, audience) -> dict:
 def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json):
     """The clinician identity Epic asserted, verified when possible.
 
-    Returns (fhir_user, verified). NEVER RAISES: missing discovery, a missing
-    id_token, or a failed check must degrade this launch to "unverified", not
-    break an otherwise-successful one — nothing today depends on verification
-    succeeding. `verified=True` is the only value anything security-sensitive
-    (a future login) may act on. `fhir_user` still falls back to the
-    unverified value for today's low-stakes use (labelling a note's author),
-    matching what the launch already did before this existed.
+    Returns (fhir_user, verified, subject). NEVER RAISES: missing discovery, a
+    missing id_token, or a failed check must degrade this launch to
+    "unverified", not break an otherwise-successful one — nothing today
+    depends on verification succeeding. `verified=True` is the only value
+    anything security-sensitive (login) may act on. `fhir_user` still falls
+    back to the unverified value for today's low-stakes use (labelling a
+    note's author), matching what the launch already did before this existed.
+    `subject` is the token's own `sub` claim — present only when verified —
+    the OIDC-standard stable id to key an account on, as opposed to
+    `fhirUser`'s URL string.
     """
     if not id_token:
-        return fallback_fhir_user, False
+        return fallback_fhir_user, False, None
     try:
         config_doc = fetch_json(openid_config_url(iss), headers=None)
         jwks_doc = fetch_json(jwks_url_from_config(config_doc), headers=None)
@@ -386,8 +389,9 @@ def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json
     except Exception as exc:
         log.warning("EHR identity token did not verify (%s): %s",
                     type(exc).__name__, exc)
-        return fallback_fhir_user, False
-    return (claims.get("fhirUser") or fallback_fhir_user), True
+        return fallback_fhir_user, False, None
+    return ((claims.get("fhirUser") or fallback_fhir_user), True,
+            claims.get("sub") or None)
 
 
 # ---------------------------------------------------------------------------
@@ -753,7 +757,7 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
         raise EhrUnavailable("token exchange failed: %s"
                              % type(exc).__name__) from exc
     ctx = context_from_token(payload)
-    fhir_user, fhir_user_verified = verified_identity(
+    fhir_user, fhir_user_verified, epic_subject = verified_identity(
         id_token=ctx["id_token"], iss=tenant["iss"], audience=tenant["client_id"],
         fallback_fhir_user=ctx["fhir_user"], fetch_json=fetch_json)
 
@@ -784,6 +788,7 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
         "expires_in": ctx["expires_in"],
         "fhir_user": fhir_user,
         "fhir_user_verified": fhir_user_verified,
+        "epic_subject": epic_subject,
     }
 
 

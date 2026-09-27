@@ -34,6 +34,12 @@ deserve the same switch.
 
 Every route 404s when its switch is off, the same way the admin console hides
 itself, so this is invisible in production until it is switched on.
+
+LOGIN, WHEN THE LAUNCH'S IDENTITY IS VERIFIED. If Epic granted openid/fhirUser
+and the id_token checks out (see ehr.verified_identity), the callback signs the
+clinician into TMAI as that practitioner — same session keys, same fixation
+clear, as the Google/Microsoft flow. An unverified or absent identity signs
+no one in; nothing here depends on that login succeeding.
 """
 
 import json
@@ -48,7 +54,7 @@ import billing_codes
 import config
 import ehr
 import TogetherMindsAI as _tm
-from models import db, EhrLaunchContext, SessionSummary, TherapySession, friendly_name_key
+from models import db, Clinician, EhrLaunchContext, SessionSummary, TherapySession, friendly_name_key
 from session_id import SESSION_ID_LENGTH
 
 log = logging.getLogger(__name__)
@@ -175,6 +181,53 @@ def _post_json(url, body, headers=None):
     out.setdefault("_location", resp.headers.get("Location")
                    or resp.headers.get("Content-Location") or "")
     return out
+
+
+# --- logging the clinician in, when the launch's identity is trustworthy ---
+
+def _login_via_epic(done, now):
+    """Log the clinician in AS THIS EPIC PRACTITIONER, mirroring the Google /
+    Microsoft flow in routes_oauth.py exactly — same session keys, same
+    fixation-prevention clear, same disabled-account block — so the rest of
+    the app (the role gate, "my sessions", everything) treats this login no
+    differently than any other.
+
+    A no-op unless `fhir_user_verified` is True and a subject came with it.
+    Nothing in the launch/read/write flow depends on this login succeeding —
+    it is purely additive, so refusing here costs nothing and an unverified
+    or absent identity must NEVER be trusted to sign anyone in.
+    """
+    if not done.get("fhir_user_verified") or not done.get("epic_subject"):
+        return
+    subject = done["epic_subject"]
+    clinician = (Clinician.query
+                .filter_by(provider="epic", provider_subject=subject)
+                .first())
+    if clinician is not None and clinician.disabled_at is not None:
+        _tm.app.logger.warning(
+            "DISABLED-BLOCK at EHR sign-in: id=%s subject=%s disabled_at=%s",
+            clinician.id, subject[:12], clinician.disabled_at)
+        _tm.log_event("clinician_login_blocked", user_id=clinician.id,
+                      provider="epic")
+        return
+    if clinician is None:
+        clinician = Clinician(id=str(uuid.uuid4()), provider="epic",
+                              provider_subject=subject, created_at=now,
+                              last_login_at=now)
+        db.session.add(clinician)
+        _tm.log_event("clinician_registered", user_id=clinician.id, provider="epic")
+    else:
+        clinician.last_login_at = now
+    db.session.commit()
+
+    # Same fixation-prevention clear as the Google/Microsoft flow — this is a
+    # privilege change, and dropping anything pre-seeded before establishing
+    # the new identity matters exactly as much here as it does there.
+    session.clear()
+    session["user_id"] = clinician.id
+    session["clinician_id"] = clinician.id
+    session.permanent = True
+    _tm.log_event("clinician_login", user_id=clinician.id, provider="epic")
 
 
 # --- the launch context row ------------------------------------------------
@@ -331,9 +384,16 @@ def register_ehr_routes(app):
                       had_patient=bool(done["patient"]["id"]),
                       had_encounter=bool(done["encounter"]["id"]))
 
+        now = datetime.now(timezone.utc)
+
+        # Log the clinician in AS THIS EPIC PRACTITIONER first — it clears the
+        # session as a privilege change, same as any other sign-in, so it has
+        # to run before anything below puts the launch pointer INTO the
+        # session, or that clear would wipe it straight back out.
+        _login_via_epic(done, now)
+
         # Phase 2: hold the token server-side so a note can be written after the
         # session. Only when writing is on AND there is a patient to address.
-        now = datetime.now(timezone.utc)
         can_write = bool(config.EHR_WRITE_ENABLED and done["patient_id"])
         session.pop(_LAUNCH_ID, None)
         if can_write:

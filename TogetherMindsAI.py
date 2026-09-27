@@ -179,6 +179,13 @@ _ROLE_CHOICE_EXEMPT = {
     "privacy", "tos", "feedback_page", "api_feedback",
     "service_worker", "assetlinks", "login", "oauth_login", "oauth_callback",
     "client_login", "client_oauth_login", "client_oauth_callback",
+    # An Epic launch can log a first-time clinician in mid-flow (see
+    # routes_ehr._login_via_epic). Its action buttons are POST-only, so
+    # bouncing that clinician out to /choose-role would 405 on the way back —
+    # nothing in this flow reads role anyway, so it waits until their next
+    # ordinary visit instead of interrupting the launch.
+    "ehr_launch", "ehr_callback", "ehr_load_summary",
+    "ehr_add_billing_code", "ehr_write_note",
 }
 
 
