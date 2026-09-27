@@ -644,6 +644,35 @@ def test_loading_a_recap_fills_the_note_with_clinical_and_coding_notes(client):
     assert ctx.session_id == TMAI_SESSION_ID
 
 
+def test_loading_a_recap_redisplays_the_session_in_the_box(client):
+    """The session ID box used to go blank after a successful load, reading
+    as if it hadn't been used even though the note below proves it was."""
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row()
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": TMAI_SESSION_ID})
+    assert ('value="%s"' % TMAI_SESSION_ID).encode() in rv.data
+
+    # And it stays visible on a later page — e.g. after adding a billing
+    # code — because it's read from the linked launch, not just echoed once.
+    with _WriteOn():
+        rv2 = client.post("/ehr/add-billing-code",
+                          data={"note_text": "x", "em_code": "99213"})
+    assert ('value="%s"' % TMAI_SESSION_ID).encode() in rv2.data
+
+
+def test_an_unresolved_session_is_still_shown_back_for_correction(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": "no-such-session"})
+    assert b'value="no-such-session"' in rv.data
+
+
 def test_loading_a_recap_by_friendly_name(client):
     with _WriteOn():
         _context_row()

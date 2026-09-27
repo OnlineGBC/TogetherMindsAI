@@ -240,11 +240,18 @@ def _find_tmai_session(raw: str):
 
 
 def _render_result(*, error=None, written=None, note_text="", ctx=None,
-                    notice=None):
+                    notice=None, tmai_session=None):
     """The one place phase 2's outcomes are rendered — a filed note, a refused
     note, or a loaded recap — so every branch reads sensibly with the patient
     block empty. 200 even on failure or a notice: the response IS what the
-    clinician has to read next, not a status code."""
+    clinician has to read next, not a status code.
+
+    `tmai_session` re-fills the "Session ID or name" box. Once a launch is
+    linked (ctx.session_id set), that's the default for every render after —
+    the clinician typed a name once and it stays visible, rather than reading
+    as blank and unlinked on every subsequent page."""
+    if tmai_session is None:
+        tmai_session = (ctx.session_id if ctx else "") or ""
     return render_template(
         "ehr_result.html",
         vendor_label=ehr.vendor_label(
@@ -254,7 +261,7 @@ def _render_result(*, error=None, written=None, note_text="", ctx=None,
         encounter={"id": None, "status": None, "start": None},
         scope="", can_write=bool(ctx and not ctx.written_at),
         note_text=note_text, written=written, error=error, notice=notice,
-        em_codes=billing_codes.INTERNIST_EM_CODES)
+        tmai_session=tmai_session, em_codes=billing_codes.INTERNIST_EM_CODES)
 
 
 def register_ehr_routes(app):
@@ -343,6 +350,7 @@ def register_ehr_routes(app):
                                written=None,
                                error=None,
                                notice=None,
+                               tmai_session="",
                                em_codes=billing_codes.INTERNIST_EM_CODES)
 
     @app.route("/ehr/write-note", methods=["POST"])
@@ -461,24 +469,25 @@ def register_ehr_routes(app):
             return page(error="Enter the TogetherMindsAI session ID or name "
                               "to load its recap.", ctx=ctx)
         if len(raw) > MAX_SESSION_LOOKUP_CHARS:
-            return page(error="That is not a session ID or name.", ctx=ctx)
+            return page(error="That is not a session ID or name.", ctx=ctx,
+                        tmai_session=raw)
 
         ts = _find_tmai_session(raw)
         if ts is None:
             return page(error="No TogetherMindsAI session found for that ID "
-                              "or name.", ctx=ctx)
+                              "or name.", ctx=ctx, tmai_session=raw)
 
         summary_row = db.session.get(SessionSummary, ts.id)
         if summary_row is None:
             return page(error="No summary is cached for that session yet. "
                               "Open its summary in TogetherMindsAI, then come "
-                              "back and load it here.", ctx=ctx)
+                              "back and load it here.", ctx=ctx, tmai_session=raw)
 
         try:
             payload = json.loads(summary_row.payload)
         except ValueError:
             return page(error="That session's summary could not be read.",
-                        ctx=ctx)
+                        ctx=ctx, tmai_session=raw)
 
         clinical = (payload.get("clinical") or "").strip()
         codes_rationale = (payload.get("codes_rationale") or "").strip()
@@ -501,7 +510,7 @@ def register_ehr_routes(app):
         note_text = "\n\n".join(parts)[:MAX_NOTE_CHARS]
         if not note_text:
             return page(error="That session's summary has no recap or "
-                              "coding notes to load.", ctx=ctx)
+                              "coding notes to load.", ctx=ctx, tmai_session=raw)
 
         ctx.session_id = ts.id
         db.session.commit()

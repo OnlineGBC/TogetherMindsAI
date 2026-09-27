@@ -51,6 +51,13 @@
     {% endif %}
   </p>
 
+  <p>
+    <a href="/" target="_blank" rel="noopener noreferrer">
+      Open TogetherMindsAI in a new tab &rarr;
+    </a>
+    <span class="muted">— to start or join this patient's session there.</span>
+  </p>
+
   {% if written %}
   <div class="banner ok">
     <strong>Filed in the chart.</strong>
@@ -112,7 +119,7 @@
       coding notes, and suggested billing codes into the note below.
     </label>
     <input type="text" id="tmai_session" name="tmai_session"
-           placeholder="Session ID or name" />
+           value="{{ tmai_session or '' }}" placeholder="Session ID or name" />
     <button type="submit" formaction="{{ url_for('ehr_load_summary') }}">
       Load recap
     </button>
