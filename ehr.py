@@ -434,8 +434,16 @@ def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json
         except Exception:
             pass  # diagnostic only — must never mask the real failure above
         return fallback_fhir_user, False, None, None
+    name = name_from_claims(claims)
+    if not name:
+        # Diagnostic only, temporary: which "profile" claims (if any) a
+        # VERIFIED token actually carried, so a genuinely absent name is
+        # distinguishable from this extraction looking at the wrong keys.
+        # No PHI — these are claims about the PRACTITIONER'S OWN identity.
+        log.warning("EHR verified token carried no name. Keys present: %s",
+                   sorted(claims.keys()))
     return ((claims.get("fhirUser") or fallback_fhir_user), True,
-            claims.get("sub") or None, name_from_claims(claims))
+            claims.get("sub") or None, name)
 
 
 # ---------------------------------------------------------------------------
