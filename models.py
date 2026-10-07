@@ -161,6 +161,12 @@ class Clinician(db.Model):
     # the clinician their own session-recording links + retention notices (Phase 4
     # Step 3). Nullable: pre-existing accounts have none until they next log in.
     email            = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    # Encrypted at rest. Captured from a verified OIDC "name" claim when one
+    # is offered (today: an Epic login requesting the standard "profile"
+    # scope — see routes_ehr._login_via_epic). Google/Microsoft logins
+    # leave this NULL; they already have an email to show instead. Purely
+    # cosmetic (the account menu label) — nothing checks identity against it.
+    display_name     = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
     created_at       = db.Column(db.DateTime, nullable=False)
     last_login_at    = db.Column(db.DateTime, nullable=True)
     # What kind of practitioner this is: psychotherapist | hypnotherapist | caregiver.

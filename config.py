@@ -239,8 +239,14 @@ EHR_ALLOWED_ISS: tuple = tuple(
 # application audience, and ours is registered for Clinicians. Left as patient/
 # because that is what has been proven to work end to end; changing it to match
 # the grant would be editing a working request to look tidier.
+# "profile" is a standard OIDC scope, not a FHIR API — unlike the resource
+# scopes above, it asks the id_token itself to carry a "name" claim, so a
+# human-readable account label does not need a Practitioner resource read
+# (or its own Epic app-registration approval) at all. Untested against the
+# real sandbox as of this comment — degrades the same way an unverified
+# identity does if Epic's token simply omits "name".
 EHR_SCOPES: str = os.environ.get(
-    "EHR_SCOPES", "launch openid fhirUser patient/Patient.read "
+    "EHR_SCOPES", "launch openid profile fhirUser patient/Patient.read "
                   "patient/Encounter.read patient/DocumentReference.write")
 
 # Writing has its OWN switch, separate from EHR_ENABLED.
