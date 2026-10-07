@@ -461,23 +461,6 @@ def test_navbar_shows_the_epic_subject_when_there_is_no_email(client):
     assert "Signed in with Epic" in html
 
 
-def test_navbar_prefers_a_display_name_over_the_subject_id(client):
-    """A verified name (Epic's "profile" scope) outranks the opaque subject
-    id — the id is the fallback for when there is nothing better, not the
-    other way around."""
-    db.session.add(Clinician(id="doc-epic-named", provider="epic",
-                             provider_subject="Practitioner/e123",
-                             display_name="Dr. Raja Gopalan",
-                             role="psychotherapist",
-                             created_at=datetime.now(timezone.utc)))
-    db.session.commit()
-    with client.session_transaction() as s:
-        s["clinician_id"] = "doc-epic-named"; s["user_id"] = "doc-epic-named"
-    html = client.get("/therapist").get_data(as_text=True)
-    assert "Dr. Raja Gopalan" in html
-    assert "Practitioner/e123" not in html
-
-
 def test_navbar_no_account_menu_when_logged_out(client):
     html = client.get("/welcome").get_data(as_text=True)
     assert 'id="acctMenu"' not in html

@@ -125,9 +125,7 @@
                     </a>
                     <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="acctMenu">
                         <li class="px-3 py-2">
-                            {% if current_display_name %}
-                            <div class="fw-semibold text-truncate" style="max-width:240px;">{{ current_display_name }}</div>
-                            {% elif current_email %}
+                            {% if current_email %}
                             <div class="fw-semibold text-truncate" style="max-width:240px;">{{ current_email }}</div>
                             {% elif current_provider_subject %}
                             <div class="fw-semibold text-truncate" style="max-width:240px;"

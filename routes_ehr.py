@@ -236,17 +236,14 @@ def _login_via_epic(done, now):
         _tm.log_event("clinician_login_blocked", user_id=clinician.id,
                       provider="epic")
         return
-    name = done.get("epic_name")
     if clinician is None:
         clinician = Clinician(id=str(uuid.uuid4()), provider="epic",
-                              provider_subject=subject, display_name=name,
-                              created_at=now, last_login_at=now)
+                              provider_subject=subject, created_at=now,
+                              last_login_at=now)
         db.session.add(clinician)
         _tm.log_event("clinician_registered", user_id=clinician.id, provider="epic")
     else:
         clinician.last_login_at = now
-        if name and clinician.display_name != name:
-            clinician.display_name = name   # backfill / keep current
     db.session.commit()
 
     # Same fixation-prevention clear as the Google/Microsoft flow — this is a

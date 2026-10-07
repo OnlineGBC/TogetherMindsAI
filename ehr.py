@@ -379,36 +379,22 @@ def verify_id_token(*, id_token, jwk, issuer, audience) -> dict:
     return claims
 
 
-def name_from_claims(claims: dict) -> "str | None":
-    """A human-readable name from a verified id_token's standard OIDC
-    "profile" claims, for a display label only — nothing here is ever
-    compared against anything, so a missing or odd value just means no
-    name, not a refusal."""
-    name = (claims.get("name") or "").strip()
-    if name:
-        return name
-    parts = [p for p in (claims.get("given_name"), claims.get("family_name"))
-            if p and p.strip()]
-    return " ".join(p.strip() for p in parts) if parts else None
-
-
 def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json):
     """The clinician identity Epic asserted, verified when possible.
 
-    Returns (fhir_user, verified, subject, name). NEVER RAISES: missing
-    discovery, a missing id_token, or a failed check must degrade this
-    launch to "unverified", not break an otherwise-successful one — nothing
-    today depends on verification succeeding. `verified=True` is the only
-    value anything security-sensitive (login) may act on. `fhir_user` still
-    falls back to the unverified value for today's low-stakes use (labelling
-    a note's author), matching what the launch already did before this
-    existed. `subject` is the token's own `sub` claim — present only when
-    verified — the OIDC-standard stable id to key an account on, as opposed
-    to `fhirUser`'s URL string. `name` is cosmetic only (see
-    name_from_claims) — None whenever Epic's token simply does not carry one.
+    Returns (fhir_user, verified, subject). NEVER RAISES: missing discovery, a
+    missing id_token, or a failed check must degrade this launch to
+    "unverified", not break an otherwise-successful one — nothing today
+    depends on verification succeeding. `verified=True` is the only value
+    anything security-sensitive (login) may act on. `fhir_user` still falls
+    back to the unverified value for today's low-stakes use (labelling a
+    note's author), matching what the launch already did before this existed.
+    `subject` is the token's own `sub` claim — present only when verified —
+    the OIDC-standard stable id to key an account on, as opposed to
+    `fhirUser`'s URL string.
     """
     if not id_token:
-        return fallback_fhir_user, False, None, None
+        return fallback_fhir_user, False, None
     try:
         config_doc = fetch_json(openid_config_url(iss), headers=None)
         # The OIDC issuer, from the discovery document itself — proven live
@@ -433,17 +419,9 @@ def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json
                        unverified.get("iss"), unverified.get("aud"), audience)
         except Exception:
             pass  # diagnostic only — must never mask the real failure above
-        return fallback_fhir_user, False, None, None
-    name = name_from_claims(claims)
-    if not name:
-        # Diagnostic only, temporary: which "profile" claims (if any) a
-        # VERIFIED token actually carried, so a genuinely absent name is
-        # distinguishable from this extraction looking at the wrong keys.
-        # No PHI — these are claims about the PRACTITIONER'S OWN identity.
-        log.warning("EHR verified token carried no name. Keys present: %s",
-                   sorted(claims.keys()))
+        return fallback_fhir_user, False, None
     return ((claims.get("fhirUser") or fallback_fhir_user), True,
-            claims.get("sub") or None, name)
+            claims.get("sub") or None)
 
 
 # ---------------------------------------------------------------------------
@@ -809,7 +787,7 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
         raise EhrUnavailable("token exchange failed: %s"
                              % type(exc).__name__) from exc
     ctx = context_from_token(payload)
-    fhir_user, fhir_user_verified, epic_subject, epic_name = verified_identity(
+    fhir_user, fhir_user_verified, epic_subject = verified_identity(
         id_token=ctx["id_token"], iss=tenant["iss"], audience=tenant["client_id"],
         fallback_fhir_user=ctx["fhir_user"], fetch_json=fetch_json)
 
@@ -841,7 +819,6 @@ def finish_launch(*, code, state, expected_state, verifier, iss, token_url,
         "fhir_user": fhir_user,
         "fhir_user_verified": fhir_user_verified,
         "epic_subject": epic_subject,
-        "epic_name": epic_name,
     }
 
 

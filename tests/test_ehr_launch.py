@@ -411,52 +411,19 @@ def test_a_launch_with_no_patient_is_not_an_error():
 
 def test_a_genuine_token_verifies_and_its_fhir_user_is_trusted():
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
     assert verified is True
     assert fhir_user.endswith("/Practitioner/e123")
     assert subject == "Practitioner/e123"
-    assert name is None   # no "profile" claims on this token — see below
-
-
-def test_a_verified_token_with_a_name_claim_carries_it_through():
-    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
-    token = _signed_id_token({"name": "Dr. Raja Gopalan"})
-    _fhir_user, verified, _subject, name = ehr.verified_identity(
-        id_token=token, iss=ISS, audience=CLIENT_ID,
-        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
-    assert verified is True
-    assert name == "Dr. Raja Gopalan"
-
-
-def test_a_verified_token_falls_back_to_given_and_family_name():
-    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
-    token = _signed_id_token({"given_name": "Raja", "family_name": "Gopalan"})
-    _fhir_user, verified, _subject, name = ehr.verified_identity(
-        id_token=token, iss=ISS, audience=CLIENT_ID,
-        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
-    assert verified is True
-    assert name == "Raja Gopalan"
-
-
-def test_name_is_none_when_nothing_is_unverified_and_never_guessed():
-    """An unverified identity must never carry a name through either — the
-    same rule as subject, for the same reason (it would otherwise be
-    trusted for display from a token no one checked)."""
-    t = _Transport()
-    _fhir_user, verified, _subject, name = ehr.verified_identity(
-        id_token=None, iss=ISS, audience=CLIENT_ID,
-        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
-    assert verified is False
-    assert name is None
 
 
 def test_an_unverified_identity_carries_no_subject():
     """subject is None whenever verified is False — nothing may key a login
     off a value that was never actually checked."""
     t = _Transport()
-    _fhir_user, verified, subject, name = ehr.verified_identity(
+    _fhir_user, verified, subject = ehr.verified_identity(
         id_token=None, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -467,7 +434,7 @@ def test_no_id_token_at_all_is_unverified_but_keeps_the_fallback():
     """Not every launch grants openid/fhirUser scope. Missing entirely must
     degrade quietly, not raise and take the whole launch down with it."""
     t = _Transport()
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=None, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -478,7 +445,7 @@ def test_no_id_token_at_all_is_unverified_but_keeps_the_fallback():
 def test_a_tampered_signature_is_refused_not_trusted():
     bad_token = _signed_id_token()[:-4] + "abcd"     # corrupt the signature
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=bad_token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="unverified-fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -490,7 +457,7 @@ def test_the_wrong_issuer_is_refused():
     match the base we actually started this launch with."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     token = _signed_id_token({"iss": "https://not-epic.example"})
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -501,7 +468,7 @@ def test_the_wrong_audience_is_refused():
     for a DIFFERENT application must not be accepted by ours."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     token = _signed_id_token({"aud": "some-other-app"})
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -511,7 +478,7 @@ def test_an_expired_token_is_refused():
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     now = int(time.time())
     token = _signed_id_token({"exp": now - 60, "iat": now - 3600})
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -522,7 +489,7 @@ def test_a_token_signed_by_a_key_not_in_the_published_set_is_refused():
     stale key must not verify just because SOME signature is present."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
     token = _signed_id_token(kid="key-unknown")
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=token, iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -530,7 +497,7 @@ def test_a_token_signed_by_a_key_not_in_the_published_set_is_refused():
 
 def test_a_jwks_fetch_failure_degrades_rather_than_raising():
     t = _Transport(gets=[OPENID_CONFIG, RuntimeError("network down")])
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -539,7 +506,7 @@ def test_a_jwks_fetch_failure_degrades_rather_than_raising():
 
 def test_discovery_missing_jwks_uri_degrades_rather_than_raising():
     t = _Transport(gets=[{"issuer": ISS}])       # no jwks_uri in the document
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -550,7 +517,7 @@ def test_discovery_missing_issuer_degrades_rather_than_raising():
     not to fall back to guessing the issuer is the FHIR base URL (which is
     exactly the bug this whole mechanism exists to avoid repeating)."""
     t = _Transport(gets=[{"jwks_uri": "https://fhir.epic.com/oauth2/jwks"}])
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
@@ -562,7 +529,7 @@ def test_issuer_is_read_from_discovery_not_assumed_to_be_the_fhir_base_url():
     correctly signed and issued by the real OIDC issuer must still verify,
     even though it does not match ISS."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
-    fhir_user, verified, subject, name = ehr.verified_identity(
+    fhir_user, verified, subject = ehr.verified_identity(
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is True
@@ -573,8 +540,7 @@ def test_the_whole_flow_carries_the_verified_identity_through():
     """finish_launch wires verification in without needing a new transport —
     the same fetch_json used for discovery and reads does the extra two GETs."""
     t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC, PATIENT, ENCOUNTER],
-                   posts=[dict(TOKEN_OK, id_token=_signed_id_token(
-                       {"name": "Dr. Raja Gopalan"}))])
+                   posts=[dict(TOKEN_OK, id_token=_signed_id_token())])
     out = ehr.finish_launch(code="c1", state="s", expected_state="s",
                             verifier="v", iss=ISS, token_url=TOKEN,
                             redirect_uri=REDIRECT, tenant_for=_tenant(),
@@ -582,7 +548,6 @@ def test_the_whole_flow_carries_the_verified_identity_through():
     assert out["fhir_user_verified"] is True
     assert out["fhir_user"].endswith("/Practitioner/e123")
     assert out["epic_subject"] == "Practitioner/e123"
-    assert out["epic_name"] == "Dr. Raja Gopalan"
 
 
 def test_the_whole_flow_survives_no_id_token_being_granted():
@@ -593,7 +558,6 @@ def test_the_whole_flow_survives_no_id_token_being_granted():
                             fetch_json=t.fetch_json, post_form=t.post_form)
     assert out["fhir_user_verified"] is False
     assert out["epic_subject"] is None
-    assert out["epic_name"] is None
     assert out["patient"]["name"] == "Camila Maria Lopez"   # launch itself unaffected
 
 
@@ -999,33 +963,6 @@ def test_a_verified_launch_logs_the_clinician_in(client):
     with client.session_transaction() as s:
         assert s.get("clinician_id") == clin.id
         assert s.get("user_id") == clin.id
-
-
-def test_a_verified_launch_with_a_name_claim_stores_it(client):
-    rv = _launch_and_callback(
-        client, id_token=_signed_id_token({"name": "Dr. Raja Gopalan"}))
-    assert rv.status_code == 200
-    with app.app_context():
-        clin = Clinician.query.filter_by(
-            provider="epic", provider_subject="Practitioner/e123").first()
-        assert clin.display_name == "Dr. Raja Gopalan"
-
-
-def test_a_repeat_launch_backfills_a_name_onto_an_existing_account(client):
-    """An account created before "profile" was requested (or before Epic's
-    token carried a name) picks one up on a later login, same as email
-    backfills for Google/Microsoft — it is not stuck blank forever."""
-    _launch_and_callback(client, id_token=_signed_id_token())   # no name yet
-    with app.app_context():
-        clin = Clinician.query.filter_by(provider="epic").first()
-        assert clin.display_name is None
-
-    _launch_and_callback(client, id_token=_signed_id_token(
-        {"name": "Dr. Raja Gopalan"}))
-    with app.app_context():
-        assert Clinician.query.filter_by(provider="epic").count() == 1
-        clin = Clinician.query.filter_by(provider="epic").first()
-        assert clin.display_name == "Dr. Raja Gopalan"
 
 
 def test_a_repeat_launch_reuses_the_same_account(client):

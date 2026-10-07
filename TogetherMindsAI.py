@@ -980,17 +980,6 @@ if not config.IS_TESTING:
         except Exception:
             db.session.rollback()  # column already exists
 
-    # Encrypted display-name column — the account-menu label for a login that
-    # offers a verified name but no email (an Epic login's "profile" claim).
-    # Idempotent.
-    with app.app_context():
-        from sqlalchemy import text
-        try:
-            db.session.execute(text("ALTER TABLE clinicians ADD COLUMN display_name TEXT"))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()  # column already exists
-
     # Subscription billing columns on clinicians (Phase 4 Step 4). Idempotent.
     with app.app_context():
         from sqlalchemy import text
@@ -1457,12 +1446,10 @@ def _inject_auth_state():
     email = None
     provider = None
     subject = None
-    name = None
     if cid:
         clin = db.session.get(Clinician, cid)
         if clin:
-            email, provider, subject, name = (
-                clin.email, clin.provider, clin.provider_subject, clin.display_name)
+            email, provider, subject = clin.email, clin.provider, clin.provider_subject
     elif aid:
         acct = db.session.get(ClientAccount, aid)
         if acct:
@@ -1472,14 +1459,10 @@ def _inject_auth_state():
         "current_client_account_id": aid,
         "current_email": email,
         "current_provider": provider,
-        # Shown only when there is no name AND no email (today: an Epic
-        # login whose token carried no "profile" name — see
-        # routes_ehr._login_via_epic). Not secret: an opaque, non-reversible
-        # subject id, not PII.
+        # Shown only when there is no email to show instead (Epic logins
+        # today — see routes_ehr._login_via_epic, which captures no email).
+        # Not secret: an opaque, non-reversible subject id, not PII.
         "current_provider_subject": subject,
-        # A verified display name (today: Epic's "profile" scope) — the
-        # account menu's first choice, ahead of email and the subject id.
-        "current_display_name": name,
         "current_year": datetime.now(timezone.utc).year,
     }
 
