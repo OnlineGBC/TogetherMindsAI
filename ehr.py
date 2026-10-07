@@ -389,6 +389,17 @@ def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json
     except Exception as exc:
         log.warning("EHR identity token did not verify (%s): %s",
                     type(exc).__name__, exc)
+        # Diagnostic only, never trusted: what the token actually claimed,
+        # unverified, so a mismatch (e.g. issuer != the FHIR base URL) is
+        # visible instead of guessed at. iss/aud only — not sub, not needed
+        # to diagnose this and no reason to log a practitioner pointer.
+        try:
+            unverified = jwt.decode(id_token, options={"verify_signature": False})
+            log.warning("EHR identity token unverified claims: iss=%r aud=%r "
+                       "(expected iss=%r aud=%r)",
+                       unverified.get("iss"), unverified.get("aud"), iss, audience)
+        except Exception:
+            pass  # diagnostic only — must never mask the real failure above
         return fallback_fhir_user, False, None
     return ((claims.get("fhirUser") or fallback_fhir_user), True,
             claims.get("sub") or None)
