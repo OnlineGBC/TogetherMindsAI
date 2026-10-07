@@ -10,7 +10,7 @@ The HTTP endpoints for a SMART on FHIR launch out of an EHR.
   POST /ehr/write-note        the clinician files a reviewed note into the chart
 
 This module owns ONLY what HTTP owns: reading a request, keeping launch state in
-the session, turning an ehr.EhrError into a status code, and rendering. The flow
+its own cookies, turning an ehr.EhrError into a status code, and rendering. The flow
 itself — discover, redirect, exchange, read, write — lives in ehr.py, so it can
 be tested by calling a function and a second vendor does not put a second copy
 of the sequence inside another view.
@@ -40,14 +40,26 @@ and the id_token checks out (see ehr.verified_identity), the callback signs the
 clinician into TMAI as that practitioner — same session keys, same fixation
 clear, as the Google/Microsoft flow. An unverified or absent identity signs
 no one in; nothing here depends on that login succeeding.
+
+OWN COOKIES, NOT THE FLASK SESSION. Proven live: a clinician who opened
+TogetherMindsAI in a second tab (the link on the result page) and signed in
+there had that tab's login clear the SHARED session — Google, Microsoft, and
+this module's own Epic login all do that clear on purpose, as a fixation
+defense. That wiped out the launch pointer, the PKCE state, and the
+session-wide CSRF token out from under the first tab's still-open page. The
+launch state (pre-callback) and the launch pointer + its own CSRF secret
+(post-callback) live in their own cookies instead, untouched by a login
+happening anywhere else in the same browser.
 """
 
 import json
 import logging
+import secrets
 import uuid
 from datetime import datetime, timezone
 
-from flask import (session, request, redirect, render_template, abort, url_for)
+from flask import (session, request, redirect, render_template, make_response,
+                   abort, url_for)
 from sqlalchemy import func as sa_func
 
 import billing_codes
@@ -59,15 +71,24 @@ from session_id import SESSION_ID_LENGTH
 
 log = logging.getLogger(__name__)
 
-# Session keys, namespaced so nothing else in the app collides with them.
+# Cookie names, namespaced so nothing else in the app collides with them. Own
+# cookies, not Flask session keys — see the module docstring for why.
 _STATE = "_ehr_state"
 _VERIFIER = "_ehr_verifier"
 _ISS = "_ehr_iss"
 _TOKEN_URL = "_ehr_token_url"
-# The launch id is a POINTER to a server-side row, which is the only thing in
-# this list safe to keep in a cookie session. Flask signs the cookie but does not
-# encrypt it, so the access token itself lives in the database and never here.
 _LAUNCH_ID = "_ehr_launch_id"
+
+# The launch->callback round trip through Epic's own login/consent screens —
+# ample, since it is a human doing that, not a redirect chain.
+_LAUNCH_STATE_COOKIE_MAX_AGE = 600
+# Matches the "about an hour" the result page already tells the clinician.
+_LAUNCH_COOKIE_MAX_AGE = 3600
+
+
+def _set_cookie(resp, name, value, max_age):
+    resp.set_cookie(name, value, max_age=max_age, httponly=True,
+                    secure=config.IS_PRODUCTION, samesite="Lax")
 
 # Longest note we will accept from the form. A progress note is prose; anything
 # past this is a paste accident or someone probing, and either way the chart
@@ -196,6 +217,11 @@ def _login_via_epic(done, now):
     Nothing in the launch/read/write flow depends on this login succeeding —
     it is purely additive, so refusing here costs nothing and an unverified
     or absent identity must NEVER be trusted to sign anyone in.
+
+    The session.clear() below is still exactly right — it is the launch
+    pointer and CSRF secret living in the SESSION that used to be the actual
+    bug; those are their own cookies now (see the module docstring), so this
+    clear no longer takes the open launch down with it.
     """
     if not done.get("fhir_user_verified") or not done.get("epic_subject"):
         return
@@ -233,15 +259,16 @@ def _login_via_epic(done, now):
 # --- the launch context row ------------------------------------------------
 
 def _save_launch_context(done, now):
-    """Keep what a later write needs, and nothing else. Returns the launch id.
+    """Keep what a later write needs, and nothing else. Returns the row — the
+    caller needs both its id (for the launch cookie) and its own CSRF secret
+    (for the form), not just the id.
 
     Called only when writing is switched on and the launch actually carried a
     patient — with no patient there is nothing to address a note to, so there is
     no reason to hold a token.
     """
-    launch_id = str(uuid.uuid4())
-    db.session.add(EhrLaunchContext(
-        launch_id=launch_id,
+    row = EhrLaunchContext(
+        launch_id=str(uuid.uuid4()),
         iss=done["iss"],
         patient_fhir_id=str(done["patient_id"]),
         encounter_fhir_id=(str(done["encounter_id"])
@@ -250,9 +277,11 @@ def _save_launch_context(done, now):
         access_token=done["access_token"],
         token_expires_at=ehr.token_expiry(done["expires_in"], now),
         created_at=now,
-    ))
+        csrf_token=secrets.token_urlsafe(32),
+    )
+    db.session.add(row)
     db.session.commit()
-    return launch_id
+    return row
 
 
 def _sweep_expired_contexts(now):
@@ -271,6 +300,29 @@ def _sweep_expired_contexts(now):
         # Housekeeping must never be the reason a launch fails.
         db.session.rollback()
         log.warning("EHR launch-context sweep failed", exc_info=True)
+
+
+def _current_launch_ctx():
+    """The EhrLaunchContext for this browser's open launch, from its own
+    cookie — not the Flask session, which a login happening anywhere else in
+    the same browser clears."""
+    launch_id = request.cookies.get(_LAUNCH_ID)
+    return db.session.get(EhrLaunchContext, launch_id) if launch_id else None
+
+
+def _launch_csrf_ok(ctx) -> bool:
+    """Whether this POST carries the token tied to THIS launch, not a
+    session-wide one (see the module docstring for why that distinction
+    exists). Gated by the same switch as the app's generic CSRF check, and
+    for the same reason: off under the pytest runner by default, so the
+    suite does not have to thread a token through every EHR POST; the
+    dedicated CSRF tests flip it on same as they already do for every other
+    route."""
+    if not _tm._csrf_enabled():
+        return True
+    submitted = request.form.get("csrf_token") or ""
+    expected = (ctx.csrf_token or "") if ctx else ""
+    return bool(expected) and secrets.compare_digest(submitted, expected)
 
 
 def _find_tmai_session(raw: str):
@@ -314,7 +366,8 @@ def _render_result(*, error=None, written=None, note_text="", ctx=None,
         encounter={"id": None, "status": None, "start": None},
         scope="", can_write=bool(ctx and not ctx.written_at),
         note_text=note_text, written=written, error=error, notice=notice,
-        tmai_session=tmai_session, em_codes=billing_codes.INTERNIST_EM_CODES)
+        tmai_session=tmai_session, em_codes=billing_codes.INTERNIST_EM_CODES,
+        ehr_csrf_token=(ctx.csrf_token if ctx else "") or "")
 
 
 def register_ehr_routes(app):
@@ -338,14 +391,16 @@ def register_ehr_routes(app):
                                    type(exc).__name__, iss[:200], exc)
             abort(_status_for(exc))
 
-        session[_STATE] = started["state"]
-        session[_VERIFIER] = started["verifier"]
-        session[_ISS] = started["iss"]
-        session[_TOKEN_URL] = started["token_url"]
+        resp = make_response(redirect(started["redirect_to"], code=302))
+        for name, value in ((_STATE, started["state"]),
+                           (_VERIFIER, started["verifier"]),
+                           (_ISS, started["iss"]),
+                           (_TOKEN_URL, started["token_url"])):
+            _set_cookie(resp, name, value, _LAUNCH_STATE_COOKIE_MAX_AGE)
 
         _tm.log_event("ehr_launch_started", vendor=started["vendor"],
                       has_launch=bool(launch))
-        return redirect(started["redirect_to"], code=302)
+        return resp
 
     @app.route("/ehr/callback")
     def ehr_callback():
@@ -359,11 +414,12 @@ def register_ehr_routes(app):
                                    (request.args.get("error") or "")[:120])
             abort(400)
 
-        # Popped, not read: single use, so a replayed callback finds nothing.
-        expected = session.pop(_STATE, None)
-        verifier = session.pop(_VERIFIER, None)
-        iss = session.pop(_ISS, None)
-        token_url = session.pop(_TOKEN_URL, None)
+        # Read from the cookies set at /ehr/launch — their own, short-lived
+        # ones, not the Flask session (see the module docstring for why).
+        expected = request.cookies.get(_STATE)
+        verifier = request.cookies.get(_VERIFIER)
+        iss = request.cookies.get(_ISS)
+        token_url = request.cookies.get(_TOKEN_URL)
 
         try:
             done = ehr.finish_launch(
@@ -386,32 +442,42 @@ def register_ehr_routes(app):
 
         now = datetime.now(timezone.utc)
 
-        # Log the clinician in AS THIS EPIC PRACTITIONER first — it clears the
-        # session as a privilege change, same as any other sign-in, so it has
-        # to run before anything below puts the launch pointer INTO the
-        # session, or that clear would wipe it straight back out.
+        # Log the clinician in AS THIS EPIC PRACTITIONER. Purely additive —
+        # see _login_via_epic's docstring for why its session.clear() no
+        # longer threatens the launch pointer this sets up next.
         _login_via_epic(done, now)
 
         # Phase 2: hold the token server-side so a note can be written after the
         # session. Only when writing is on AND there is a patient to address.
         can_write = bool(config.EHR_WRITE_ENABLED and done["patient_id"])
-        session.pop(_LAUNCH_ID, None)
+        ctx_row = None
         if can_write:
             _sweep_expired_contexts(now)
-            session[_LAUNCH_ID] = _save_launch_context(done, now)
+            ctx_row = _save_launch_context(done, now)
 
-        return render_template("ehr_result.html",
-                               vendor_label=ehr.vendor_label(done["vendor"]),
-                               patient=done["patient"],
-                               encounter=done["encounter"],
-                               scope=done["scope"],
-                               can_write=can_write,
-                               note_text="",
-                               written=None,
-                               error=None,
-                               notice=None,
-                               tmai_session="",
-                               em_codes=billing_codes.INTERNIST_EM_CODES)
+        resp = make_response(render_template(
+            "ehr_result.html",
+            vendor_label=ehr.vendor_label(done["vendor"]),
+            patient=done["patient"],
+            encounter=done["encounter"],
+            scope=done["scope"],
+            can_write=can_write,
+            note_text="",
+            written=None,
+            error=None,
+            notice=None,
+            tmai_session="",
+            em_codes=billing_codes.INTERNIST_EM_CODES,
+            ehr_csrf_token=(ctx_row.csrf_token if ctx_row else "") or ""))
+        # Done with the launch-state cookies either way — a second use of this
+        # same callback code will fail at Epic regardless (codes are
+        # single-use there), so this is cleanup, not the security boundary.
+        for name in (_STATE, _VERIFIER, _ISS, _TOKEN_URL):
+            resp.delete_cookie(name)
+        if ctx_row:
+            _set_cookie(resp, _LAUNCH_ID, ctx_row.launch_id,
+                       _LAUNCH_COOKIE_MAX_AGE)
+        return resp
 
     @app.route("/ehr/write-note", methods=["POST"])
     def ehr_write_note():
@@ -434,9 +500,7 @@ def register_ehr_routes(app):
 
         page = _render_result  # 200 even on failure — see _render_result.
 
-        launch_id = session.get(_LAUNCH_ID)
-        ctx = (db.session.get(EhrLaunchContext, launch_id)
-               if launch_id else None)
+        ctx = _current_launch_ctx()
         if ctx is None:
             _tm.app.logger.warning("EHR note write had no launch context")
             return page(error="This launch is no longer open. Start again from "
@@ -447,6 +511,10 @@ def register_ehr_routes(app):
             # whole point of keeping the row after success.
             return page(written=ctx.written_reference or "already filed", ctx=ctx,
                         error=None)
+
+        if not _launch_csrf_ok(ctx):
+            return page(error="This page is no longer current. Reload it "
+                              "from the patient's chart and try again.", ctx=ctx)
 
         note_text = (request.form.get("note_text") or "").strip()
         if not note_text:
@@ -514,15 +582,16 @@ def register_ehr_routes(app):
 
         page = _render_result
 
-        launch_id = session.get(_LAUNCH_ID)
-        ctx = (db.session.get(EhrLaunchContext, launch_id)
-               if launch_id else None)
+        ctx = _current_launch_ctx()
         if ctx is None:
             return page(error="This launch is no longer open. Start again "
                               "from the patient's chart in Epic.")
         if ctx.written_at:
             return page(written=ctx.written_reference or "already filed",
                         ctx=ctx)
+        if not _launch_csrf_ok(ctx):
+            return page(error="This page is no longer current. Reload it "
+                              "from the patient's chart and try again.", ctx=ctx)
 
         raw = (request.form.get("tmai_session") or "").strip()
         if not raw:
@@ -600,15 +669,16 @@ def register_ehr_routes(app):
 
         page = _render_result
 
-        launch_id = session.get(_LAUNCH_ID)
-        ctx = (db.session.get(EhrLaunchContext, launch_id)
-               if launch_id else None)
+        ctx = _current_launch_ctx()
         if ctx is None:
             return page(error="This launch is no longer open. Start again "
                               "from the patient's chart in Epic.")
         if ctx.written_at:
             return page(written=ctx.written_reference or "already filed",
                         ctx=ctx)
+        if not _launch_csrf_ok(ctx):
+            return page(error="This page is no longer current. Reload it "
+                              "from the patient's chart and try again.", ctx=ctx)
 
         current = (request.form.get("note_text") or "").rstrip()
         picked = billing_codes.internist_em_code(

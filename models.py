@@ -462,6 +462,14 @@ class EhrLaunchContext(db.Model):
     # gets the same treatment. Not set until "Load recap" is used — a launch
     # with a hand-typed note never has this.
     session_id        = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
+    # This launch's OWN CSRF secret — not the Flask session's. The result page
+    # holding this can sit open for up to an hour while the clinician does
+    # something else in another tab, and ANY login in that other tab (Google,
+    # Microsoft, or this same EHR flow) clears the shared session as a
+    # fixation defense — which would silently invalidate a session-wide token
+    # the instant it happened. Tying the token to the launch instead means it
+    # only goes stale when the launch itself does.
+    csrf_token        = db.Column(StringEncryptedType(db.Text, lambda: _encryption_key[0], FernetEngine), nullable=True)
 
     def __repr__(self):
         return f"<EhrLaunchContext launch={self.launch_id} written={bool(self.written_at)}>"

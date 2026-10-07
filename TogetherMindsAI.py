@@ -82,6 +82,11 @@ _CSRF_EXEMPT = {
     "api_auth_register",    # ECDSA client auth (public-key registration)
     "api_auth_challenge",
     "api_auth_verify",
+    # These check their OWN per-launch token (EhrLaunchContext.csrf_token),
+    # not the session-wide one — see routes_ehr._launch_csrf_ok. The result
+    # page can sit open for up to an hour across another tab's login, which
+    # would otherwise invalidate the session-wide token from under it.
+    "ehr_write_note", "ehr_load_summary", "ehr_add_billing_code",
 }
 _CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -1040,6 +1045,17 @@ if not config.IS_TESTING:
         try:
             db.session.execute(text(
                 "ALTER TABLE ehr_launch_contexts ADD COLUMN session_id TEXT"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()  # column already exists
+
+    # Per-launch CSRF secret, replacing reliance on the Flask session's own
+    # token for these routes (see models.EhrLaunchContext.csrf_token).
+    with app.app_context():
+        from sqlalchemy import text
+        try:
+            db.session.execute(text(
+                "ALTER TABLE ehr_launch_contexts ADD COLUMN csrf_token TEXT"))
             db.session.commit()
         except Exception:
             db.session.rollback()  # column already exists

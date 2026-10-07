@@ -359,6 +359,9 @@ class _WriteOn:
         return False
 
 
+CSRF_TOK = "test-launch-csrf-token"
+
+
 def _context_row(expires_in_minutes=45, **over):
     """A launch context as the callback would have left it."""
     now = datetime.now(timezone.utc)
@@ -367,7 +370,7 @@ def _context_row(expires_in_minutes=45, **over):
         encounter_fhir_id=ENCOUNTER, fhir_user=PRACTITIONER,
         access_token="tok-abc",
         token_expires_at=now + timedelta(minutes=expires_in_minutes),
-        created_at=now)
+        created_at=now, csrf_token=CSRF_TOK)
     values.update(over)
     row = EhrLaunchContext(**values)
     db.session.add(row)
@@ -376,8 +379,9 @@ def _context_row(expires_in_minutes=45, **over):
 
 
 def _hold(client, launch_id="launch-1"):
-    with client.session_transaction() as s:
-        s["_ehr_launch_id"] = launch_id
+    """The launch pointer lives in its own cookie now, not the session — see
+    routes_ehr's module docstring for why."""
+    client.set_cookie("_ehr_launch_id", launch_id)
 
 
 def test_writing_is_invisible_while_its_own_switch_is_off(client):
@@ -389,14 +393,52 @@ def test_writing_is_invisible_while_its_own_switch_is_off(client):
         assert client.post("/ehr/write-note").status_code == 404
 
 
-def test_the_write_route_is_not_exempt_from_csrf():
-    """It changes state in someone else's system of record. The exemption list
-    is for endpoints authenticated by signature, which this is not."""
-    assert "ehr_write_note" not in _tm._CSRF_EXEMPT
+def test_the_write_route_checks_its_own_csrf_token_instead_of_the_generic_one():
+    """It changes state in someone else's system of record, so it still has
+    to be CSRF-protected — just not by the session-wide token, which a login
+    in another tab can invalidate out from under this long-open page. It's
+    in the generic exemption list for exactly that reason, and enforces its
+    own instead (see test_write_note_refuses_the_wrong_launch_csrf_token)."""
+    assert "ehr_write_note" in _tm._CSRF_EXEMPT
 
 
-def test_the_load_summary_route_is_not_exempt_from_csrf():
-    assert "ehr_load_summary" not in _tm._CSRF_EXEMPT
+def test_the_load_summary_route_checks_its_own_csrf_token_instead_of_the_generic_one():
+    assert "ehr_load_summary" in _tm._CSRF_EXEMPT
+
+
+def test_write_note_refuses_the_wrong_launch_csrf_token(client):
+    with patch.object(_tm, "_csrf_enabled", return_value=True), _WriteOn():
+        _context_row()
+        _hold(client)
+        with patch.object(routes_ehr, "_post_json") as post:
+            rv = client.post("/ehr/write-note",
+                             data={"note_text": "Recap.", "csrf_token": "wrong"})
+    assert b"no longer current" in rv.data
+    post.assert_not_called()
+
+
+def test_write_note_accepts_the_right_launch_csrf_token(client):
+    with patch.object(_tm, "_csrf_enabled", return_value=True), _WriteOn():
+        _context_row()
+        _hold(client)
+        w = _Writer()
+        with patch.object(routes_ehr, "_post_json", w.post_json):
+            rv = client.post("/ehr/write-note",
+                             data={"note_text": "Recap.", "csrf_token": CSRF_TOK})
+    assert b"Filed in the chart" in rv.data
+
+
+def test_load_summary_refuses_the_wrong_launch_csrf_token(client):
+    with patch.object(_tm, "_csrf_enabled", return_value=True), _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row()
+        _hold(client)
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": TMAI_SESSION_ID,
+                               "csrf_token": "wrong"})
+    assert b"no longer current" in rv.data
+    assert b"Client recap here." not in rv.data
 
 
 def test_a_press_with_no_open_launch_says_so_and_writes_nothing(client):
@@ -431,6 +473,35 @@ def test_the_happy_path_files_the_note_and_confirms_before_moving(client):
         # The token has done its only job. A written note must not leave a live
         # credential sitting in the table.
         assert row.access_token == ""
+
+
+def test_filing_survives_a_login_clearing_the_session_in_another_tab(client):
+    """The actual proven-live bug: a clinician opened TMAI in a second tab
+    (same browser, shared cookies) and signed in there. That login's
+    session.clear() — a deliberate fixation defense, same as any login does —
+    wiped the launch pointer and the CSRF token the first tab's already-
+    rendered page depended on. Both now live in their own cookie / their own
+    DB-backed secret, neither touched by a session.clear() happening
+    anywhere else in the browser."""
+    with patch.object(_tm, "_csrf_enabled", return_value=True), _WriteOn():
+        _context_row()
+        _hold(client)
+
+        # Simulate the other tab's login clearing the shared session.
+        with client.session_transaction() as s:
+            s.clear()
+            s["user_id"] = "some-other-clinician"
+            s["clinician_id"] = "some-other-clinician"
+
+        w = _Writer()
+        with patch.object(routes_ehr, "_post_json", w.post_json):
+            rv = client.post("/ehr/write-note",
+                             data={"note_text": "Session recap.",
+                                   "csrf_token": CSRF_TOK})
+
+    assert rv.status_code == 200
+    assert b"Filed in the chart" in rv.data
+    assert len(w.posts) == 1
 
 
 def test_the_note_carries_the_configured_document_type(client):
@@ -789,8 +860,19 @@ def test_add_billing_code_refuses_an_unlisted_code(client):
     assert b"x" in rv.data      # existing text preserved, not wiped
 
 
-def test_the_add_billing_code_route_is_not_exempt_from_csrf():
-    assert "ehr_add_billing_code" not in _tm._CSRF_EXEMPT
+def test_the_add_billing_code_route_checks_its_own_csrf_token_instead_of_the_generic_one():
+    assert "ehr_add_billing_code" in _tm._CSRF_EXEMPT
+
+
+def test_add_billing_code_refuses_the_wrong_launch_csrf_token(client):
+    with patch.object(_tm, "_csrf_enabled", return_value=True), _WriteOn():
+        _context_row()
+        _hold(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "99213",
+                               "csrf_token": "wrong"})
+    assert b"no longer current" in rv.data
+    assert b"Billing code considerations:" not in rv.data
 
 
 def test_the_linked_session_id_is_encrypted_at_rest(client):

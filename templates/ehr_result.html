@@ -111,7 +111,7 @@
      without losing whatever the clinician already typed. Only "File this
      note" ever reaches Epic. #}
   <form method="post" action="{{ url_for('ehr_write_note') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <input type="hidden" name="csrf_token" value="{{ ehr_csrf_token }}" />
 
     <h2>Load a session recap (optional)</h2>
     <label for="tmai_session" class="muted">
