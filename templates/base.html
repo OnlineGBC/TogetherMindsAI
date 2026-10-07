@@ -127,6 +127,9 @@
                         <li class="px-3 py-2">
                             {% if current_email %}
                             <div class="fw-semibold text-truncate" style="max-width:240px;">{{ current_email }}</div>
+                            {% elif current_provider_subject %}
+                            <div class="fw-semibold text-truncate" style="max-width:240px;"
+                                 title="{{ current_provider_subject }}">{{ current_provider_subject }}</div>
                             {% endif %}
                             <div class="small text-muted">
                                 {% if current_provider %}Signed in with {{ current_provider|capitalize }}{% else %}Signed in{% endif %}

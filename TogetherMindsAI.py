@@ -1445,10 +1445,11 @@ def _inject_auth_state():
     aid = session.get("client_account_id")
     email = None
     provider = None
+    subject = None
     if cid:
         clin = db.session.get(Clinician, cid)
         if clin:
-            email, provider = clin.email, clin.provider
+            email, provider, subject = clin.email, clin.provider, clin.provider_subject
     elif aid:
         acct = db.session.get(ClientAccount, aid)
         if acct:
@@ -1458,6 +1459,10 @@ def _inject_auth_state():
         "current_client_account_id": aid,
         "current_email": email,
         "current_provider": provider,
+        # Shown only when there is no email to show instead (Epic logins
+        # today — see routes_ehr._login_via_epic, which captures no email).
+        # Not secret: an opaque, non-reversible subject id, not PII.
+        "current_provider_subject": subject,
         "current_year": datetime.now(timezone.utc).year,
     }
 

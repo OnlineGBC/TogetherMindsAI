@@ -445,6 +445,22 @@ def test_navbar_account_menu_shows_login_id_and_provider(client):
     assert "/logout" in html                         # sign out folded into the menu
 
 
+def test_navbar_shows_the_epic_subject_when_there_is_no_email(client):
+    """An Epic-login account has no email (see routes_ehr._login_via_epic) —
+    the account menu falls back to the practitioner subject id instead of
+    showing a blank line where Google/Microsoft would show an email."""
+    db.session.add(Clinician(id="doc-epic", provider="epic",
+                             provider_subject="Practitioner/e123",
+                             role="psychotherapist",
+                             created_at=datetime.now(timezone.utc)))
+    db.session.commit()
+    with client.session_transaction() as s:
+        s["clinician_id"] = "doc-epic"; s["user_id"] = "doc-epic"
+    html = client.get("/therapist").get_data(as_text=True)
+    assert "Practitioner/e123" in html
+    assert "Signed in with Epic" in html
+
+
 def test_navbar_no_account_menu_when_logged_out(client):
     html = client.get("/welcome").get_data(as_text=True)
     assert 'id="acctMenu"' not in html
