@@ -804,6 +804,7 @@
      Note: the background-blur track-processors are still a runtime dynamic import
      from esm.sh (CSP-allowed), not a jsDelivr asset. -->
 <script src="{{ url_for('static', filename='vendor/livekit-client.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/audio-route.js') }}?v=2026-10-07-a"></script>
 <script nonce="{{ csp_nonce }}">
 (function () {
     // The whole RTC layer used to be guarded on the "Join audio" button existing.
@@ -830,6 +831,33 @@
     var STT_MAX_RETRIES = 5;
 
     function setStatus(t, cls) { statusEl.textContent = t; statusEl.className = "badge " + (cls || "bg-secondary"); }
+
+    // Which speaker the other person's voice plays through ("" = browser default).
+    // A Bluetooth speaker whose own mic is in use goes into "phone call" mode: it
+    // plays that mic back to itself and its normal output goes silent. The voice
+    // must then go to that device's call output, or the patient hears herself and
+    // not the therapist. AudioRoute.pickOutput (static/js/audio-route.js) decides.
+    var audioSinkId = "";
+    function _sinkTo(el) {
+        if (el && typeof el.setSinkId === "function") {
+            el.setSinkId(audioSinkId).catch(function (e) { console.error("audio output switch failed", e); });
+        }
+    }
+    async function routeAudio() {
+        if (!micAudioTrack || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) { return; }
+        try {
+            var devices = await navigator.mediaDevices.enumerateDevices();
+            var s = micAudioTrack.getSettings ? micAudioTrack.getSettings() : {};
+            audioSinkId = AudioRoute.pickOutput({ label: micAudioTrack.label, groupId: s.groupId }, devices);
+            var out = devices.filter(function (d) { return d.kind === "audiooutput" && d.deviceId === (audioSinkId || "default"); })[0];
+            console.log("[audio] mic: " + (micAudioTrack.label || "?") + " | speaker: " + (out ? out.label : (audioSinkId || "browser default")));
+            document.querySelectorAll("#rtcRemoteAudio audio").forEach(_sinkTo);
+        } catch (e) { console.error("audio routing failed", e); }
+    }
+    // A speaker or headset plugged in / switched off mid-call: re-route.
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+        navigator.mediaDevices.addEventListener("devicechange", function () { if (isJoined()) { routeAudio(); } });
+    }
     function isJoined() { return !!lkRoom; }
 
     // Paint one strip pill: green when active, grey when off, with plain wording.
@@ -924,7 +952,9 @@
         lkRoom = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
         lkRoom.on(LivekitClient.RoomEvent.TrackSubscribed, function (track, pub, participant) {
             if (track.kind === "audio") {
-                document.getElementById("rtcRemoteAudio").appendChild(track.attach());
+                var _el = track.attach();
+                document.getElementById("rtcRemoteAudio").appendChild(_el);
+                if (audioSinkId) { _sinkTo(_el); }
             } else if (track.kind === "video") {
                 addTile(participant.identity, participant.name || participant.identity, track.attach());
             }
@@ -967,6 +997,7 @@
         micAudioTrack = micStream.getAudioTracks()[0];
         _watchMicTrack(micAudioTrack);
         await lkRoom.localParticipant.publishTrack(micAudioTrack, { source: LivekitClient.Track.Source.Microphone });
+        await routeAudio();
         setStatus("live", "bg-success");
 
         // 2) AssemblyAI streaming STT (in-browser) — only for roles that HAVE a
@@ -1148,6 +1179,7 @@
             micAudioTrack = newTrack;
             _watchMicTrack(micAudioTrack);
             try { micAudioTrack.enabled = !muted; } catch (e) {}
+            await routeAudio();   // the fresh mic may be a different device
             // Re-point the transcription audio graph at the new stream, if STT is up.
             if (audioCtx && processor && sttWS && sttWS.readyState === 1) {
                 try { if (srcNode) { srcNode.disconnect(); } } catch (e) {}
