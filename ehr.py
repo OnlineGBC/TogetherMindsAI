@@ -328,6 +328,20 @@ def jwks_url_from_config(doc) -> str:
     return url
 
 
+def issuer_from_config(doc) -> str:
+    """The OIDC issuer to verify a token against — from the discovery
+    document itself, never assumed to be the FHIR base URL. Proven live:
+    Epic's actual issuer is .../oauth2, not the .../api/FHIR/R4 base — the
+    two are allowed to differ under OIDC, and guessing one from the other
+    is exactly the kind of assumption that put the real value wrong here."""
+    if not isinstance(doc, dict):
+        raise EhrUnavailable("OpenID configuration was not a JSON object.")
+    issuer = (doc.get("issuer") or "").strip()
+    if not issuer:
+        raise EhrUnavailable("OpenID configuration is missing issuer.")
+    return issuer
+
+
 def select_signing_key(jwks_doc, id_token: str) -> dict:
     """The JWK matching this token's `kid`, out of an already-fetched key set.
 
@@ -383,21 +397,26 @@ def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json
         return fallback_fhir_user, False, None
     try:
         config_doc = fetch_json(openid_config_url(iss), headers=None)
+        # The OIDC issuer, from the discovery document itself — proven live
+        # to differ from the FHIR base URL (Epic's is .../oauth2, not
+        # .../api/FHIR/R4), so it is never assumed to be the same.
+        oidc_issuer = issuer_from_config(config_doc)
         jwks_doc = fetch_json(jwks_url_from_config(config_doc), headers=None)
         jwk = select_signing_key(jwks_doc, id_token)
-        claims = verify_id_token(id_token=id_token, jwk=jwk, issuer=iss, audience=audience)
+        claims = verify_id_token(id_token=id_token, jwk=jwk,
+                                 issuer=oidc_issuer, audience=audience)
     except Exception as exc:
         log.warning("EHR identity token did not verify (%s): %s",
                     type(exc).__name__, exc)
         # Diagnostic only, never trusted: what the token actually claimed,
-        # unverified, so a mismatch (e.g. issuer != the FHIR base URL) is
-        # visible instead of guessed at. iss/aud only — not sub, not needed
-        # to diagnose this and no reason to log a practitioner pointer.
+        # unverified, so a mismatch is visible instead of guessed at. iss/aud
+        # only — not sub, not needed to diagnose this and no reason to log a
+        # practitioner pointer.
         try:
             unverified = jwt.decode(id_token, options={"verify_signature": False})
             log.warning("EHR identity token unverified claims: iss=%r aud=%r "
-                       "(expected iss=%r aud=%r)",
-                       unverified.get("iss"), unverified.get("aud"), iss, audience)
+                       "(expected aud=%r)",
+                       unverified.get("iss"), unverified.get("aud"), audience)
         except Exception:
             pass  # diagnostic only — must never mask the real failure above
         return fallback_fhir_user, False, None

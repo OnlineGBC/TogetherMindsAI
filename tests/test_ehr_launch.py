@@ -129,7 +129,12 @@ _PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _JWK = json.loads(_pyjwt.algorithms.RSAAlgorithm(
     _pyjwt.algorithms.RSAAlgorithm.SHA256).to_jwk(_PRIVATE_KEY.public_key()))
 _JWK.update(kid="key1", alg="RS256", use="sig")
-OPENID_CONFIG = {"jwks_uri": "https://fhir.epic.com/oauth2/jwks"}
+# Proven live: Epic's actual OIDC issuer (.../oauth2) is NOT its FHIR base URL
+# (.../api/FHIR/R4, which is ISS below) — deliberately different here so a
+# test that accidentally checked the token against ISS would fail loudly.
+OIDC_ISSUER = "https://fhir.epic.com/interconnect-fhir-oauth/oauth2"
+OPENID_CONFIG = {"jwks_uri": "https://fhir.epic.com/oauth2/jwks",
+                 "issuer": OIDC_ISSUER}
 JWKS_DOC = {"keys": [_JWK]}
 
 
@@ -137,7 +142,7 @@ def _signed_id_token(claims_over=None, kid="key1"):
     now = int(time.time())
     claims = {"sub": "Practitioner/e123",
               "fhirUser": "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4/Practitioner/e123",
-              "iss": ISS, "aud": CLIENT_ID, "exp": now + 300, "iat": now}
+              "iss": OIDC_ISSUER, "aud": CLIENT_ID, "exp": now + 300, "iat": now}
     claims.update(claims_over or {})
     pem = _PRIVATE_KEY.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
@@ -505,6 +510,30 @@ def test_discovery_missing_jwks_uri_degrades_rather_than_raising():
         id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
         fallback_fhir_user="fallback", fetch_json=t.fetch_json)
     assert verified is False
+
+
+def test_discovery_missing_issuer_degrades_rather_than_raising():
+    """A required OIDC discovery field — missing it is a reason to refuse,
+    not to fall back to guessing the issuer is the FHIR base URL (which is
+    exactly the bug this whole mechanism exists to avoid repeating)."""
+    t = _Transport(gets=[{"jwks_uri": "https://fhir.epic.com/oauth2/jwks"}])
+    fhir_user, verified, subject = ehr.verified_identity(
+        id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False
+
+
+def test_issuer_is_read_from_discovery_not_assumed_to_be_the_fhir_base_url():
+    """The actual bug, proven live: Epic's OIDC issuer (.../oauth2) differs
+    from its FHIR base URL (.../api/FHIR/R4, which is ISS here) — a token
+    correctly signed and issued by the real OIDC issuer must still verify,
+    even though it does not match ISS."""
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    fhir_user, verified, subject = ehr.verified_identity(
+        id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is True
+    assert OIDC_ISSUER != ISS   # the whole point: these are genuinely different
 
 
 def test_the_whole_flow_carries_the_verified_identity_through():
