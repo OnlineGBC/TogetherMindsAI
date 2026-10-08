@@ -966,3 +966,53 @@ def test_the_route_asks_for_the_charset_on_cerner_launches_only():
     src = open(os.path.join(os.path.dirname(__file__), "..", "routes_ehr.py"),
                encoding="utf-8").read()
     assert '"text/plain; charset=utf-8" if _is_cerner(ctx.iss)' in src
+
+
+# ---------------------------------------------------------------------------
+# A Cerner note checked against EVERY required field on Oracle Health's R4
+# "Create a DocumentReference" page, not one field at a time.
+# ---------------------------------------------------------------------------
+
+def _cerner_note(encounter_id="enc1"):
+    from datetime import datetime, timezone
+    client = _CapturingClient(_CERNER_BASE)
+    ehr.write_note(client=client, note_text="hi", patient_id="p1",
+                   encounter_id=encounter_id, author=_CERNER_FHIR_USER,
+                   now=datetime(2026, 10, 8, 1, 40, 5, tzinfo=timezone.utc),
+                   relative_author=True,
+                   content_type="text/plain; charset=utf-8",
+                   service_end=datetime(2026, 10, 8, 1, 40, 5, tzinfo=timezone.utc))
+    return client.sent
+
+
+def test_a_cerner_note_meets_every_documented_requirement():
+    b = _cerner_note()
+    assert b["resourceType"] == "DocumentReference"
+    assert b["status"] == "current"
+    assert b["docStatus"] == "final"
+    assert b["type"]["coding"][0]["system"] == "http://loinc.org"
+    assert b["subject"] == {"reference": "Patient/p1"}
+    assert b["author"] == [{"reference": "Practitioner/12742069"}]
+    assert len(b["content"]) == 1
+    att = b["content"][0]["attachment"]
+    assert att["contentType"] == "text/plain; charset=utf-8" and att["data"]
+    assert b["context"]["encounter"] == [{"reference": "Encounter/enc1"}]
+    assert b["context"]["period"] == {"end": "2026-10-08T01:40:05Z"}
+
+
+def test_a_cerner_note_without_a_visit_still_has_a_period():
+    """context is required by Cerner even when the launch carried no encounter."""
+    b = _cerner_note(encounter_id=None)
+    assert b["context"] == {"period": {"end": "2026-10-08T01:40:05Z"}}
+
+
+def test_an_epic_note_still_has_no_period():
+    epic = _CapturingClient("https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4")
+    ehr.write_note(client=epic, note_text="hi", patient_id="p1", encounter_id="e1")
+    assert "period" not in epic.sent["context"]
+
+
+def test_the_route_sends_a_service_end_on_cerner_launches_only():
+    src = open(os.path.join(os.path.dirname(__file__), "..", "routes_ehr.py"),
+               encoding="utf-8").read()
+    assert "service_end=now if _is_cerner(ctx.iss) else None" in src

@@ -643,7 +643,8 @@ def document_reference_body(*, note_text, patient_id, encounter_id=None,
                             author=None, now=None,
                             type_code=NOTE_TYPE_CODE,
                             type_display=NOTE_TYPE_DISPLAY,
-                            content_type="text/plain") -> dict:
+                            content_type="text/plain",
+                            service_end=None) -> dict:
     """The DocumentReference we ask the EHR to create.
 
     A pure function returning a dict, so the exact bytes we would send are
@@ -690,6 +691,13 @@ def document_reference_body(*, note_text, patient_id, encounter_id=None,
         body["context"] = {
             "encounter": [{"reference": "Encounter/" + str(encounter_id)}]
         }
+    if service_end is not None:
+        # Oracle Health requires context.period.end, with a time ("cannot be
+        # blank", proven live 2026-10-08). The caller passes the filing time:
+        # TMAI stores no session end time, and the note is filed right after
+        # the session, so it is the closest true value we have.
+        body.setdefault("context", {})["period"] = {
+            "end": service_end.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     if author:
         # fhirUser from the token response is an absolute URL to a Practitioner,
         # which is a legal Reference.reference — passed through as given rather
@@ -739,7 +747,7 @@ def relative_reference(reference, iss) -> str:
 def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
                now=None, type_code=NOTE_TYPE_CODE,
                type_display=NOTE_TYPE_DISPLAY, relative_author=False,
-               content_type="text/plain") -> dict:
+               content_type="text/plain", service_end=None) -> dict:
     """Build the note and create it. Returns what the EHR said about it.
 
     Thin on purpose — the decisions are in `document_reference_body`, which is
@@ -749,7 +757,8 @@ def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
     `relative_author` is for Oracle Health only (see relative_reference); Epic
     keeps the author exactly as its token gave it. Likewise `content_type`:
     Oracle Health requires a charset ("a character set must be specified",
-    proven live 2026-10-08); the text is always UTF-8-encoded below.
+    proven live 2026-10-08); the text is always UTF-8-encoded below. And
+    `service_end`, which Oracle Health requires as context.period.end.
     """
     if author:
         sent = relative_reference(author, client.iss) if relative_author else str(author)
@@ -762,7 +771,7 @@ def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
     body = document_reference_body(
         note_text=note_text, patient_id=patient_id, encounter_id=encounter_id,
         author=author, now=now, type_code=type_code, type_display=type_display,
-        content_type=content_type)
+        content_type=content_type, service_end=service_end)
     response = client.create("DocumentReference", body)
     return {"reference": created_reference(response), "sent": body}
 
