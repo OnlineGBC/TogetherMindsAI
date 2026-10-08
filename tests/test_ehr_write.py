@@ -1016,3 +1016,18 @@ def test_the_route_sends_a_service_end_on_cerner_launches_only():
     src = open(os.path.join(os.path.dirname(__file__), "..", "routes_ehr.py"),
                encoding="utf-8").read()
     assert "service_end=now if _is_cerner(ctx.iss) else None" in src
+
+
+def test_a_filed_note_page_does_not_also_say_nothing_was_saved(client):
+    """Reported 2026-10-08: after filing, the subtitle said "Nothing was saved."
+    right above "Filed in the chart." — the two contradicted each other."""
+    with patch.object(_tm, "_csrf_enabled", return_value=True), _WriteOn():
+        _context_row()
+        _hold(client)
+        w = _Writer()
+        with patch.object(routes_ehr, "_post_json", w.post_json):
+            rv = client.post("/ehr/write-note",
+                             data={"note_text": "Recap.", "csrf_token": CSRF_TOK})
+    assert b"Filed in the chart" in rv.data
+    assert b"Nothing was saved" not in rv.data
+    assert b"The note has been filed in the chart." in rv.data

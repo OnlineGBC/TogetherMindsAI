@@ -44,7 +44,9 @@
   <h1>Launch worked</h1>
   <p class="muted">
     {{ vendor_label }} &middot; read live from the chart.
-    {% if can_write %}
+    {% if written %}
+      The note has been filed in the chart.
+    {% elif can_write %}
       Nothing is filed until you press the button below.
     {% else %}
       Nothing was saved.
