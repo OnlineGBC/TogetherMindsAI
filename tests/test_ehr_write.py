@@ -944,3 +944,25 @@ def test_the_route_asks_for_the_short_author_on_cerner_launches_only():
     src = open(os.path.join(os.path.dirname(__file__), "..", "routes_ehr.py"),
                encoding="utf-8").read()
     assert "relative_author=_is_cerner(ctx.iss)" in src
+
+
+def test_a_cerner_note_states_its_charset_and_an_epic_note_does_not():
+    """Oracle Health refused text/plain alone: "a character set must be
+    specified" (proven live 2026-10-08). Epic keeps exactly what it had."""
+    cerner = _CapturingClient(_CERNER_BASE)
+    ehr.write_note(client=cerner, note_text="héllo", patient_id="p1",
+                   content_type="text/plain; charset=utf-8")
+    att = cerner.sent["content"][0]["attachment"]
+    assert att["contentType"] == "text/plain; charset=utf-8"
+    import base64
+    assert base64.b64decode(att["data"]).decode("utf-8") == "héllo"
+
+    epic = _CapturingClient("https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4")
+    ehr.write_note(client=epic, note_text="hi", patient_id="p1")
+    assert epic.sent["content"][0]["attachment"]["contentType"] == "text/plain"
+
+
+def test_the_route_asks_for_the_charset_on_cerner_launches_only():
+    src = open(os.path.join(os.path.dirname(__file__), "..", "routes_ehr.py"),
+               encoding="utf-8").read()
+    assert '"text/plain; charset=utf-8" if _is_cerner(ctx.iss)' in src

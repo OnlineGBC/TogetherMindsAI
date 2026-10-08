@@ -575,7 +575,9 @@ def register_ehr_routes(app):
                 author=ctx.fhir_user, now=now,
                 type_code=config.EHR_NOTE_TYPE_CODE,
                 type_display=config.EHR_NOTE_TYPE_DISPLAY,
-                relative_author=_is_cerner(ctx.iss))
+                relative_author=_is_cerner(ctx.iss),
+                content_type=("text/plain; charset=utf-8" if _is_cerner(ctx.iss)
+                              else "text/plain"))
         except ehr.EhrError as exc:
             _tm.app.logger.warning("EHR note write stopped (%s): %s",
                                    type(exc).__name__, exc)

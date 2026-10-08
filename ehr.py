@@ -738,7 +738,8 @@ def relative_reference(reference, iss) -> str:
 
 def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
                now=None, type_code=NOTE_TYPE_CODE,
-               type_display=NOTE_TYPE_DISPLAY, relative_author=False) -> dict:
+               type_display=NOTE_TYPE_DISPLAY, relative_author=False,
+               content_type="text/plain") -> dict:
     """Build the note and create it. Returns what the EHR said about it.
 
     Thin on purpose — the decisions are in `document_reference_body`, which is
@@ -746,7 +747,9 @@ def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
     which refuses outright when it was built read-only.
 
     `relative_author` is for Oracle Health only (see relative_reference); Epic
-    keeps the author exactly as its token gave it.
+    keeps the author exactly as its token gave it. Likewise `content_type`:
+    Oracle Health requires a charset ("a character set must be specified",
+    proven live 2026-10-08); the text is always UTF-8-encoded below.
     """
     if author:
         sent = relative_reference(author, client.iss) if relative_author else str(author)
@@ -758,7 +761,8 @@ def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
         author = sent
     body = document_reference_body(
         note_text=note_text, patient_id=patient_id, encounter_id=encounter_id,
-        author=author, now=now, type_code=type_code, type_display=type_display)
+        author=author, now=now, type_code=type_code, type_display=type_display,
+        content_type=content_type)
     response = client.create("DocumentReference", body)
     return {"reference": created_reference(response), "sent": body}
 
