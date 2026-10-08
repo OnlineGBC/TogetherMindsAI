@@ -891,3 +891,56 @@ def test_the_linked_session_id_is_encrypted_at_rest(client):
 
     assert raw[0] != TMAI_SESSION_ID
     assert TMAI_SESSION_ID not in raw[0]
+
+
+# ---------------------------------------------------------------------------
+# Oracle Health rejects an absolute URL as the author (proven live 2026-10-08:
+# "expected resource type 'Practitioner', ..."). Its fhirUser, read back from
+# that launch, was exactly this shape.
+# ---------------------------------------------------------------------------
+
+_CERNER_BASE = "https://fhir-ehr-code.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d"
+_CERNER_FHIR_USER = _CERNER_BASE + "/Practitioner/12742069"
+
+
+def test_a_cerner_author_url_is_shortened_to_type_and_id():
+    assert ehr.relative_reference(_CERNER_FHIR_USER, _CERNER_BASE) == "Practitioner/12742069"
+
+
+def test_an_author_on_another_server_is_left_alone():
+    other = "https://elsewhere.example/r4/Practitioner/1"
+    assert ehr.relative_reference(other, _CERNER_BASE) == other
+
+
+def test_an_author_that_is_not_type_and_id_is_left_alone():
+    odd = _CERNER_BASE + "/Practitioner/1/_history/2"
+    assert ehr.relative_reference(odd, _CERNER_BASE) == odd
+
+
+class _CapturingClient:
+    def __init__(self, iss):
+        self.iss = iss
+        self.sent = None
+
+    def create(self, kind, body):
+        self.sent = body
+        return {"resourceType": "DocumentReference", "id": "d1"}
+
+
+def test_write_note_sends_the_short_author_only_when_asked():
+    cerner = _CapturingClient(_CERNER_BASE)
+    ehr.write_note(client=cerner, note_text="hi", patient_id="p1",
+                   author=_CERNER_FHIR_USER, relative_author=True)
+    assert cerner.sent["author"] == [{"reference": "Practitioner/12742069"}]
+
+    epic_base = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4"
+    epic = _CapturingClient(epic_base)
+    ehr.write_note(client=epic, note_text="hi", patient_id="p1",
+                   author=epic_base + "/Practitioner/e1")
+    assert epic.sent["author"] == [{"reference": epic_base + "/Practitioner/e1"}]
+
+
+def test_the_route_asks_for_the_short_author_on_cerner_launches_only():
+    src = open(os.path.join(os.path.dirname(__file__), "..", "routes_ehr.py"),
+               encoding="utf-8").read()
+    assert "relative_author=_is_cerner(ctx.iss)" in src

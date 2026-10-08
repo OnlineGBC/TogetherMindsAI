@@ -717,15 +717,45 @@ def created_reference(response) -> str:
     return ""
 
 
+_RELATIVE_REF = re.compile(r"^[A-Z][A-Za-z]+/[A-Za-z0-9\-.]{1,64}$")
+
+
+def relative_reference(reference, iss) -> str:
+    """`<iss>/Practitioner/123` -> `Practitioner/123`; anything else unchanged.
+
+    Oracle Health rejects an absolute URL as DocumentReference.author ("expected
+    resource type 'Practitioner', ...") — proven live 2026-10-08 with its own
+    fhirUser, `<sandbox base>/Practitioner/12742069`. Only a URL under this
+    same server, ending in exactly Type/id, is shortened; the relative form
+    means the same resource on the server we are writing to.
+    """
+    ref = str(reference or "")
+    prefix = normalise_iss(iss) + "/"
+    if ref.startswith(prefix) and _RELATIVE_REF.match(ref[len(prefix):]):
+        return ref[len(prefix):]
+    return ref
+
+
 def write_note(*, client, note_text, patient_id, encounter_id=None, author=None,
                now=None, type_code=NOTE_TYPE_CODE,
-               type_display=NOTE_TYPE_DISPLAY) -> dict:
+               type_display=NOTE_TYPE_DISPLAY, relative_author=False) -> dict:
     """Build the note and create it. Returns what the EHR said about it.
 
     Thin on purpose — the decisions are in `document_reference_body`, which is
     testable without a transport, and the sending is in `FhirClient.create`,
     which refuses outright when it was built read-only.
+
+    `relative_author` is for Oracle Health only (see relative_reference); Epic
+    keeps the author exactly as its token gave it.
     """
+    if author:
+        sent = relative_reference(author, client.iss) if relative_author else str(author)
+        # Shape only — never the id. warning, not info: no level is configured,
+        # so info is dropped in production, like the other diagnostics here.
+        log.warning("EHR note author: type=%s shortened=%s",
+                 sent.rstrip("/").split("/")[-2] if "/" in sent else "?",
+                 sent != str(author))
+        author = sent
     body = document_reference_body(
         note_text=note_text, patient_id=patient_id, encounter_id=encounter_id,
         author=author, now=now, type_code=type_code, type_display=type_display)
