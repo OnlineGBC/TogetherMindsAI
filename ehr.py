@@ -319,6 +319,35 @@ def openid_config_url(iss: str) -> str:
     return normalise_iss(iss) + "/.well-known/openid-configuration"
 
 
+def discover_openid_config(iss, fetch_json) -> dict:
+    """The OpenID configuration for this FHIR server's identity tokens.
+
+    Epic publishes it at the FHIR base. Oracle Health does not — proven live
+    2026-10-08: 404 at the base, 200 at its authorization server
+    (authorization.cerner.com/tenants/<id>/), which is the token's own "iss".
+    The FHIR base's SMART configuration names that server as "issuer", so on a
+    miss we follow it. The SMART document comes from the allowlisted base, so
+    the issuer it names is one that base vouches for; the OpenID document
+    found there must name the same issuer back, or nothing is trusted.
+    """
+    try:
+        return fetch_json(openid_config_url(iss), headers=None)
+    except Exception as first:
+        try:
+            smart = fetch_json(smart_config_url(iss), headers=None)
+        except Exception:
+            raise first
+        issuer = (smart.get("issuer") or "").strip() if isinstance(smart, dict) else ""
+        if not issuer.lower().startswith("https://"):
+            raise first
+        doc = fetch_json(openid_config_url(issuer), headers=None)
+        named = doc.get("issuer") if isinstance(doc, dict) else ""
+        if normalise_iss(named or "") != normalise_iss(issuer):
+            raise EhrUnavailable("OpenID configuration names a different issuer "
+                                 "than the SMART configuration.")
+        return doc
+
+
 def jwks_url_from_config(doc) -> str:
     if not isinstance(doc, dict):
         raise EhrUnavailable("OpenID configuration was not a JSON object.")
@@ -396,7 +425,7 @@ def verified_identity(*, id_token, iss, audience, fallback_fhir_user, fetch_json
     if not id_token:
         return fallback_fhir_user, False, None
     try:
-        config_doc = fetch_json(openid_config_url(iss), headers=None)
+        config_doc = discover_openid_config(iss, fetch_json)
         # The OIDC issuer, from the discovery document itself — proven live
         # to differ from the FHIR base URL (Epic's is .../oauth2, not
         # .../api/FHIR/R4), so it is never assumed to be the same.

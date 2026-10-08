@@ -1087,3 +1087,63 @@ def test_a_verified_cerner_launch_logs_in_as_an_oracle_account(client):
     with app.app_context():
         assert Clinician.query.filter_by(provider="oracle").count() == 1
         assert Clinician.query.filter_by(provider="epic").count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Oracle Health publishes its OpenID configuration at its authorization server,
+# not the FHIR base (proven live 2026-10-08: 404 at the base). The base's SMART
+# configuration names that server as "issuer"; discovery follows it.
+# ---------------------------------------------------------------------------
+
+CERNER_AUTH_ISSUER = ("https://authorization.cerner.com/tenants/"
+                      "ec2458f2-1e24-41c8-b71b-0e701af7583d/")
+CERNER_SMART_DOC = dict(SMART_DOC, issuer=CERNER_AUTH_ISSUER)
+CERNER_OPENID = {"jwks_uri": "https://authorization.cerner.com/jwk",
+                 "issuer": CERNER_AUTH_ISSUER}
+
+
+def _cerner_token(**over):
+    claims = {"iss": CERNER_AUTH_ISSUER, "aud": CERNER_CLIENT}
+    claims.update(over)
+    return _signed_id_token(claims)
+
+
+def test_a_cerner_token_verifies_via_the_issuer_its_smart_config_names():
+    not_found = Exception("404 at the FHIR base")
+    t = _Transport(gets=[not_found, CERNER_SMART_DOC, CERNER_OPENID, JWKS_DOC])
+    _fhir_user, verified, subject = ehr.verified_identity(
+        id_token=_cerner_token(), iss=CERNER_ISS, audience=CERNER_CLIENT,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is True
+    assert subject == "Practitioner/e123"
+    urls = [c["url"] for c in t.get_calls]
+    assert urls[0] == CERNER_ISS + "/.well-known/openid-configuration"
+    assert urls[1] == CERNER_ISS + "/.well-known/smart-configuration"
+    assert urls[2] == CERNER_AUTH_ISSUER.rstrip("/") + "/.well-known/openid-configuration"
+
+
+def test_epic_discovery_is_unchanged_when_the_base_has_the_config():
+    """Epic's proven path: one fetch at the FHIR base, no SMART detour."""
+    t = _Transport(gets=[OPENID_CONFIG, JWKS_DOC])
+    _f, verified, _s = ehr.verified_identity(
+        id_token=_signed_id_token(), iss=ISS, audience=CLIENT_ID,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is True
+    assert len(t.get_calls) == 2
+
+
+def test_an_openid_doc_naming_another_issuer_is_not_trusted():
+    elsewhere = dict(CERNER_OPENID, issuer="https://attacker.example/")
+    t = _Transport(gets=[Exception("404"), CERNER_SMART_DOC, elsewhere])
+    _f, verified, subject = ehr.verified_identity(
+        id_token=_cerner_token(), iss=CERNER_ISS, audience=CERNER_CLIENT,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False and subject is None
+
+
+def test_no_issuer_in_the_smart_config_stays_unverified():
+    t = _Transport(gets=[Exception("404"), SMART_DOC])
+    _f, verified, subject = ehr.verified_identity(
+        id_token=_cerner_token(), iss=CERNER_ISS, audience=CERNER_CLIENT,
+        fallback_fhir_user="fallback", fetch_json=t.fetch_json)
+    assert verified is False and subject is None
