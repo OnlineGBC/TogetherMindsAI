@@ -209,7 +209,7 @@ STRIPE_PRICE_PREMIUM: str   = os.environ.get("STRIPE_PRICE_PREMIUM", "")
 # EHR and then trusts it — for discovery, and to send an authorization code to.
 # Without an allowlist anyone could launch us at a server they control and
 # collect our client id and codes. So only these bases are ever accepted.
-# Comma-separated; the Epic sandbox is the default.
+# Comma-separated; the Epic and Oracle Health sandboxes are the default.
 # ---------------------------------------------------------------------------
 
 EHR_ENABLED: bool = os.environ.get("EHR_ENABLED", "false").lower() in ("1", "true", "yes")
@@ -219,7 +219,26 @@ EPIC_CLIENT_ID: str = os.environ.get("EPIC_CLIENT_ID", "")
 # JWKS we would have to host, which is a later job.
 EPIC_SANDBOX_CLIENT_SECRET: str = os.environ.get("EPIC_SANDBOX_CLIENT_SECRET", "")
 
-_default_iss = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4"
+# Oracle Health (Cerner) — app "TMAI--Telehealth" in code Console. The client
+# id is not a secret (it travels in every authorize URL), so it has a default;
+# the secret lives in Secret Manager like Epic's. Sandbox only, same as Epic.
+CERNER_CLIENT_ID: str = os.environ.get(
+    "CERNER_CLIENT_ID", "e657c77e-6176-43e4-a479-8d732b88f924")
+CERNER_CLIENT_SECRET: str = os.environ.get("CERNER_CLIENT_SECRET", "")
+
+_epic_sandbox_iss = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4"
+_cerner_sandbox_iss = "https://fhir-ehr-code.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d"
+
+# Which allowed issuers are Cerner's — those get the Cerner client id and
+# secret; every other allowed issuer gets Epic's. Exact match, like the
+# allowlist itself: picking credentials is a security decision.
+CERNER_ISS: tuple = tuple(
+    s.strip().rstrip("/")
+    for s in os.environ.get("CERNER_ISS", _cerner_sandbox_iss).split(",")
+    if s.strip()
+)
+
+_default_iss = _epic_sandbox_iss + "," + _cerner_sandbox_iss
 EHR_ALLOWED_ISS: tuple = tuple(
     s.strip().rstrip("/")
     for s in os.environ.get("EHR_ALLOWED_ISS", _default_iss).split(",")

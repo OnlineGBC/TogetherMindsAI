@@ -64,7 +64,7 @@
     <div class="muted"><code>{{ written }}</code></div>
     <p class="muted" style="margin:.5rem 0 0">
       This note is now part of the patient's record. Changing or removing it is
-      done in Epic, not here.
+      done in {{ vendor_label }}, not here.
     </p>
   </div>
   {% endif %}
@@ -147,7 +147,7 @@
     <textarea id="note_text" name="note_text"
               placeholder="The session recap goes here.">{{ note_text or "" }}</textarea>
     <p class="warn">
-      Filing adds a permanent progress note to the patient's record. The Epic
+      Filing adds a permanent progress note to the patient's record. The {{ vendor_label }}
       session expires about an hour after launch — after that you will need to
       relaunch from the chart.
     </p>

@@ -39,6 +39,7 @@ def test_the_ehr_launch_has_everything_it_needs():
     assert env_pairs.get("EHR_ENABLED") == "true", env_pairs
     assert "EPIC_CLIENT_ID=EPIC_CLIENT_ID:" in text
     assert "EPIC_SANDBOX_CLIENT_SECRET=EPIC_SANDBOX_CLIENT_SECRET:" in text
+    assert "CERNER_CLIENT_SECRET=CERNER_CLIENT_SECRET:" in text
 
 
 def test_the_secrets_the_app_reads_are_all_wired():

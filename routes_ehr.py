@@ -44,7 +44,7 @@ no one in; nothing here depends on that login succeeding.
 OWN COOKIES, NOT THE FLASK SESSION. Proven live: a clinician who opened
 TogetherMindsAI in a second tab (the link on the result page) and signed in
 there had that tab's login clear the SHARED session — Google, Microsoft, and
-this module's own Epic login all do that clear on purpose, as a fixation
+this module's own EHR login all do that clear on purpose, as a fixation
 defense. That wiped out the launch pointer, the PKCE state, and the
 session-wide CSRF token out from under the first tab's still-open page. The
 launch state (pre-callback) and the launch pointer + its own CSRF secret
@@ -141,12 +141,36 @@ def _tenant_lookup():
     that customer's issuer, client id and authentication. The flow in ehr.py
     takes it as an argument and does not care which it is.
     """
-    return ehr.tenant_from_config(
+    epic = ehr.tenant_from_config(
         allowed_iss=config.EHR_ALLOWED_ISS,
         client_id=config.EPIC_CLIENT_ID,
         auth=ehr.secret_auth(config.EPIC_CLIENT_ID,
                              config.EPIC_SANDBOX_CLIENT_SECRET),
     )
+    cerner = ehr.tenant_from_config(
+        allowed_iss=config.EHR_ALLOWED_ISS,
+        client_id=config.CERNER_CLIENT_ID,
+        auth=ehr.secret_auth(config.CERNER_CLIENT_ID,
+                             config.CERNER_CLIENT_SECRET),
+    )
+
+    def lookup(iss):
+        # Exact issuer match picks the credentials — never vendor_for_iss,
+        # which is a wording heuristic. The allowlist check runs inside either.
+        return (cerner if _is_cerner(iss) else epic)(iss)
+    return lookup
+
+
+def _is_cerner(iss):
+    """True for an issuer configured as Oracle Health (Cerner). Exact match."""
+    return ehr.normalise_iss(iss) in {ehr.normalise_iss(c) for c in config.CERNER_ISS}
+
+
+def _provider_for(iss):
+    """The Clinician.provider an EHR login is stored under. Same exact-match
+    rule as the credentials, so a Cerner practitioner can never land on an
+    Epic account that happens to share a subject string."""
+    return "oracle" if _is_cerner(iss) else "epic"
 
 
 # --- transports. The only code here that touches the network. ---------------
@@ -206,9 +230,9 @@ def _post_json(url, body, headers=None):
 
 # --- logging the clinician in, when the launch's identity is trustworthy ---
 
-def _login_via_epic(done, now):
-    """Log the clinician in AS THIS EPIC PRACTITIONER, mirroring the Google /
-    Microsoft flow in routes_oauth.py exactly — same session keys, same
+def _login_via_ehr(done, now):
+    """Log the clinician in AS THIS EHR PRACTITIONER (Epic or Oracle Health),
+    mirroring the Google / Microsoft flow in routes_oauth.py exactly — same session keys, same
     fixation-prevention clear, same disabled-account block — so the rest of
     the app (the role gate, "my sessions", everything) treats this login no
     differently than any other.
@@ -226,22 +250,23 @@ def _login_via_epic(done, now):
     if not done.get("fhir_user_verified") or not done.get("epic_subject"):
         return
     subject = done["epic_subject"]
+    provider = _provider_for(done.get("iss"))
     clinician = (Clinician.query
-                .filter_by(provider="epic", provider_subject=subject)
+                .filter_by(provider=provider, provider_subject=subject)
                 .first())
     if clinician is not None and clinician.disabled_at is not None:
         _tm.app.logger.warning(
             "DISABLED-BLOCK at EHR sign-in: id=%s subject=%s disabled_at=%s",
             clinician.id, subject[:12], clinician.disabled_at)
         _tm.log_event("clinician_login_blocked", user_id=clinician.id,
-                      provider="epic")
+                      provider=provider)
         return
     if clinician is None:
-        clinician = Clinician(id=str(uuid.uuid4()), provider="epic",
+        clinician = Clinician(id=str(uuid.uuid4()), provider=provider,
                               provider_subject=subject, created_at=now,
                               last_login_at=now)
         db.session.add(clinician)
-        _tm.log_event("clinician_registered", user_id=clinician.id, provider="epic")
+        _tm.log_event("clinician_registered", user_id=clinician.id, provider=provider)
     else:
         clinician.last_login_at = now
     db.session.commit()
@@ -253,7 +278,7 @@ def _login_via_epic(done, now):
     session["user_id"] = clinician.id
     session["clinician_id"] = clinician.id
     session.permanent = True
-    _tm.log_event("clinician_login", user_id=clinician.id, provider="epic")
+    _tm.log_event("clinician_login", user_id=clinician.id, provider=provider)
 
 
 # --- the launch context row ------------------------------------------------
@@ -344,6 +369,11 @@ def _find_tmai_session(raw: str):
     return ts
 
 
+def _vendor_label(ctx):
+    """The vendor name for an open launch ("Epic", "Oracle Health"), else "EHR"."""
+    return ehr.vendor_label(ehr.vendor_for_iss(ctx.iss) if ctx else "")
+
+
 def _render_result(*, error=None, written=None, note_text="", ctx=None,
                     notice=None, tmai_session=None):
     """The one place phase 2's outcomes are rendered — a filed note, a refused
@@ -359,8 +389,7 @@ def _render_result(*, error=None, written=None, note_text="", ctx=None,
         tmai_session = (ctx.session_id if ctx else "") or ""
     return render_template(
         "ehr_result.html",
-        vendor_label=ehr.vendor_label(
-            ehr.vendor_for_iss(ctx.iss) if ctx else ""),
+        vendor_label=_vendor_label(ctx),
         patient={"id": None, "name": None, "birth_date": None,
                  "gender": None},
         encounter={"id": None, "status": None, "start": None},
@@ -442,10 +471,10 @@ def register_ehr_routes(app):
 
         now = datetime.now(timezone.utc)
 
-        # Log the clinician in AS THIS EPIC PRACTITIONER. Purely additive —
-        # see _login_via_epic's docstring for why its session.clear() no
+        # Log the clinician in AS THIS EHR PRACTITIONER. Purely additive —
+        # see _login_via_ehr's docstring for why its session.clear() no
         # longer threatens the launch pointer this sets up next.
-        _login_via_epic(done, now)
+        _login_via_ehr(done, now)
 
         # Phase 2: hold the token server-side so a note can be written after the
         # session. Only when writing is on AND there is a patient to address.
@@ -504,7 +533,7 @@ def register_ehr_routes(app):
         if ctx is None:
             _tm.app.logger.warning("EHR note write had no launch context")
             return page(error="This launch is no longer open. Start again from "
-                              "the patient's chart in Epic.")
+                              "the patient's chart.")
 
         if ctx.written_at:
             # Not an error and not a second write. Saying "already filed" is the
@@ -530,9 +559,10 @@ def register_ehr_routes(app):
             # the Epic registration — so this is genuinely unrecoverable here.
             # Say so plainly instead of sending a dead token at a chart.
             _tm.app.logger.warning("EHR note write refused: token expired")
-            return page(error="The Epic session timed out before this was "
+            return page(error="The %s session timed out before this was "
                               "filed. Relaunch from the chart and file it "
-                              "again — nothing was written.",
+                              "again — nothing was written."
+                              % _vendor_label(ctx),
                         note_text=note_text, ctx=ctx)
 
         client = ehr.FhirClient(iss=ctx.iss, token=ctx.access_token,
@@ -548,9 +578,10 @@ def register_ehr_routes(app):
         except ehr.EhrError as exc:
             _tm.app.logger.warning("EHR note write stopped (%s): %s",
                                    type(exc).__name__, exc)
-            return page(error="Epic did not accept the note, so nothing was "
+            return page(error="%s did not accept the note, so nothing was "
                               "filed. The text below is unchanged — you can try "
-                              "again.", note_text=note_text, ctx=ctx)
+                              "again." % _vendor_label(ctx),
+                        note_text=note_text, ctx=ctx)
 
         ctx.written_at = now
         ctx.written_reference = result["reference"] or "filed"
@@ -585,7 +616,7 @@ def register_ehr_routes(app):
         ctx = _current_launch_ctx()
         if ctx is None:
             return page(error="This launch is no longer open. Start again "
-                              "from the patient's chart in Epic.")
+                              "from the patient's chart.")
         if ctx.written_at:
             return page(written=ctx.written_reference or "already filed",
                         ctx=ctx)
@@ -672,7 +703,7 @@ def register_ehr_routes(app):
         ctx = _current_launch_ctx()
         if ctx is None:
             return page(error="This launch is no longer open. Start again "
-                              "from the patient's chart in Epic.")
+                              "from the patient's chart.")
         if ctx.written_at:
             return page(written=ctx.written_reference or "already filed",
                         ctx=ctx)

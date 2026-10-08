@@ -837,8 +837,8 @@ VENDORS = {
     },
     "oracle": {
         "label": "Oracle Health",
-        # Not registered yet. Present so adding it is configuration, not surgery.
-        "sandbox_iss": "",
+        # code Console's public sandbox tenant ("TMAI--Telehealth" app).
+        "sandbox_iss": "https://fhir-ehr-code.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d",
     },
 }
 

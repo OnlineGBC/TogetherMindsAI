@@ -910,7 +910,7 @@ def test_the_routes_are_attached_from_their_own_module():
         assert app.view_functions[endpoint].__module__ == "routes_ehr", endpoint
 
 
-def test_the_allowlist_defaults_to_the_epic_sandbox_only():
+def test_the_allowlist_defaults_to_the_vendor_sandboxes_only():
     """A default of "anything" would be the one mistake that matters here."""
     assert config.EHR_ALLOWED_ISS
     assert all(a.startswith("https://") for a in config.EHR_ALLOWED_ISS)
@@ -1012,3 +1012,78 @@ def test_the_ehr_endpoints_are_exempt_from_the_role_choice_gate():
     for endpoint in ("ehr_launch", "ehr_callback", "ehr_load_summary",
                      "ehr_add_billing_code", "ehr_write_note"):
         assert endpoint in _ROLE_CHOICE_EXEMPT, endpoint
+
+
+# ===========================================================================
+# Oracle Health (Cerner) — a second vendor alongside Epic
+# ===========================================================================
+
+CERNER_ISS = "https://fhir-ehr-code.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d"
+CERNER_CLIENT = "cerner-client-id"
+
+
+class _BothVendors(_Enabled):
+    """Epic and Cerner both configured, the way production is."""
+
+    def __init__(self, **over):
+        values = {"CERNER_CLIENT_ID": CERNER_CLIENT,
+                  "CERNER_CLIENT_SECRET": "cerner-secret",
+                  "CERNER_ISS": (CERNER_ISS,),
+                  "EHR_ALLOWED_ISS": (ISS, CERNER_ISS)}
+        values.update(over)
+        super().__init__(**values)
+
+
+def test_a_cerner_launch_gets_the_cerner_credentials():
+    with _BothVendors():
+        out = routes_ehr._tenant_lookup()(CERNER_ISS)
+    assert out["client_id"] == CERNER_CLIENT
+    assert out["iss"] == CERNER_ISS
+
+
+def test_an_epic_launch_still_gets_the_epic_credentials():
+    with _BothVendors():
+        out = routes_ehr._tenant_lookup()(ISS)
+    assert out["client_id"] == CLIENT_ID
+
+
+def test_an_unknown_issuer_is_still_refused_with_two_vendors():
+    with _BothVendors():
+        with pytest.raises(ehr.EhrRefused):
+            routes_ehr._tenant_lookup()("https://fhir-ehr-code.cerner.com.evil.example/r4")
+
+
+def test_a_cerner_issuer_not_on_the_allowlist_is_refused():
+    """Being named as Cerner's is not trust. The allowlist still decides."""
+    with _BothVendors(EHR_ALLOWED_ISS=(ISS,)):
+        with pytest.raises(ehr.EhrRefused):
+            routes_ehr._tenant_lookup()(CERNER_ISS)
+
+
+def test_the_default_config_trusts_both_sandboxes_and_names_cerner():
+    assert CERNER_ISS in config.EHR_ALLOWED_ISS
+    assert config.CERNER_ISS == (CERNER_ISS,)
+    assert config.CERNER_CLIENT_ID          # not secret; has a default
+    assert ehr.vendor_for_iss(CERNER_ISS) == "oracle"
+    assert ehr.vendor_label("oracle") == "Oracle Health"
+
+
+def test_a_verified_cerner_launch_logs_in_as_an_oracle_account(client):
+    """A Cerner practitioner is stored under provider "oracle", never "epic" —
+    otherwise two vendors' subject strings could meet on one account."""
+    with _BothVendors(), patch.object(routes_ehr, "_fetch_json", return_value=SMART_DOC):
+        rv = client.get("/ehr/launch?iss=" + CERNER_ISS + "&launch=lk1")
+    assert _params(rv.headers["Location"])["client_id"] == CERNER_CLIENT
+    state = _params(rv.headers["Location"])["state"]
+
+    token_resp = dict(TOKEN_OK, id_token=_signed_id_token({"aud": CERNER_CLIENT}))
+    with _BothVendors(), \
+         patch.object(routes_ehr, "_post_form", return_value=token_resp), \
+         patch.object(routes_ehr, "_fetch_json",
+                      side_effect=[OPENID_CONFIG, JWKS_DOC, PATIENT, ENCOUNTER]):
+        rv = client.get("/ehr/callback?code=c1&state=" + state)
+    assert rv.status_code == 200
+    assert "Oracle Health" in rv.get_data(as_text=True)
+    with app.app_context():
+        assert Clinician.query.filter_by(provider="oracle").count() == 1
+        assert Clinician.query.filter_by(provider="epic").count() == 0
