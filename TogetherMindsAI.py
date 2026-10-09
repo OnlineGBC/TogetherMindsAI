@@ -2363,19 +2363,37 @@ def _rtc_guard(session_id):
     return user_id, None
 
 
+def _livekit_identity(session_id, user_id, device_id):
+    """The identity a person joins the video room under.
+
+    LiveKit allows one connection per identity, so a second device with the same
+    identity kicks the first. The clinician leading the session (therapist,
+    caregiver, other provider) gets a per-device identity so each device is its
+    own tile. Anyone else keeps the plain user_id: a second device from a
+    patient still replaces the first."""
+    ts = db.session.get(TherapySession, session_id)
+    if ts and ts.therapist_id and ts.therapist_id == user_id:
+        dev = re.sub(r"[^A-Za-z0-9]", "", str(device_id or ""))[:16]
+        if dev:
+            return f"{user_id}~{dev}"
+    return user_id
+
+
 @app.route("/rtc/livekit-token", methods=["POST"])
 @limiter.limit("30 per minute")
 def rtc_livekit_token():
     """Mint a LiveKit join token for the caller to join the session's audio room."""
-    session_id = (request.get_json(silent=True) or {}).get("session_id", "")
+    body = request.get_json(silent=True) or {}
+    session_id = body.get("session_id", "")
     user_id, err = _rtc_guard(session_id)
     if err:
         return err
     from livekit.api import AccessToken, VideoGrants
     display = session_display_names.get(session_id, {}).get(user_id) or "Participant"
+    identity = _livekit_identity(session_id, user_id, body.get("device_id"))
     token = (
         AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET)
-        .with_identity(user_id)
+        .with_identity(identity)
         .with_name(display)
         .with_grants(VideoGrants(
             room_join=True, room=session_id,
@@ -4468,11 +4486,23 @@ def on_join(data):
         emit("error", {"message": "Failed to join session. Please refresh."})
 
 
+def _user_still_connected(user_id, session_id) -> bool:
+    """True if any live socket still maps this user to this session."""
+    return any(
+        sid_to_user.get(s) == user_id and sid_to_session.get(s) == session_id
+        for s in list(sid_to_session)
+    )
+
+
 @socketio.on("disconnect")
 def on_disconnect():
     user_id    = sid_to_user.pop(request.sid, None)
     session_id = sid_to_session.pop(request.sid, None)
     if user_id and session_id:
+        # Another device/tab of the same person is still connected: they have not
+        # left. Only the LAST connection closing counts as leaving.
+        if _user_still_connected(user_id, session_id):
+            return
         room_participants[session_id].discard(user_id)
         session_waiting.get(session_id, set()).discard(user_id)
         # session_display_names is intentionally NOT cleared on disconnect.

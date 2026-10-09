@@ -938,6 +938,14 @@
         if (!isJoined()) { joinThen(); } else { setStt(!sttEnabled); }
     }); }
 
+    // Random per-tab id. The server uses it only for the clinician leading the
+    // session, so each of their devices gets its own video tile.
+    var _devId = null;
+    function _deviceId() {
+        if (!_devId) { _devId = Math.random().toString(36).slice(2, 10); }
+        return _devId;
+    }
+
     async function joinAudio() {
         document.getElementById("rtcLive").classList.remove("d-none");
         setStatus("connecting…", "bg-warning text-dark");
@@ -945,7 +953,7 @@
         // 1) LiveKit audio room
         var r = await fetch("/rtc/livekit-token", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ session_id: SESSION_ID })
+            body: JSON.stringify({ session_id: SESSION_ID, device_id: _deviceId() })
         });
         if (!r.ok) { setStatus("audio unavailable", "bg-danger"); return; }
         var lk = await r.json();
@@ -956,7 +964,17 @@
                 document.getElementById("rtcRemoteAudio").appendChild(_el);
                 if (audioSinkId) { _sinkTo(_el); }
             } else if (track.kind === "video") {
-                addTile(participant.identity, participant.name || participant.identity, track.attach());
+                var _lbl = participant.name || participant.identity;
+                // Same person on a second device: tell the tiles apart.
+                if (participant.identity.indexOf("~") > -1) {
+                    var _base = participant.identity.split("~")[0], _n = 1;
+                    lkRoom.remoteParticipants.forEach(function (p) {
+                        if (p.identity !== participant.identity && p.identity.split("~")[0] === _base
+                            && p.identity < participant.identity) { _n++; }
+                    });
+                    if (_n > 1) { _lbl += " (device " + _n + ")"; }
+                }
+                addTile(participant.identity, _lbl, track.attach());
             }
         });
         lkRoom.on(LivekitClient.RoomEvent.TrackUnsubscribed, function (track, pub, participant) {

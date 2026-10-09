@@ -129,6 +129,59 @@ def test_livekit_token_503_when_rtc_disabled(enc_client):
 
 
 # ---------------------------------------------------------------------------
+# One video identity per device (clinician only) + presence by connection
+# ---------------------------------------------------------------------------
+
+def _token_identity(client, sid, device_id=None):
+    import base64, json
+    body = {"session_id": sid}
+    if device_id is not None:
+        body["device_id"] = device_id
+    with _rtc_on():
+        rv = client.post("/rtc/livekit-token", json=body)
+    assert rv.status_code == 200
+    payload = rv.get_json()["token"].split(".")[1]
+    payload += "=" * (-len(payload) % 4)
+    return json.loads(base64.urlsafe_b64decode(payload))["sub"]
+
+
+def test_clinician_two_devices_get_distinct_video_identities(enc_client):
+    """Same clinician on two devices must not share an identity (LiveKit would
+    kick the first device)."""
+    sid = _seed()
+    _login(enc_client, "ther-1")
+    a = _token_identity(enc_client, sid, "devA")
+    b = _token_identity(enc_client, sid, "devB")
+    assert a != b
+    assert a.startswith("ther-1") and b.startswith("ther-1")
+
+
+def test_clinician_without_device_id_keeps_plain_identity(enc_client):
+    sid = _seed()
+    _login(enc_client, "ther-1")
+    assert _token_identity(enc_client, sid) == "ther-1"
+
+
+def test_client_identity_ignores_device_id(enc_client):
+    """A patient keeps one identity, so a second device replaces the first."""
+    sid = _seed()
+    certify_state(db, SessionStateCert, sid, "ther-1", state="CA")
+    _login(enc_client, "cli", consented_sessions=[sid], session_states={sid: "CA"})
+    assert _token_identity(enc_client, sid, "devA") == "cli"
+    assert _token_identity(enc_client, sid, "devB") == "cli"
+
+
+def test_user_still_connected_until_last_socket_closes():
+    import TogetherMindsAI as tm
+    with patch.dict(tm.sid_to_user, {"s1": "u", "s2": "u"}, clear=True), \
+         patch.dict(tm.sid_to_session, {"s1": "X", "s2": "X"}, clear=True):
+        tm.sid_to_user.pop("s1"); tm.sid_to_session.pop("s1")   # first device closes
+        assert tm._user_still_connected("u", "X") is True
+        tm.sid_to_user.pop("s2"); tm.sid_to_session.pop("s2")   # last device closes
+        assert tm._user_still_connected("u", "X") is False
+
+
+# ---------------------------------------------------------------------------
 # AssemblyAI streaming (STT) token
 # ---------------------------------------------------------------------------
 
