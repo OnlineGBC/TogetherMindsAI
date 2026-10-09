@@ -953,7 +953,7 @@ if not config.IS_TESTING:
         from sqlalchemy import text
         try:
             db.session.execute(text(
-                "ALTER TABLE therapy_sessions ADD COLUMN retention_expires_at DATETIME"
+                "ALTER TABLE therapy_sessions ADD COLUMN retention_expires_at TIMESTAMP"
             ))
             db.session.commit()
         except Exception:
@@ -1026,8 +1026,10 @@ if not config.IS_TESTING:
         from sqlalchemy import text
         for ddl in (
             "ALTER TABLE promo_codes ADD COLUMN last_seen_uses INTEGER DEFAULT 0",
-            "ALTER TABLE promo_codes ADD COLUMN alerted_nearly BOOLEAN DEFAULT 0",
-            "ALTER TABLE promo_codes ADD COLUMN alerted_spent BOOLEAN DEFAULT 0",
+            # DEFAULT FALSE, not 0: Postgres rejects an integer default on a
+            # boolean column, and the except below would hide it.
+            "ALTER TABLE promo_codes ADD COLUMN alerted_nearly BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE promo_codes ADD COLUMN alerted_spent BOOLEAN DEFAULT FALSE",
             "ALTER TABLE promo_codes ADD COLUMN last_burst_alert TIMESTAMP",
         ):
             try:
