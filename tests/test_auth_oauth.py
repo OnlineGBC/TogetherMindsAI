@@ -123,6 +123,24 @@ def test_oauth_callback_creates_clinician_and_logs_in(client):
         assert s.get("user_id") == clin.id
 
 
+def test_failed_callback_logs_why_the_saved_state_was_missing(client, caplog):
+    """A state mismatch must leave a diagnostic line saying whether the browser
+    sent a session cookie and held any saved state — and never print the state."""
+    fake_client = MagicMock()
+    fake_client.authorize_access_token.side_effect = Exception("mismatching_state")
+    with patch.object(tm.oauth, "create_client", return_value=fake_client):
+        with caplog.at_level("ERROR"):
+            rv = client.get("/auth/google/callback?state=SECRETSTATE123&code=x")
+    assert rv.status_code == 302 and "/login" in rv.headers["Location"]
+    diag = [r.getMessage() for r in caplog.records if "OAUTH-DIAG" in r.getMessage()]
+    assert len(diag) == 1
+    assert "provider=google" in diag[0]
+    assert "cookie_sent=False" in diag[0]
+    assert "saved_states=0" in diag[0]
+    assert "state_in_session=False" in diag[0]
+    assert "SECRETSTATE123" not in diag[0]
+
+
 def test_oauth_callback_existing_clinician_reused(client):
     existing = Clinician(id="existing-id", provider="microsoft", provider_subject="ms-1",
                          created_at=datetime.now(timezone.utc))

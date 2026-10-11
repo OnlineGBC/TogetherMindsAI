@@ -1502,6 +1502,17 @@ def _oauth_userinfo(provider):
         token = client.authorize_access_token(**kwargs)
     except Exception as exc:
         app.logger.error("OAuth callback failed (%s): %s: %s", provider, type(exc).__name__, exc)
+        # Why was the saved state missing? Say whether the browser sent a session
+        # cookie at all and how many saved states it held. Names and counts only —
+        # never the state values themselves.
+        saved = [k for k in session.keys() if str(k).startswith("_state_")]
+        app.logger.error(
+            "OAUTH-DIAG provider=%s cookie_sent=%s session_keys=%d saved_states=%d "
+            "state_in_session=%s ua=%s",
+            provider, app.config["SESSION_COOKIE_NAME"] in request.cookies,
+            len(session), len(saved),
+            any(k.endswith(request.args.get("state", "\0")) for k in saved),
+            (request.headers.get("User-Agent") or "")[:80])
         return None
     return token.get("userinfo") or {}
 
