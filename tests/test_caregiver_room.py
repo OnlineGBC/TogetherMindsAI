@@ -99,8 +99,22 @@ def test_caregiver_room_still_has_video(client):
     """Watching live IS the caregiver product. It must survive the stripping."""
     html = _room(client, roles.CAREGIVER)
     assert 'id="rtcVideoGrid"' in html
+
+
+def test_caregiver_room_has_no_mic_or_camera_of_its_own(client):
+    """The caregiver only watches: nothing of theirs is published, so there is no
+    mic or camera button — and the page never asks the browser for either."""
+    html = _room(client, roles.CAREGIVER)
+    assert 'id="rtcMuteBtn"' not in html
+    assert 'id="rtcCamBtn"' not in html
+    assert "var WATCH_ONLY     = true;" in html
+
+
+def test_a_clinical_room_keeps_its_mic_and_camera_buttons(client):
+    html = _room(client, roles.PSYCHOTHERAPIST)
     assert 'id="rtcMuteBtn"' in html
     assert 'id="rtcCamBtn"' in html
+    assert "var WATCH_ONLY     = false;" in html
 
 
 def test_caregiver_room_still_has_recording(client):
@@ -439,3 +453,16 @@ def test_the_clinical_roles_keep_their_own_words(client):
     correctly without touching the join handler."""
     assert _default_name_for(roles.PSYCHOTHERAPIST) == "Clinician"
     assert _default_name_for(roles.HYPNOTHERAPIST) == "Practitioner"
+
+
+def test_viewing_tools_belong_to_the_watcher_only():
+    """Full screen / Fill screen, their script, and the mic-revival on foreground
+    are the caregiver's: a watched person's page must not carry them, and a
+    watcher must never ask for a mic."""
+    src = open(os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                            "templates", "session_live.html"), encoding="utf-8").read()
+    assert src.count("{% if is_watch_only %}") == 2          # buttons, script
+    assert "{% if not is_watch_only %}" in src                # mic/camera strip
+    assert 'id="rtcFullscreenBtn"' in src.split("{% if is_watch_only %}")[1]
+    assert "if (WATCH_ONLY) { return; }" in src               # onForeground guard
+    assert "if (WATCH_ONLY) {" in src                          # joinAudio early exit

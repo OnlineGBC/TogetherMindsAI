@@ -1917,7 +1917,13 @@ def _render_session_room(session_id, mode):
         # are viewing arrangements, not features a plan sells, so they do not belong
         # in the capability table.
         is_monitor=(roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
-        has_brighten=(roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
+        has_brighten=(is_therapist
+                      and roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
+        # The caregiver only WATCHES: no mic, no camera, nothing published, and the
+        # viewing tools (full screen, brighten) are theirs alone. The people being
+        # watched keep their own mic and camera.
+        is_watch_only=(is_therapist
+                       and roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
         # The co-pilot IS a capability, so it follows the table like chat and
         # transcript. A monitor room has no words for it to read, so the panel could
         # only ever sit there empty.
@@ -2390,6 +2396,24 @@ def _livekit_identity(session_id, user_id, device_id):
     return user_id
 
 
+def _livekit_media_rights(session_id, user_id):
+    """(can_publish, can_subscribe) for this person in this session's video room.
+
+    A caregiver session is a one-way monitor: the people being watched are seen and
+    heard by the caregiver and by nobody else, and the caregiver is neither seen
+    nor heard. Enforced HERE, in the token, because a page can hide a video tile
+    but only the video service can refuse to deliver it:
+      * the caregiver watches everyone and publishes nothing;
+      * everyone else publishes their own audio/video and receives nobody's.
+    Every other role keeps full two-way media."""
+    ts = db.session.get(TherapySession, session_id)
+    if roles.role_of(_session_clinician(session_id)) != roles.CAREGIVER:
+        return True, True
+    if ts and ts.therapist_id and ts.therapist_id == user_id:
+        return False, True
+    return True, False
+
+
 @app.route("/rtc/livekit-token", methods=["POST"])
 @limiter.limit("30 per minute")
 def rtc_livekit_token():
@@ -2402,13 +2426,14 @@ def rtc_livekit_token():
     from livekit.api import AccessToken, VideoGrants
     display = session_display_names.get(session_id, {}).get(user_id) or "Participant"
     identity = _livekit_identity(session_id, user_id, body.get("device_id"))
+    can_publish, can_subscribe = _livekit_media_rights(session_id, user_id)
     token = (
         AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET)
         .with_identity(identity)
         .with_name(display)
         .with_grants(VideoGrants(
             room_join=True, room=session_id,
-            can_publish=True, can_subscribe=True,
+            can_publish=can_publish, can_subscribe=can_subscribe,
         ))
         .to_jwt()
     )

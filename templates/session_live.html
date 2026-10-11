@@ -103,12 +103,16 @@
         <div class="alert alert-share rounded-4 mb-2 mb-md-3 py-2 px-3 d-flex align-items-center gap-2 flex-wrap" id="tmControlStrip" role="region" aria-label="Session controls">
             <small class="text-muted text-nowrap me-1">In this session:</small>
             {% if rtc_enabled %}
+            {# A caregiver only watches: nothing of theirs is published, so there is
+               no mic or camera of theirs to switch. #}
+            {% if not is_watch_only %}
             <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcMuteBtn" title="Tap to join audio so others can hear you">
                 <i class="bi bi-mic-mute-fill"></i> Mic off
             </button>
             <button class="btn btn-sm btn-outline-secondary rounded-pill" id="rtcCamBtn" title="Tap to turn your camera on">
                 <i class="bi bi-camera-video-off-fill"></i> Camera off
             </button>
+            {% endif %}
             {# Speech-to-text feeds the transcript. A role with no transcript has
                nothing to turn on, and paying for the speech service would buy
                nothing. #}
@@ -265,7 +269,7 @@
                                     aria-pressed="false">
                                 <i class="bi bi-arrows-angle-in"></i> Shrink my video
                             </button>
-                            {% if is_monitor %}
+                            {% if is_watch_only %}
                             {# Watching, not conferencing: filling the screen is the useful
                                control here, and everyone in the room is watching the same
                                camera. Browsers only allow fullscreen from a real tap, so this
@@ -563,7 +567,10 @@
     // write into caption elements this page never renders.
     var HAS_CHAT       = {{ 'true' if has_chat else 'false' }};
     var HAS_TRANSCRIPT = {{ 'true' if has_transcript else 'false' }};
-    window.SESSION_MODE              = "{{ mode }}";
+    // The caregiver only watches: joins to receive, never asks for or publishes a
+    // mic or camera. The server token agrees (can_publish is off for them).
+    var WATCH_ONLY     = {{ 'true' if is_watch_only else 'false' }};
+    window.SESSION_MODE             = "{{ mode }}";
     window.END_SESSION_REDIRECT_URL  = "/progress/" + USER_ID + "/{{ mode }}";
 
     // Ensure privacy banner always shows the session code (belt-and-suspenders)
@@ -987,6 +994,13 @@
         lkRoom.on(LivekitClient.RoomEvent.Disconnected, function () { setStatus("disconnected", "bg-secondary"); });
         await lkRoom.connect(lk.url, lk.token);
 
+        // A watcher publishes nothing, so there is no mic or camera to ask for.
+        if (WATCH_ONLY) {
+            sttEnabled = false; setSttIndicator(false);
+            setStatus("live", "bg-success");
+            return;
+        }
+
         // One mic stream feeds BOTH the call and the transcription.
         //
         // Mic AND camera are asked for in ONE getUserMedia call on purpose: two
@@ -1344,6 +1358,7 @@
     // so the mic self-heals and the pill reflects reality without a reload.
     function onForeground() {
         if (document.visibilityState !== "visible" || !isJoined()) { return; }
+        if (WATCH_ONLY) { return; }   // no mic of ours to revive — never ask for one
         if (audioCtx && audioCtx.state === "suspended") { audioCtx.resume().catch(function () {}); }
         if (!muted && (!_micTrackAlive() || _micOsMuted())) { recoverMic(); }
         else { updateMicPill(); }
@@ -1351,7 +1366,7 @@
     document.addEventListener("visibilitychange", onForeground);
     window.addEventListener("pageshow", onForeground);
 
-    {% if is_monitor %}
+    {% if is_watch_only %}
     // Full screen. The element handed to the browser is the whole video PANE, not
     // the grid: fullscreen shows only the element it was given, so fullscreening
     // the grid alone hid Exit and Brighten and left the phone's own "drag from the

@@ -171,6 +171,66 @@ def test_client_identity_ignores_device_id(enc_client):
     assert _token_identity(enc_client, sid, "devB") == "cli"
 
 
+# ---------------------------------------------------------------------------
+# Caregiver session = one-way monitor: the caregiver sees/hears everyone and is
+# neither seen nor heard; the people watched see and hear nobody. Enforced in
+# the token, because only the video service can refuse to deliver a stream.
+# ---------------------------------------------------------------------------
+
+def _video_grant(client, sid):
+    import base64, json
+    with _rtc_on():
+        rv = client.post("/rtc/livekit-token", json={"session_id": sid})
+    assert rv.status_code == 200
+    payload = rv.get_json()["token"].split(".")[1]
+    payload += "=" * (-len(payload) % 4)
+    return json.loads(base64.urlsafe_b64decode(payload))["video"]
+
+
+def _seed_with_role(role):
+    import roles
+    from models import Clinician
+    db.session.add(Clinician(id="ther-1", provider="google", provider_subject="t1",
+                             role=role, created_at=datetime.now(timezone.utc)))
+    db.session.commit()
+    sid = _seed()
+    certify_state(db, SessionStateCert, sid, "ther-1", state="CA")
+    return sid
+
+
+def test_caregiver_watches_everyone_and_publishes_nothing(enc_client):
+    import roles
+    sid = _seed_with_role(roles.CAREGIVER)
+    _login(enc_client, "ther-1")
+    grant = _video_grant(enc_client, sid)
+    assert grant.get("canSubscribe") is True
+    assert not grant.get("canPublish")
+
+
+def test_a_watched_person_receives_nobody_but_is_still_seen(enc_client):
+    """Patients must not see or hear each other or the caregiver — yet their own
+    audio/video must still reach the caregiver."""
+    import roles
+    sid = _seed_with_role(roles.CAREGIVER)
+    _login(enc_client, "cli", consented_sessions=[sid], session_states={sid: "CA"})
+    grant = _video_grant(enc_client, sid)
+    assert grant.get("canPublish") is True
+    assert not grant.get("canSubscribe")
+
+
+def test_other_roles_keep_two_way_media(enc_client):
+    """The one-way rule must not leak into a normal therapy room."""
+    import roles
+    sid = _seed_with_role(roles.PSYCHOTHERAPIST)
+    _login(enc_client, "cli", consented_sessions=[sid], session_states={sid: "CA"})
+    patient = _video_grant(enc_client, sid)
+    _login(enc_client, "ther-1")
+    therapist = _video_grant(enc_client, sid)
+    for grant in (patient, therapist):
+        assert grant.get("canPublish") is True
+        assert grant.get("canSubscribe") is True
+
+
 def test_user_still_connected_until_last_socket_closes():
     import TogetherMindsAI as tm
     with patch.dict(tm.sid_to_user, {"s1": "u", "s2": "u"}, clear=True), \

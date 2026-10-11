@@ -147,8 +147,9 @@ def test_a_caregiver_is_not_told_their_own_camera_will_start():
     caregiver tick a box saying their video starts when it never does."""
     text = roles.WORDING[roles.CAREGIVER]["attestation"]
     assert AV_CLINICIAN not in text
-    assert "my microphone enabled" in text
-    assert "I will be able to turn it off" in text
+    # Nor their microphone: a caregiver only watches and publishes nothing.
+    assert "my microphone enabled" not in text
+    assert "my microphone and camera off" in text
     # What actually happens: they watch and listen to the other camera.
     assert "see and hear the camera I am monitoring" in text
 
