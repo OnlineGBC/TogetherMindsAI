@@ -1917,8 +1917,9 @@ def _render_session_room(session_id, mode):
         # are viewing arrangements, not features a plan sells, so they do not belong
         # in the capability table.
         is_monitor=(roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
-        has_brighten=(is_therapist
-                      and roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
+        # Offered to the watched person too, for their OWN preview: someone propping
+        # a phone up in a dim room wants to check what the camera is catching.
+        has_brighten=(roles.role_of(_session_clinician(session_id)) == roles.CAREGIVER),
         # The caregiver only WATCHES: no mic, no camera, nothing published, and the
         # viewing tools (full screen, brighten) are theirs alone. The people being
         # watched keep their own mic and camera.

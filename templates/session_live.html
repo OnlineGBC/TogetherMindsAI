@@ -269,11 +269,12 @@
                                     aria-pressed="false">
                                 <i class="bi bi-arrows-angle-in"></i> Shrink my video
                             </button>
-                            {% if is_watch_only %}
-                            {# Watching, not conferencing: filling the screen is the useful
-                               control here, and everyone in the room is watching the same
-                               camera. Browsers only allow fullscreen from a real tap, so this
-                               is a button and never automatic. #}
+                            {% if is_monitor %}
+                            {# A monitor room is about the picture, so filling the screen is
+                               the useful control — for the watcher AND for the watched
+                               person checking their own camera. Browsers only allow
+                               fullscreen from a real tap, so this is a button and never
+                               automatic. #}
                             <button type="button" id="rtcFullscreenBtn"
                                     class="btn btn-sm btn-outline-secondary rounded-pill"
                                     title="Fill the screen with the video">
@@ -1361,7 +1362,7 @@
     document.addEventListener("visibilitychange", onForeground);
     window.addEventListener("pageshow", onForeground);
 
-    {% if is_watch_only %}
+    {% if is_monitor %}
     // Full screen. The element handed to the browser is the whole video PANE, not
     // the grid: fullscreen shows only the element it was given, so fullscreening
     // the grid alone hid Exit and Brighten and left the phone's own "drag from the
@@ -1437,11 +1438,12 @@
             } else {
                 pane.classList.add("fill-window");
             }
-            // A wide picture on a tall screen is mostly black bars. Asking for
-            // landscape is allowed only while full screen, and only on some
-            // browsers — iPhone refuses, which is why Fill exists as well.
+            // A wide picture on a tall screen is mostly black bars. The WATCHER holds
+            // the phone sideways, so ask for landscape — allowed only while full
+            // screen, and only on some browsers (iPhone refuses). The watched person
+            // is not asked: they may be holding the phone upright to check framing.
             try {
-                if (screen.orientation && screen.orientation.lock) {
+                if (WATCH_ONLY && screen.orientation && screen.orientation.lock) {
                     screen.orientation.lock("landscape").catch(function () {});
                 }
             } catch (e) {}
@@ -1470,7 +1472,9 @@
         });
         paint();
     })();
+    {% endif %}
 
+    {% if is_watch_only %}
     // Keep the screen awake while the monitor is open. A phone propped up watching
     // a crib sleeps after a minute or two and then shows nothing at all. Released
     // on leaving, and re-taken when the tab comes back — the browser drops the lock
@@ -1493,14 +1497,16 @@
     {% endif %}
 
     {% if has_brighten %}
-    // Brighten — LOCAL only, and only for the roles that watch a dim room. Puts a
-    // class on the grid; the CSS filter does the work on the incoming tiles. Nothing
-    // is sent, the camera is untouched, and the self-view is left alone on purpose
-    // so you always see your own camera as it really is.
+    // Brighten — LOCAL only, and only in a monitor room. Puts a class on the grid;
+    // the CSS filter does the work. Nothing is sent and the camera is untouched.
+    // The WATCHER brightens the incoming tiles and their own self-view is left alone
+    // so they see their own camera as it really is. The WATCHED person has nothing
+    // incoming, so for them it brightens their own preview ("brighten-own").
     // Remembered per device, because an overnight watcher should set it once.
     (function () {
         var sel = document.getElementById("rtcBrightenSelect");
         if (!sel || !videoGrid) { return; }
+        videoGrid.classList.toggle("brighten-own", !WATCH_ONLY);
         function apply(level) {
             videoGrid.classList.remove("brighten-low", "brighten-high");
             if (level === "low" || level === "high") {

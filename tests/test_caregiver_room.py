@@ -34,7 +34,8 @@ from datetime import datetime, timezone, timedelta
 import config
 import roles
 from TogetherMindsAI import app
-from models import db, init_encryption, Clinician, TherapySession
+from models import db, init_encryption, Clinician, TherapySession, SessionStateCert
+from tests.socket_utils import certify_state
 
 init_encryption(TEST_KEY)
 
@@ -219,9 +220,11 @@ def test_other_roles_do_not_get_brighten(client):
         assert 'id="rtcBrightenSelect"' not in html, role
 
 
-def test_brighten_never_touches_the_self_view():
-    """You must always see your own camera as it really is — and the filter must
-    stay off the sender, where it would clash with the background processor."""
+def test_brighten_never_touches_the_watchers_self_view():
+    """The WATCHER must always see their own camera as it really is — and the
+    filter must stay off the sender, where it would clash with the background
+    processor. (The watched person brightens their own preview via .brighten-own,
+    which is on their screen only.)"""
     css = open(os.path.join(os.path.dirname(__file__), "..",
                             "static", "css", "style.css"), encoding="utf-8").read()
     for level in ("brighten-low", "brighten-high"):
@@ -484,13 +487,77 @@ def test_the_clinical_roles_keep_their_own_words(client):
 
 
 def test_viewing_tools_belong_to_the_watcher_only():
-    """Full screen / Fill screen, their script, and the mic-revival on foreground
-    are the caregiver's: a watched person's page must not carry them, and a
-    watcher must never ask for a mic."""
+    """The wake lock, the sideways lock and the mic-revival guard are the
+    watcher's: a watcher must never ask for a mic, and the watched person's phone
+    is neither kept awake by us nor forced sideways. Full screen and Brighten are
+    shared with the watched person (see the patient tests below)."""
     src = open(os.path.join(os.path.dirname(os.path.dirname(__file__)),
                             "templates", "session_live.html"), encoding="utf-8").read()
-    assert src.count("{% if is_watch_only %}") == 2          # buttons, script
+    assert src.count("{% if is_watch_only %}") == 1           # the wake lock only
+    assert "wakeLock" in src.split("{% if is_watch_only %}")[1]
     assert "{% if not is_watch_only %}" in src                # mic/camera strip
-    assert 'id="rtcFullscreenBtn"' in src.split("{% if is_watch_only %}")[1]
+    assert "WATCH_ONLY && screen.orientation" in src          # sideways: watcher only
     assert "if (WATCH_ONLY) { return; }" in src               # onForeground guard
     assert "if (WATCH_ONLY) {" in src                          # joinAudio early exit
+
+
+# ---------------------------------------------------------------------------
+# The watched person (patient) in a caregiver session
+# ---------------------------------------------------------------------------
+
+def _watched_room(client, role):
+    """Render the room as the person BEING WATCHED, in a session led by a
+    practitioner with this role."""
+    with app.app_context():
+        db.session.query(Clinician).delete()
+        db.session.query(TherapySession).delete()
+        now = datetime.now(timezone.utc)
+        db.session.add(Clinician(id="doc", provider="google", provider_subject="doc",
+                                 email="doc@example.com", role=role, created_at=now))
+        db.session.add(TherapySession(
+            id="s1", mode="solo", created_by="doc", created_at=now,
+            retention_expires_at=now + timedelta(days=30), therapist_id="doc"))
+        db.session.commit()
+        if roles.needs_licence_check(role):      # clinical rooms wait for this
+            certify_state(db, SessionStateCert, "s1", "doc", state="CA")
+    with client.session_transaction() as s:
+        s["user_id"] = "cli"
+        s["consented_sessions"] = ["s1"]
+        s["session_states"] = {"s1": "CA"}
+    with patch.object(config, "RTC_ENABLED", True), \
+         patch.object(config, "RECORDING_ENABLED", True):
+        rv = client.get("/therapy/solo/s1")
+    assert rv.status_code == 200
+    return rv.get_data(as_text=True)
+
+
+def test_the_watched_person_can_fill_the_screen_with_their_own_view(client):
+    html = _watched_room(client, roles.CAREGIVER)
+    assert 'id="rtcFullscreenBtn"' in html
+    assert 'var pane = document.getElementById("rtcLive")' in html
+
+
+def test_the_watched_person_is_not_forced_sideways_or_kept_awake(client):
+    """Only the watcher is a watcher: the page tells the script so."""
+    html = _watched_room(client, roles.CAREGIVER)
+    assert "var WATCH_ONLY     = false" in html
+    assert "wakeLock" not in html
+
+
+def test_the_watched_person_gets_brighten_for_their_own_preview(client):
+    html = _watched_room(client, roles.CAREGIVER)
+    assert 'id="rtcBrightenSelect"' in html
+    assert 'videoGrid.classList.toggle("brighten-own", !WATCH_ONLY)' in html
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert "#rtcVideoGrid.brighten-own.brighten-low" in css
+    assert "#rtcVideoGrid.brighten-own.brighten-high" in css
+
+
+def test_a_therapy_room_is_unchanged_for_the_person_being_seen(client):
+    """Caregiver sessions only, for now: a client in a clinical room still has no
+    full screen button and no Brighten menu."""
+    for role in (roles.PSYCHOTHERAPIST, roles.HYPNOTHERAPIST):
+        html = _watched_room(client, role)
+        assert 'id="rtcFullscreenBtn"' not in html, role
+        assert 'id="rtcBrightenSelect"' not in html, role

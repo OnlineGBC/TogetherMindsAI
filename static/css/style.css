@@ -655,6 +655,11 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
    the self-view: you should see your own camera as it really is. */
 #rtcVideoGrid.brighten-low  .rtc-tile:not([data-tile="local"]) video { filter: brightness(1.45) contrast(1.08); }
 #rtcVideoGrid.brighten-high .rtc-tile:not([data-tile="local"]) video { filter: brightness(1.9) contrast(1.18); }
+/* The watched person has no incoming picture, so Brighten lifts their own preview
+   (their screen only; the sent video is untouched). Only when the grid carries
+   .brighten-own, which the script sets for them and never for the watcher. */
+#rtcVideoGrid.brighten-own.brighten-low  [data-tile="local"] video { filter: brightness(1.45) contrast(1.08); }
+#rtcVideoGrid.brighten-own.brighten-high [data-tile="local"] video { filter: brightness(1.9) contrast(1.18); }
 
 /* ---- Clearly visible scrollbars in the session room ---- */
 body.therapy-page .chat-window .card-body,
