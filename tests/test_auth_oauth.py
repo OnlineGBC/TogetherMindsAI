@@ -392,6 +392,34 @@ def test_clinician_oauth_login_ignores_offsite_next(client):
         assert s.get("post_login_next") is None   # open-redirect rejected
 
 
+def test_clinician_oauth_login_drops_an_old_login_first(client):
+    # Starting a sign-in must not run on top of an earlier login cookie.
+    with client.session_transaction() as s:
+        s["user_id"] = "old-user"
+        s["clinician_id"] = "old-user"
+        s["something_else"] = "stale"
+    with patch.object(tm, "_oauth_start", return_value="redirect-to-provider"):
+        client.get("/auth/google/login?next=/session/transcript/stok/pdf")
+    with client.session_transaction() as s:
+        assert s.get("user_id") is None
+        assert s.get("clinician_id") is None
+        assert s.get("something_else") is None
+        assert s.get("post_login_next") == "/session/transcript/stok/pdf"   # still kept
+
+
+def test_client_oauth_login_drops_an_old_login_but_keeps_the_return_target(client):
+    with client.session_transaction() as s:
+        s["user_id"] = "old-user"
+        s["client_account_id"] = "old-user"
+        s["client_login_next"] = "/therapy/couple/ABC123"
+    with patch.object(tm, "_oauth_start", return_value="redirect-to-provider"):
+        client.get("/client/auth/google/login")
+    with client.session_transaction() as s:
+        assert s.get("user_id") is None
+        assert s.get("client_account_id") is None
+        assert s.get("client_login_next") == "/therapy/couple/ABC123"
+
+
 # ---------------------------------------------------------------------------
 # Join-time participation tracking (silent attendees still get their session)
 # ---------------------------------------------------------------------------

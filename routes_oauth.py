@@ -48,6 +48,9 @@ def register_oauth_routes(app):
         # browsers). Clinicians grant "email" so we can send them their own
         # recording links + retention notices; the client flow stays "openid".
         nxt = _tm._safe_next(request.args.get("next"))
+        # Starting a sign-in starts clean: any earlier login cookie is dropped
+        # first, so this sign-in never runs on top of an old identity.
+        session.clear()
         if nxt:
             session["post_login_next"] = nxt
         return _tm._oauth_start(provider, "oauth_callback", scope="openid email")
@@ -144,6 +147,12 @@ def register_oauth_routes(app):
 
     @app.route("/client/auth/<provider>/login")
     def client_oauth_login(provider):
+        # Same clean start as the clinician flow. Keep only the return target that
+        # /client/login stashed a moment ago.
+        nxt = session.get("client_login_next")
+        session.clear()
+        if nxt:
+            session["client_login_next"] = nxt
         return _tm._oauth_start(provider, "client_oauth_callback")
 
     @app.route("/client/auth/<provider>/callback")
