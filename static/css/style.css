@@ -552,9 +552,40 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
     z-index: 1040;
     margin: 0;
 }
-#rtcLive.fill-window         { display: flex; flex-direction: column; background: #000; padding: 8px; }
-#rtcLive:fullscreen          { display: flex; flex-direction: column; background: #000; padding: 8px; }
-#rtcLive:-webkit-full-screen { display: flex; flex-direction: column; background: #000; padding: 8px; }
+/* No border or margin of our own: the picture reaches the screen edges. The only
+   padding is the safe-area inset, which is zero on most phones and keeps the
+   picture clear of a camera cutout on the ones that have one. */
+#rtcLive.fill-window         { display: flex; flex-direction: column; background: #000;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+#rtcLive:fullscreen          { display: flex; flex-direction: column; background: #000;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+#rtcLive:-webkit-full-screen { display: flex; flex-direction: column; background: #000;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+
+/* In full screen the buttons float over the picture and fade away after a few
+   seconds, so the picture gets the whole screen. A tap adds .ui-awake for a
+   moment (see the full-screen script). The note under the video is dropped. */
+#rtcLive.fill-window #rtcControls,
+#rtcLive:fullscreen #rtcControls {
+    position: absolute; top: env(safe-area-inset-top, 0px);
+    left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px);
+    z-index: 5; margin: 0 !important; padding: 8px 12px;
+    background: rgba(0, 0, 0, .55);
+    opacity: 0; pointer-events: none; transition: opacity .25s;
+}
+#rtcLive:-webkit-full-screen #rtcControls {
+    position: absolute; top: env(safe-area-inset-top, 0px);
+    left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px);
+    z-index: 5; margin: 0 !important; padding: 8px 12px;
+    background: rgba(0, 0, 0, .55);
+    opacity: 0; pointer-events: none; transition: opacity .25s;
+}
+#rtcLive.fill-window.ui-awake #rtcControls,
+#rtcLive:fullscreen.ui-awake #rtcControls { opacity: 1; pointer-events: auto; }
+#rtcLive:-webkit-full-screen.ui-awake #rtcControls { opacity: 1; pointer-events: auto; }
+#rtcLive.fill-window #rtcMonitorNote,
+#rtcLive:fullscreen #rtcMonitorNote { display: none; }
+#rtcLive:-webkit-full-screen #rtcMonitorNote { display: none; }
 
 /* The grid takes whatever height is left under the controls. */
 #rtcLive.fill-window #rtcVideoGrid,
@@ -581,16 +612,13 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
     aspect-ratio: auto; border-radius: 0; box-shadow: none;
 }
 
-/* `contain` by default: the tile sets object-fit:cover inline, which crops to
-   fill — fine for a face in a call, wrong for a monitor, where cropping can put
-   the very thing being watched outside the frame. The Fill button opts back into
-   cropping when filling the screen matters more than seeing all of it. */
+/* Always `contain`: the tile sets object-fit:cover inline, which crops to fill —
+   fine for a face in a call, wrong for a monitor, where cropping can put the very
+   thing being watched outside the frame. There is deliberately no way to crop in
+   full screen. */
 #rtcLive.fill-window video,
 #rtcLive:fullscreen video { object-fit: contain !important; }
 #rtcLive:-webkit-full-screen video { object-fit: contain !important; }
-#rtcLive.fill-window.video-fill video,
-#rtcLive:fullscreen.video-fill video { object-fit: cover !important; }
-#rtcLive:-webkit-full-screen.video-fill video { object-fit: cover !important; }
 
 /* Shrink still works inside full screen. The rules above size EVERY tile to
    fill, which would otherwise blow the shrunken self-view back up. */

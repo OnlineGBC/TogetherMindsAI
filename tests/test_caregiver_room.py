@@ -379,17 +379,45 @@ def test_full_screen_takes_the_pane_so_the_controls_stay_reachable(client):
     assert 'pane.requestFullscreen' in html
 
 
-def test_full_screen_offers_fill_as_well_as_fit(client):
-    """A wide picture on a tall phone is mostly black bars. Fit shows the whole
-    frame, Fill crops to use the screen. Fit stays the default — cropping can put
-    the very thing being watched out of frame."""
+def test_full_screen_never_crops_the_picture(client):
+    """Cropping can put the very thing being watched out of frame, so full screen
+    has no Fill button and no cropping rule — the whole picture is always shown."""
     html = _room(client, roles.CAREGIVER)
-    assert 'id="rtcFitFillBtn"' in html
-    assert "video-fill" in html
+    assert 'id="rtcFitFillBtn"' not in html
+    assert '"video-fill"' not in html          # the class the Fill button toggled
     css = open(os.path.join(os.path.dirname(__file__), "..",
                             "static", "css", "style.css"), encoding="utf-8").read()
-    assert "object-fit: contain !important" in css      # the default
-    assert "object-fit: cover !important" in css        # opted into by Fill
+    assert "object-fit: contain !important" in css
+    assert "object-fit: cover !important" not in css
+    assert ".video-fill" not in css
+
+
+def test_full_screen_buttons_float_and_fade_so_the_picture_gets_the_screen(client):
+    html = _room(client, roles.CAREGIVER)
+    assert 'id="rtcControls"' in html
+    assert 'id="rtcMonitorNote"' in html
+    assert "ui-awake" in html and "setTimeout(sleepUi, 4000)" in html
+    # A tap brings them back; the Brighten menu in use keeps them up.
+    assert 'pane.addEventListener("click"' in html
+    assert "document.activeElement === sel" in html
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert "#rtcLive:fullscreen #rtcControls" in css
+    assert "#rtcLive:-webkit-full-screen #rtcControls" in css      # own rule, see note
+    assert "#rtcLive:fullscreen.ui-awake #rtcControls" in css
+    assert "#rtcLive:fullscreen #rtcMonitorNote" in css
+
+
+def test_full_screen_reaches_the_edges_but_clears_a_camera_cutout(client):
+    """No border of our own (it left a gap), and the page may draw out to the
+    edges only while full screen — then goes back, like theme-color."""
+    html = _room(client, roles.CAREGIVER)
+    assert "viewport-fit=cover" in html
+    assert 'meta[name="viewport"]' in html
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert "padding: 8px; }" not in css.split("Full screen for a monitor room")[1][:3000]
+    assert "env(safe-area-inset-top" in css
 
 
 def test_full_screen_asks_for_landscape(client):

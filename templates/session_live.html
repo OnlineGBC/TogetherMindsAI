@@ -237,7 +237,7 @@
                        session is. Both the Getting Started page and the per-session
                        gate say so before anyone gets here. #}
                     <div id="rtcLive" class="flex-column flex-grow-1">
-                        <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                        <div id="rtcControls" class="d-flex align-items-center flex-wrap gap-2 mb-2">
                             <span class="badge bg-secondary" id="rtcStatus">connecting…</span>
                             <!-- Mic / Camera / Transcription controls live in the always-visible
                                  control strip above; here we keep video-only settings. -->
@@ -279,15 +279,10 @@
                                     title="Fill the screen with the video">
                                 <i class="bi bi-arrows-fullscreen"></i> Full screen
                             </button>
-                            {# Only useful once full screen: a wide picture on a tall
-                               phone is mostly black bars, and Fill trades seeing the
-                               whole frame for using the whole screen. Hidden until
-                               then so it cannot be pressed with nothing to do. #}
-                            <button type="button" id="rtcFitFillBtn"
-                                    class="btn btn-sm btn-outline-secondary rounded-pill d-none"
-                                    title="Crop the picture to fill the screen">
-                                <i class="bi bi-arrows-angle-expand"></i> Fill screen
-                            </button>
+                            {# There used to be a "Fill screen" button here that cropped the
+                               picture to cover the screen. Removed: cropping can put the
+                               very thing being watched out of frame, and a monitor must
+                               never cut anything off. Full screen always shows it all. #}
                             {% endif %}
                             {% if has_brighten %}
                             <!-- Brightens a dim picture in YOUR view only — nothing is sent
@@ -310,7 +305,7 @@
                         {# Say what it does, or it gets reported as "night vision is
                            broken". It lifts a dim picture; it cannot show what the
                            camera never captured. #}
-                        <p class="small text-muted mb-1">
+                        <p id="rtcMonitorNote" class="small text-muted mb-1">
                             Brighten lifts a dim picture on your screen only. It cannot see in
                             the dark — a fully dark room needs a camera with infrared.
                         </p>
@@ -1378,9 +1373,31 @@
     // our own CSS instead, which keeps the page and works on every browser.
     (function () {
         var btn  = document.getElementById("rtcFullscreenBtn");
-        var fill = document.getElementById("rtcFitFillBtn");
         var pane = document.getElementById("rtcLive");
         if (!btn || !pane) { return; }
+
+        // Let the page draw out to the screen edges, beside a camera cutout, while
+        // full screen — otherwise Android leaves a grey strip there. Swapped only
+        // for the duration, like theme-color, so the rest of the site is untouched.
+        // The pane pads itself by the safe-area insets, so the picture still sits
+        // clear of the cutout and nothing is hidden behind it.
+        var viewMeta = document.querySelector('meta[name="viewport"]');
+        var viewWas  = viewMeta ? viewMeta.getAttribute("content") : null;
+
+        // Buttons and the note float over the picture and fade away, so the picture
+        // gets the whole screen. A tap brings them back for a few seconds. They stay
+        // while the Brighten menu is in use.
+        var uiTimer = null;
+        function sleepUi() {
+            var sel = document.getElementById("rtcBrightenSelect");
+            if (sel && document.activeElement === sel) { wakeUi(); return; }
+            pane.classList.remove("ui-awake");
+        }
+        function wakeUi() {
+            pane.classList.add("ui-awake");
+            clearTimeout(uiTimer);
+            uiTimer = setTimeout(sleepUi, 4000);
+        }
 
         // Android paints the status bar from theme-color; on black it shows as a
         // teal stripe above a full-screen video. Swapped while full screen, put back
@@ -1397,14 +1414,20 @@
         function inFill() { return pane.classList.contains("fill-window"); }
         function isOn() { return inReal() || inFill(); }
 
+        var wasOn = false;
         function paint() {
             var on = isOn();
             btn.innerHTML = on
                 ? '<i class="bi bi-fullscreen-exit"></i> Exit full screen'
                 : '<i class="bi bi-arrows-fullscreen"></i> Full screen';
             btn.title = on ? "Leave full screen" : "Fill the screen with the video";
-            if (fill) { fill.classList.toggle("d-none", !on); }
             if (themeMeta) { themeMeta.setAttribute("content", on ? "#000000" : themeWas); }
+            if (viewMeta && viewWas !== null) {
+                viewMeta.setAttribute("content", on ? viewWas + ", viewport-fit=cover" : viewWas);
+            }
+            if (on && !wasOn) { wakeUi(); }                 // controls shown first, then fade
+            if (!on) { clearTimeout(uiTimer); pane.classList.remove("ui-awake"); }
+            wasOn = on;
         }
 
         function enter() {
@@ -1436,16 +1459,9 @@
         }
 
         btn.addEventListener("click", function () { isOn() ? leave() : enter(); });
-        // Fit shows the whole frame; Fill crops to use the whole screen. Fit is the
-        // default: cropping can put the very thing being watched out of frame.
-        if (fill) {
-            fill.addEventListener("click", function () {
-                var filling = pane.classList.toggle("video-fill");
-                fill.innerHTML = filling
-                    ? '<i class="bi bi-aspect-ratio"></i> Fit whole frame'
-                    : '<i class="bi bi-arrows-angle-expand"></i> Fill screen';
-            });
-        }
+        // The picture is always shown whole (object-fit: contain, in the CSS).
+        // A tap anywhere in full screen brings the hidden buttons back.
+        pane.addEventListener("click", function () { if (isOn()) { wakeUi(); } });
         document.addEventListener("fullscreenchange", paint);
         document.addEventListener("webkitfullscreenchange", paint);
         // Escape leaves real fullscreen by itself; it must also leave the fallback.
