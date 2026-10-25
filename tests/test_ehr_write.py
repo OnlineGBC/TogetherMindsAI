@@ -662,13 +662,22 @@ def test_expired_contexts_are_swept(client):
 # Loading a session recap ("Load recap") into the note box
 # ===========================================================================
 
+def _sign_in(client, clinician_id="clinician-1"):
+    """The clinician signed in to TMAI (the Epic launch signs them in too). Their
+    login lives in the Flask session; the launch pointer lives in its own cookie."""
+    with client.session_transaction() as s:
+        s["user_id"] = clinician_id
+        s["clinician_id"] = clinician_id
+
 TMAI_SESSION_ID = "AAAABBBBCCCCDDDD"   # SESSION_ID_LENGTH characters
 
 
-def _session_row(session_id=TMAI_SESSION_ID, friendly_name=None):
+def _session_row(session_id=TMAI_SESSION_ID, friendly_name=None,
+                 therapist_id="clinician-1"):
     now = datetime.now(timezone.utc)
     ts = TherapySession(
         id=session_id, mode="solo", created_by="clinician-1", created_at=now,
+        therapist_id=therapist_id,
         friendly_name=friendly_name,
         friendly_name_key=friendly_name_key(friendly_name) if friendly_name else None,
     )
@@ -703,6 +712,7 @@ def test_loading_a_recap_fills_the_note_with_clinical_and_coding_notes(client):
         _session_row()
         _summary_row()
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": TMAI_SESSION_ID})
 
@@ -723,6 +733,7 @@ def test_loading_a_recap_redisplays_the_session_in_the_box(client):
         _session_row()
         _summary_row()
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": TMAI_SESSION_ID})
     assert ('value="%s"' % TMAI_SESSION_ID).encode() in rv.data
@@ -739,9 +750,10 @@ def test_an_unresolved_session_is_still_shown_back_for_correction(client):
     with _WriteOn():
         _context_row()
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": "no-such-session"})
-    assert b'value="no-such-session"' in rv.data
+    assert b"No TogetherMindsAI session found" in rv.data
 
 
 def test_loading_a_recap_by_friendly_name(client):
@@ -750,6 +762,7 @@ def test_loading_a_recap_by_friendly_name(client):
         _session_row(friendly_name="Smith weekly")
         _summary_row()
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": "Smith weekly"})
 
@@ -764,6 +777,7 @@ def test_loading_a_recap_never_reaches_epic(client):
         _session_row()
         _summary_row()
         _hold(client)
+        _sign_in(client)
         with patch.object(routes_ehr, "_post_json") as post:
             client.post("/ehr/load-summary",
                        data={"tmai_session": TMAI_SESSION_ID})
@@ -774,6 +788,7 @@ def test_loading_a_recap_for_an_unknown_session_refuses(client):
     with _WriteOn():
         _context_row()
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": "no-such-session"})
     assert b"No TogetherMindsAI session found" in rv.data
@@ -784,6 +799,7 @@ def test_loading_a_recap_with_no_cached_summary_refuses(client):
         _context_row()
         _session_row()
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": TMAI_SESSION_ID})
     assert b"No summary is cached" in rv.data
@@ -796,6 +812,7 @@ def test_loading_a_recap_appends_cpt_and_pos_as_billing_considerations(client):
         _summary_row(cpt_suggestion={"code": "90834", "label": "Psychotherapy, 45 minutes"},
                     pos={"code": "10", "label": "Telehealth Provided in Patient's Home"})
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": TMAI_SESSION_ID})
 
@@ -810,10 +827,81 @@ def test_loading_a_recap_omits_billing_considerations_when_unknown(client):
         _session_row()
         _summary_row(cpt_suggestion=None, pos=None)
         _hold(client)
+        _sign_in(client)
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": TMAI_SESSION_ID})
 
     assert b"Billing code considerations:" not in rv.data
+
+
+def test_a_clinician_cannot_load_a_session_they_do_not_lead(client):
+    """Another clinician's recap must never land in this chart, by ID or by name.
+    The answer is the same as for a session that does not exist, so the box
+    cannot be used to find out which IDs or names are real."""
+    with _WriteOn():
+        _context_row()
+        _session_row(friendly_name="Smith weekly", therapist_id="someone-else")
+        _summary_row()
+        _hold(client)
+        _sign_in(client)
+        for typed in (TMAI_SESSION_ID, "Smith weekly"):
+            rv = client.post("/ehr/load-summary", data={"tmai_session": typed})
+            assert b"No TogetherMindsAI session found" in rv.data
+            assert b"Client recap here." not in rv.data
+    assert db.session.get(EhrLaunchContext, "launch-1").session_id is None
+
+
+def test_loading_a_recap_needs_a_signed_in_clinician(client):
+    with _WriteOn():
+        _context_row()
+        _session_row()
+        _summary_row()
+        _hold(client)                       # launch is open, but nobody signed in
+        rv = client.post("/ehr/load-summary",
+                         data={"tmai_session": TMAI_SESSION_ID})
+    assert b"Sign in to TogetherMindsAI first" in rv.data
+    assert b"Client recap here." not in rv.data
+
+
+def test_the_pick_list_offers_only_my_sessions_that_have_a_summary(client):
+    with _WriteOn():
+        _context_row()
+        _session_row("MINEWITHSUMMARY01", friendly_name="Jones weekly")
+        _summary_row("MINEWITHSUMMARY01")
+        _session_row("MINENOSUMMARY0001")                       # no summary yet
+        _session_row("THEIRSWITHSUMMARY1", therapist_id="someone-else")
+        _summary_row("THEIRSWITHSUMMARY1")
+        _hold(client)
+        _sign_in(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "99213"})
+    assert b'<option value="MINEWITHSUMMARY01"' in rv.data
+    assert b"Jones weekly" in rv.data
+    assert b"MINENOSUMMARY0001" not in rv.data
+    assert b"THEIRSWITHSUMMARY1" not in rv.data
+    assert b'<input type="text" id="tmai_session"' not in rv.data   # no free typing
+
+
+def test_with_no_sessions_the_page_says_so_instead_of_offering_a_blank_box(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        _sign_in(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "99213"})
+    assert b"No sessions of yours have a saved summary yet" in rv.data
+    assert b"Load recap" not in rv.data
+
+
+def test_the_launch_page_has_a_green_button_that_starts_a_session(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "99213"})
+    assert b"Click here to start your TMAI Session" in rv.data
+    assert b'class="btn-start" href="/therapist"' in rv.data
+    assert b'target="_blank"' in rv.data
 
 
 # ===========================================================================
@@ -883,6 +971,7 @@ def test_the_linked_session_id_is_encrypted_at_rest(client):
         _session_row()
         _summary_row()
         _hold(client)
+        _sign_in(client)
         client.post("/ehr/load-summary", data={"tmai_session": TMAI_SESSION_ID})
 
         raw = db.session.execute(db.text(

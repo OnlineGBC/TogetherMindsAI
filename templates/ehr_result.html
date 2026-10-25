@@ -31,6 +31,10 @@
                border: 1px solid #ced4da; border-radius: 4px; resize: vertical; }
     button { font: inherit; padding: .5rem 1rem; border: 0; border-radius: 4px;
              background: #0d6efd; color: #fff; cursor: pointer; }
+    .btn-start { display: inline-block; padding: .9rem 1.6rem; font-size: 1.2rem;
+                 font-weight: 600; color: #fff; background: #198754;
+                 border-radius: 6px; text-decoration: none; }
+    .btn-start:hover { background: #157347; }
     .banner { padding: .75rem 1rem; border-radius: 4px; margin-top: 1rem; }
     .ok   { background: #d1e7dd; border: 1px solid #a3cfbb; }
     .bad  { background: #f8d7da; border: 1px solid #f1aeb5; }
@@ -54,11 +58,11 @@
   </p>
 
   <p>
-    <a href="/" target="_blank" rel="noopener noreferrer">
-      Open TogetherMindsAI in a new tab &rarr;
+    <a class="btn-start" href="{{ url_for('therapist_start') }}" target="_blank" rel="noopener noreferrer">
+      Click here to start your TMAI Session
     </a>
-    <span class="muted">— to start or join this patient's session there.</span>
   </p>
+  <p class="muted">Opens in a new tab. Keep this page open so you can file the note afterward.</p>
 
   {% if written %}
   <div class="banner ok">
@@ -116,15 +120,26 @@
     <input type="hidden" name="csrf_token" value="{{ ehr_csrf_token }}" />
 
     <h2>Load a session recap (optional)</h2>
+    {% if recap_sessions %}
     <label for="tmai_session" class="muted">
-      TogetherMindsAI session ID or name. Loads that session's cached recap,
-      coding notes, and suggested billing codes into the note below.
+      Pick one of your sessions. Loads its saved recap, coding notes, and
+      suggested billing codes into the note below.
     </label>
-    <input type="text" id="tmai_session" name="tmai_session"
-           value="{{ tmai_session or '' }}" placeholder="Session ID or name" />
+    <select id="tmai_session" name="tmai_session">
+      <option value="" disabled {% if not tmai_session %}selected{% endif %}>Choose a session&hellip;</option>
+      {% for s in recap_sessions %}
+      <option value="{{ s.id }}" {% if s.id == tmai_session %}selected{% endif %}>{{ s.label }}</option>
+      {% endfor %}
+    </select>
     <button type="submit" formaction="{{ url_for('ehr_load_summary') }}">
       Load recap
     </button>
+    {% else %}
+    <p class="muted">
+      No sessions of yours have a saved summary yet. Start a session, open its
+      summary, then reload this page.
+    </p>
+    {% endif %}
 
     <h2>Add an internist billing code (optional)</h2>
     <label for="em_code" class="muted">

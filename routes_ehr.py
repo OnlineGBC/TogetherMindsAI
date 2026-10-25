@@ -374,6 +374,24 @@ def _vendor_label(ctx):
     return ehr.vendor_label(ehr.vendor_for_iss(ctx.iss) if ctx else "")
 
 
+def _my_recap_sessions(clinician_id):
+    """The signed-in clinician's own sessions that already have a saved summary,
+    newest first, for the "Load recap" pick-list. Only sessions they LEAD
+    (therapist_id): the list is the ownership rule, so nothing else can be picked.
+    Empty when nobody is signed in."""
+    if not clinician_id:
+        return []
+    rows = (db.session.query(TherapySession)
+            .join(SessionSummary, SessionSummary.session_id == TherapySession.id)
+            .filter(TherapySession.therapist_id == clinician_id)
+            .order_by(TherapySession.created_at.desc())
+            .limit(50).all())
+    return [{"id": ts.id,
+             "label": "%s — %s — %s" % (ts.friendly_name or ts.id, ts.mode,
+                                        ts.created_at.strftime("%b %d, %Y"))}
+            for ts in rows]
+
+
 def _render_result(*, error=None, written=None, note_text="", ctx=None,
                     notice=None, tmai_session=None):
     """The one place phase 2's outcomes are rendered — a filed note, a refused
@@ -396,6 +414,7 @@ def _render_result(*, error=None, written=None, note_text="", ctx=None,
         scope="", can_write=bool(ctx and not ctx.written_at),
         note_text=note_text, written=written, error=error, notice=notice,
         tmai_session=tmai_session, em_codes=billing_codes.INTERNIST_EM_CODES,
+        recap_sessions=_my_recap_sessions(_tm._current_clinician_id()),
         ehr_csrf_token=(ctx.csrf_token if ctx else "") or "")
 
 
@@ -636,8 +655,18 @@ def register_ehr_routes(app):
             return page(error="That is not a session ID or name.", ctx=ctx,
                         tmai_session=raw)
 
+        clinician_id = _tm._current_clinician_id()
+        if not clinician_id:
+            return page(error="Sign in to TogetherMindsAI first, then pick one "
+                              "of your own sessions.", ctx=ctx, tmai_session=raw)
+
         ts = _find_tmai_session(raw)
-        if ts is None:
+        # A session you do not lead gets the SAME answer as one that does not
+        # exist, so this box cannot be used to find out which IDs or names are
+        # real, and another clinician's recap can never land in this chart.
+        if ts is None or ts.therapist_id != clinician_id:
+            if ts is not None:
+                _tm.app.logger.warning("EHR recap load refused: not the session's clinician")
             return page(error="No TogetherMindsAI session found for that ID "
                               "or name.", ctx=ctx, tmai_session=raw)
 

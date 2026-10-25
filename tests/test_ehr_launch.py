@@ -820,7 +820,7 @@ def test_the_launch_remembers_state_and_the_callback_consumes_it(client):
     assert "Camila Maria Lopez" in ok.get_data(as_text=True)
     # A quick way into the actual app, alongside the note-filing flow — this
     # is a convenience link only, not a linked session.
-    assert 'href="/" target="_blank"' in ok.get_data(as_text=True)
+    assert 'href="/therapist" target="_blank"' in ok.get_data(as_text=True)
 
     # Single use: the same callback again finds nothing to match.
     with _Enabled(), patch.object(routes_ehr, "_post_form") as posted:
