@@ -438,6 +438,23 @@ def test_oauth_login_cookie_has_an_expiry_so_android_keeps_it(client, path):
     assert "expires=" in cookies[0].lower()
 
 
+@pytest.mark.parametrize("path", ["/auth/google/login", "/client/auth/google/login"])
+def test_google_sign_in_asks_for_the_account_picker(client, path):
+    # After Logout, Google must show the account picker instead of silently
+    # signing the same account straight back in.
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get(path)
+    assert fake.authorize_redirect.call_args.kwargs.get("prompt") == "select_account"
+
+
+def test_microsoft_sign_in_is_left_unchanged(client):
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get("/auth/microsoft/login")
+    assert "prompt" not in fake.authorize_redirect.call_args.kwargs
+
+
 def test_oauth_callback_failure_log_says_where_the_browser_came_from(client, caplog):
     fake = MagicMock()
     fake.authorize_access_token.side_effect = Exception("mismatching_state")

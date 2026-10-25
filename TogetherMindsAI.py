@@ -1487,6 +1487,10 @@ def _oauth_start(provider, callback_endpoint, scope=None):
     client = oauth.create_client(provider)
     redirect_uri = url_for(callback_endpoint, provider=provider, _external=True, _scheme="https")
     kwargs = {"scope": scope} if scope else {}
+    if provider == "google":
+        # Without this Google silently re-approves the account that is still signed
+        # in on the phone, so right after Logout it looks as if nobody logged out.
+        kwargs["prompt"] = "select_account"
     # The saved sign-in state rides in the session cookie while the user is on the
     # provider's page. Without an expiry it is a session-only cookie, which Android
     # Chrome can drop during a slow provider step (callback then has no cookie).
