@@ -420,6 +420,38 @@ def test_client_oauth_login_drops_an_old_login_but_keeps_the_return_target(clien
         assert s.get("client_login_next") == "/therapy/couple/ABC123"
 
 
+def _fake_provider_client():
+    fake = MagicMock()
+    fake.authorize_redirect.side_effect = lambda *a, **k: tm.redirect("https://accounts.example/auth")
+    return fake
+
+
+@pytest.mark.parametrize("path", ["/auth/google/login", "/client/auth/google/login"])
+def test_oauth_login_cookie_has_an_expiry_so_android_keeps_it(client, path):
+    # The saved sign-in state rides in this cookie while the user is on Google's
+    # page. A session-only cookie (no Expires) can be dropped by Android Chrome
+    # during a slow Google step, so the callback arrives with no cookie.
+    with patch.object(tm.oauth, "create_client", return_value=_fake_provider_client()):
+        rv = client.get(path)
+    cookies = rv.headers.getlist("Set-Cookie")
+    assert cookies, "sign-in start must set the session cookie"
+    assert "expires=" in cookies[0].lower()
+
+
+def test_oauth_callback_failure_log_says_where_the_browser_came_from(client, caplog):
+    fake = MagicMock()
+    fake.authorize_access_token.side_effect = Exception("mismatching_state")
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        with caplog.at_level("ERROR"):
+            client.get("/auth/google/callback?state=abc",
+                       headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+                                "Sec-Fetch-Dest": "document", "Referer": "https://accounts.google.com/"})
+    diag = [r.getMessage() for r in caplog.records if "OAUTH-DIAG" in r.getMessage()]
+    assert diag and "sec_fetch=cross-site/navigate/document" in diag[0]
+    assert "referer_host=accounts.google.com" in diag[0]
+    assert "any_cookie=False" in diag[0]
+
+
 # ---------------------------------------------------------------------------
 # Join-time participation tracking (silent attendees still get their session)
 # ---------------------------------------------------------------------------

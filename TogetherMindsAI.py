@@ -14,6 +14,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import io
@@ -1486,6 +1487,13 @@ def _oauth_start(provider, callback_endpoint, scope=None):
     client = oauth.create_client(provider)
     redirect_uri = url_for(callback_endpoint, provider=provider, _external=True, _scheme="https")
     kwargs = {"scope": scope} if scope else {}
+    # The saved sign-in state rides in the session cookie while the user is on the
+    # provider's page. Without an expiry it is a session-only cookie, which Android
+    # Chrome can drop during a slow provider step (callback then has no cookie).
+    session.permanent = True
+    app.logger.info("OAUTH-START provider=%s callback=%s cookie_sent=%s",
+                    provider, callback_endpoint,
+                    app.config["SESSION_COOKIE_NAME"] in request.cookies)
     return client.authorize_redirect(redirect_uri, **kwargs)
 
 
@@ -1508,10 +1516,14 @@ def _oauth_userinfo(provider):
         saved = [k for k in session.keys() if str(k).startswith("_state_")]
         app.logger.error(
             "OAUTH-DIAG provider=%s cookie_sent=%s session_keys=%d saved_states=%d "
-            "state_in_session=%s ua=%s",
+            "state_in_session=%s any_cookie=%s sec_fetch=%s/%s/%s referer_host=%s ua=%s",
             provider, app.config["SESSION_COOKIE_NAME"] in request.cookies,
             len(session), len(saved),
             any(k.endswith(request.args.get("state", "\0")) for k in saved),
+            bool(request.headers.get("Cookie")),
+            request.headers.get("Sec-Fetch-Site"), request.headers.get("Sec-Fetch-Mode"),
+            request.headers.get("Sec-Fetch-Dest"),
+            urlparse(request.headers.get("Referer") or "").netloc,
             (request.headers.get("User-Agent") or "")[:80])
         return None
     return token.get("userinfo") or {}
