@@ -186,12 +186,29 @@ def test_the_chart_summary_prompt_keeps_every_topic_and_leaves_judgment_to_the_c
     assert "judgment belongs to the clinician" in p
 
 
-def test_the_chart_summary_prompt_forbids_judging_anyone_or_guessing_intent():
+def test_the_chart_summary_prompt_forbids_judging_anyone_but_welcomes_positive_judgments():
     p = clinical_summary._EHR_BRIEF_SYSTEM
-    assert "neutral or positive tone only" in p.lower()
+    assert "Positive judgments are welcome; negative ones are not." in p
     assert "Never criticize, doubt, or judge" in p
     for banned in ("unrelated", "irrelevant", "off-topic", "poor", "wasted"):
         assert banned in p      # named as words NOT to use
+
+
+def test_the_chart_summary_prompt_opens_warmly_and_uses_positive_or_neutral_verbs():
+    p = clinical_summary._EHR_BRIEF_SYSTEM
+    assert "Open with a warm, positive framing" in p
+    assert "the clinician shared" in p
+    for avoided in ('"almost entirely"', '"mostly"', '"only"', '"just"', '"merely"', '"reading"'):
+        assert avoided in p     # named as wording NOT to use
+
+
+def test_the_chart_summary_prompt_states_what_was_not_discussed_once_without_judgment():
+    p = clinical_summary._EHR_BRIEF_SYSTEM
+    assert "say so once, as a plain fact, without judgment words" in p
+
+
+def test_the_chart_summary_prompt_leaves_room_for_every_topic():
+    assert "up to about 200 words" in clinical_summary._EHR_BRIEF_SYSTEM
 
 
 def test_the_chart_summary_prompt_asks_for_the_essentials():
