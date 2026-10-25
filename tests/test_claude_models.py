@@ -190,17 +190,24 @@ def test_the_chart_summary_prompt_forbids_judging_anyone_or_guessing_intent():
     p = clinical_summary._EHR_BRIEF_SYSTEM
     assert "neutral or positive tone only" in p.lower()
     assert "Never criticize, doubt, or judge" in p
-    assert "cannot know anyone's intent" in p
     for banned in ("unrelated", "irrelevant", "off-topic", "poor", "wasted"):
         assert banned in p      # named as words NOT to use
 
 
-def test_the_chart_summary_prompt_asks_for_the_essentials_and_neutral_unclear_context():
+def test_the_chart_summary_prompt_asks_for_the_essentials():
     p = clinical_summary._EHR_BRIEF_SYSTEM
     assert "risk or safety signal" in p
     assert "next steps" in p
     assert "group session" in p
-    assert "the speaker and context are unclear" in p
+
+
+def test_the_chart_summary_prompt_has_no_intent_rule_and_no_unclear_speaker_rule():
+    """Both were removed on request (2026-10-25). Pinned so they do not creep back."""
+    p = clinical_summary._EHR_BRIEF_SYSTEM.lower()
+    assert "intent" not in p
+    assert "never why" not in p
+    assert "cannot tell who said" not in p
+    assert "unclear" not in p
 
 
 def test_the_chart_summary_prompt_does_not_ask_for_a_little_clinical_content_remark():
