@@ -1476,18 +1476,40 @@ def _inject_auth_state():
 # each role's route owns only "which account to create and where to send them".
 # ---------------------------------------------------------------------------
 
-def _oauth_start(provider, callback_endpoint, scope=None):
+# Marks the one automatic re-try of a sign-in whose cookie went missing. It rides in
+# the OAuth `state` (the provider hands it back unchanged) because the cookie is
+# exactly what was lost, so the guard cannot live there.
+_OAUTH_RETRY_PREFIX = "r1."
+
+
+def _oauth_retry_url(provider, login_endpoint):
+    """URL to restart a sign-in whose callback arrived with no session cookie, or
+    None when no retry applies (already retried, user cancelled, cookie present)."""
+    state = request.args.get("state") or ""
+    if not request.args.get("code") or state.startswith(_OAUTH_RETRY_PREFIX):
+        return None
+    if app.config["SESSION_COOKIE_NAME"] in request.cookies:
+        return None
+    app.logger.warning("OAUTH-RETRY provider=%s: callback had no session cookie, restarting once", provider)
+    return url_for(login_endpoint, provider=provider, retry=1)
+
+
+def _oauth_start(provider, callback_endpoint, scope=None, retry=False):
     """Redirect the user to the provider's consent screen, returning to
     `callback_endpoint`. Returns a Flask response (redirect or error).
 
     `scope` overrides the registered scope for this flow only (the clinician
-    flow requests "openid email"; the client flow keeps the default "openid")."""
+    flow requests "openid email"; the client flow keeps the default "openid").
+    `retry` marks the single automatic re-try after a lost cookie: it skips the
+    account picker (the user just chose) and tags the state so it never loops."""
     if provider not in _OAUTH_PROVIDERS:
         return _redirect_invalid_session()
     client = oauth.create_client(provider)
     redirect_uri = url_for(callback_endpoint, provider=provider, _external=True, _scheme="https")
     kwargs = {"scope": scope} if scope else {}
-    if provider == "google":
+    if retry:
+        kwargs["state"] = _OAUTH_RETRY_PREFIX + secrets.token_urlsafe(32)
+    elif provider == "google":
         # Without this Google silently re-approves the account that is still signed
         # in on the phone, so right after Logout it looks as if nobody logged out.
         kwargs["prompt"] = "select_account"

@@ -53,7 +53,8 @@ def register_oauth_routes(app):
         session.clear()
         if nxt:
             session["post_login_next"] = nxt
-        return _tm._oauth_start(provider, "oauth_callback", scope="openid email")
+        return _tm._oauth_start(provider, "oauth_callback", scope="openid email",
+                                retry=bool(request.args.get("retry")))
 
     @app.route("/auth/<provider>/callback")
     def oauth_callback(provider):
@@ -62,6 +63,9 @@ def register_oauth_routes(app):
         info = _tm._oauth_userinfo(provider)
         subject = info.get("sub") if info else None
         if not subject:
+            retry_url = _tm._oauth_retry_url(provider, "oauth_login")
+            if retry_url:
+                return redirect(retry_url)
             # Clear first. A sign-in that fails half way must not leave you signed
             # in as whoever you were before: the next page load would then act on
             # the OLD identity, and any message about it reads as if it were about
@@ -153,7 +157,8 @@ def register_oauth_routes(app):
         session.clear()
         if nxt:
             session["client_login_next"] = nxt
-        return _tm._oauth_start(provider, "client_oauth_callback")
+        return _tm._oauth_start(provider, "client_oauth_callback",
+                                retry=bool(request.args.get("retry")))
 
     @app.route("/client/auth/<provider>/callback")
     def client_oauth_callback(provider):
@@ -161,6 +166,9 @@ def register_oauth_routes(app):
             return _tm._redirect_invalid_session()
         subject = _tm._oauth_subject(provider)
         if not subject:
+            retry_url = _tm._oauth_retry_url(provider, "client_oauth_login")
+            if retry_url:
+                return redirect(retry_url)
             flash("Sign-in did not complete. Please try again.", "warning")
             return redirect(url_for("client_login"))
 

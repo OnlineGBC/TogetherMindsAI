@@ -455,6 +455,63 @@ def test_microsoft_sign_in_is_left_unchanged(client):
     assert "prompt" not in fake.authorize_redirect.call_args.kwargs
 
 
+def _failing_provider_client():
+    fake = MagicMock()
+    fake.authorize_access_token.side_effect = Exception("mismatching_state")
+    return fake
+
+
+@pytest.mark.parametrize("callback,login", [
+    ("/auth/google/callback", "/auth/google/login?retry=1"),
+    ("/client/auth/google/callback", "/client/auth/google/login?retry=1"),
+])
+def test_callback_with_no_cookie_restarts_sign_in_once_automatically(client, callback, login):
+    with patch.object(tm.oauth, "create_client", return_value=_failing_provider_client()):
+        rv = client.get(callback + "?state=abc123&code=xyz")
+    assert rv.status_code == 302
+    assert rv.headers["Location"].endswith(login)
+
+
+@pytest.mark.parametrize("callback,failed_to", [
+    ("/auth/google/callback", "/login"),
+    ("/client/auth/google/callback", "/client/login"),
+])
+def test_retried_sign_in_that_fails_again_does_not_loop(client, callback, failed_to):
+    with patch.object(tm.oauth, "create_client", return_value=_failing_provider_client()):
+        rv = client.get(callback + "?state=r1.abc123&code=xyz")
+    assert rv.headers["Location"].endswith(failed_to)   # error page, not another retry
+
+
+def test_no_retry_when_the_user_cancelled_at_the_provider(client):
+    with patch.object(tm.oauth, "create_client", return_value=_failing_provider_client()):
+        rv = client.get("/auth/google/callback?state=abc123&error=access_denied")
+    assert rv.headers["Location"].endswith("/login")
+
+
+def test_no_retry_when_the_cookie_did_arrive(client):
+    with client.session_transaction() as s:
+        s["something"] = "x"        # makes the test client send a session cookie
+    with patch.object(tm.oauth, "create_client", return_value=_failing_provider_client()):
+        rv = client.get("/auth/google/callback?state=abc123&code=xyz")
+    assert rv.headers["Location"].endswith("/login")
+
+
+def test_retry_start_tags_the_state_and_skips_the_account_picker(client):
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get("/auth/google/login?retry=1")
+    kwargs = fake.authorize_redirect.call_args.kwargs
+    assert kwargs["state"].startswith("r1.") and len(kwargs["state"]) > 20
+    assert "prompt" not in kwargs
+
+
+def test_normal_start_has_no_retry_tag(client):
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get("/auth/google/login")
+    assert "state" not in fake.authorize_redirect.call_args.kwargs
+
+
 def test_oauth_callback_failure_log_says_where_the_browser_came_from(client, caplog):
     fake = MagicMock()
     fake.authorize_access_token.side_effect = Exception("mismatching_state")
