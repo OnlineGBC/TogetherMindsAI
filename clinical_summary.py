@@ -38,7 +38,7 @@ from ai_therapist import _get_claude_client, claude_create, claude_text
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["generate", "generate_ehr_brief", "DISCLAIMER"]
+__all__ = ["generate", "generate_ehr_brief", "DISCLAIMER", "EHR_REVIEW_LINE"]
 
 # The full clinical summary is an infrequent, on-demand, quality-sensitive call. It
 # uses the app's SMART model (config.CLAUDE_MODEL_SMART, Sonnet 5.5; it was Opus 4.8
@@ -134,14 +134,35 @@ def _call(system_prompt: str, user_content: str, label: str, max_tokens: int = M
 
 
 _EHR_BRIEF_SYSTEM = (
-    "You are a clinical documentation assistant. Write a SHORT, high-level summary of "
-    "one therapy session for the clinician to file in the patient's medical chart.\n\n"
-    "Three to five sentences, under 120 words. Cover the main topics, the overall mood, "
-    "any risk or safety signal that came up (leave risk out if none did), and any next "
-    "steps that were agreed. Refer to the person only as \"the patient\". Do not quote "
-    "them, give a diagnosis, or name a code. Write at an 8th-grade reading level in "
-    "plain, factual sentences.\n\n" + _GROUNDING
+    "You are a clinical documentation assistant. Summarize one session for the "
+    "clinician to file in the patient's medical chart. Report what the transcript "
+    "contains; the clinician decides what it means.\n\n"
+    "Rules:\n"
+    "- Be specific. Name the actual topics and details that came up, including ones "
+    "that seem unrelated to therapy (news, advertisements, everyday chat). Never leave "
+    "a topic out because it seems off-topic: that judgment belongs to the clinician.\n"
+    "- Use a neutral or positive tone only. Never criticize, doubt, or judge the "
+    "patient, the clinician, or the session. Do not use words such as unrelated, "
+    "irrelevant, off-topic, poor, or wasted. You cannot know anyone's intent, so "
+    "describe what was said and never why. Casual conversation can simply be called "
+    "casual, and a positive framing is welcome when it comes naturally (for example, "
+    "casual conversation, possibly building general comfort).\n"
+    "- Say plainly whether a risk or safety signal was identified (or that none was "
+    "identified), whether next steps were agreed (or that none were recorded), and "
+    "whether it was a group session. If the transcript does not include discussion of "
+    "the patient's concerns, mood, or treatment goals, you may state that factually.\n"
+    "- If you cannot tell who said something or what the context was, say so in one "
+    "neutral sentence (for example, the speaker and context are unclear).\n"
+    "- Refer to the person only as \"the patient\". Do not quote at length, give a "
+    "diagnosis, or name a code. Do not add a closing review reminder; one is added "
+    "for you.\n"
+    "- Write at an 8th-grade reading level in plain, factual sentences, in one "
+    "paragraph of up to about 150 words.\n\n" + _GROUNDING
 )
+
+# The standing last line of every chart note. Added by the code, not the model, so it
+# is always there and always worded the same.
+EHR_REVIEW_LINE = "The transcript should be reviewed for accuracy before filing."
 
 
 def generate_ehr_brief(transcript: str, mode: str = "solo") -> str:
@@ -155,7 +176,7 @@ def generate_ehr_brief(transcript: str, mode: str = "solo") -> str:
         _EHR_BRIEF_SYSTEM,
         f"Session type: {mode}.\n\nTranscript (speaker-labelled):\n{transcript}"
         "\n\nWrite the chart summary now.",
-        label="ehr_brief", max_tokens=600, model=config.CLAUDE_MODEL_FAST,
+        label="ehr_brief", max_tokens=800, model=config.CLAUDE_MODEL_FAST,
     )
 
 

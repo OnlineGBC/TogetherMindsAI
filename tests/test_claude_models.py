@@ -175,3 +175,40 @@ def test_the_ehr_brief_is_empty_not_an_error_when_the_call_fails():
     client.messages.create.side_effect = RuntimeError("API down")
     with patch("clinical_summary._get_claude_client", return_value=client):
         assert clinical_summary.generate_ehr_brief("Client: hi") == ""
+
+
+# --- the tone and content rules of the chart summary ------------------------
+
+def test_the_chart_summary_prompt_keeps_every_topic_and_leaves_judgment_to_the_clinician():
+    p = clinical_summary._EHR_BRIEF_SYSTEM
+    assert "Be specific" in p
+    assert "Never leave a topic out" in p
+    assert "judgment belongs to the clinician" in p
+
+
+def test_the_chart_summary_prompt_forbids_judging_anyone_or_guessing_intent():
+    p = clinical_summary._EHR_BRIEF_SYSTEM
+    assert "neutral or positive tone only" in p.lower()
+    assert "Never criticize, doubt, or judge" in p
+    assert "cannot know anyone's intent" in p
+    for banned in ("unrelated", "irrelevant", "off-topic", "poor", "wasted"):
+        assert banned in p      # named as words NOT to use
+
+
+def test_the_chart_summary_prompt_asks_for_the_essentials_and_neutral_unclear_context():
+    p = clinical_summary._EHR_BRIEF_SYSTEM
+    assert "risk or safety signal" in p
+    assert "next steps" in p
+    assert "group session" in p
+    assert "the speaker and context are unclear" in p
+
+
+def test_the_chart_summary_prompt_does_not_ask_for_a_little_clinical_content_remark():
+    p = clinical_summary._EHR_BRIEF_SYSTEM.lower()
+    assert "little clinical content" not in p
+    assert "enough clinical content" not in p
+
+
+def test_the_model_is_told_not_to_write_the_review_reminder_because_one_is_added():
+    assert "Do not add a closing review reminder" in clinical_summary._EHR_BRIEF_SYSTEM
+    assert clinical_summary.EHR_REVIEW_LINE == "The transcript should be reviewed for accuracy before filing."
