@@ -53,8 +53,9 @@ def register_oauth_routes(app):
         session.clear()
         if nxt:
             session["post_login_next"] = nxt
+        retry = bool(request.args.get("retry"))
         return _tm._oauth_start(provider, "oauth_callback", scope="openid email",
-                                retry=bool(request.args.get("retry")))
+                                retry=retry, login_hint=_tm._login_hint() if retry else None)
 
     @app.route("/auth/<provider>/callback")
     def oauth_callback(provider):
@@ -123,7 +124,8 @@ def register_oauth_routes(app):
         session.permanent = True
         _tm.log_event("clinician_login", user_id=clinician.id, provider=provider)
         # Return to where they came from (e.g. a download link), else the dashboard.
-        return redirect(nxt or url_for("therapist_start"))
+        return _tm._remember_login_hint(
+            redirect(nxt or url_for("therapist_start")), provider, email or clinician.email)
 
     @app.route("/logout")
     def logout():

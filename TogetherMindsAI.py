@@ -1482,6 +1482,27 @@ def _inject_auth_state():
 _OAUTH_RETRY_PREFIX = "r1."
 
 
+# Which Google account last signed in on this browser. Used ONLY as Google's
+# `login_hint` on the one automatic re-try, so Google picks the same account instead
+# of asking. A hint can only pre-select an account; it grants nothing.
+_LOGIN_HINT_COOKIE = "tm_login_hint"
+
+
+def _remember_login_hint(response, provider, email):
+    """Save the signed-in Google account's email on `response` (kept a year, apart
+    from the session cookie so it survives a lost or cleared login cookie)."""
+    if provider == "google" and email and "@" in email and len(email) <= 254:
+        response.set_cookie(_LOGIN_HINT_COOKIE, email, max_age=365 * 24 * 3600, path="/",
+                            secure=config.IS_PRODUCTION, httponly=True, samesite="Lax")
+    return response
+
+
+def _login_hint():
+    """The saved account email, or None when missing or not shaped like an email."""
+    value = (request.cookies.get(_LOGIN_HINT_COOKIE) or "").strip()
+    return value if "@" in value and " " not in value and len(value) <= 254 else None
+
+
 def _oauth_retry_url(provider, login_endpoint):
     """URL to restart a sign-in whose callback arrived with no session cookie, or
     None when no retry applies (already retried, user cancelled, cookie present)."""
@@ -1494,14 +1515,15 @@ def _oauth_retry_url(provider, login_endpoint):
     return url_for(login_endpoint, provider=provider, retry=1)
 
 
-def _oauth_start(provider, callback_endpoint, scope=None, retry=False):
+def _oauth_start(provider, callback_endpoint, scope=None, retry=False, login_hint=None):
     """Redirect the user to the provider's consent screen, returning to
     `callback_endpoint`. Returns a Flask response (redirect or error).
 
     `scope` overrides the registered scope for this flow only (the clinician
     flow requests "openid email"; the client flow keeps the default "openid").
     `retry` marks the single automatic re-try after a lost cookie: it skips the
-    account picker (the user just chose) and tags the state so it never loops."""
+    account picker (the user just chose) and tags the state so it never loops.
+    `login_hint` (an email) lets Google pre-select that account on the re-try."""
     if provider not in _OAUTH_PROVIDERS:
         return _redirect_invalid_session()
     client = oauth.create_client(provider)
@@ -1509,6 +1531,8 @@ def _oauth_start(provider, callback_endpoint, scope=None, retry=False):
     kwargs = {"scope": scope} if scope else {}
     if retry:
         kwargs["state"] = _OAUTH_RETRY_PREFIX + secrets.token_urlsafe(32)
+        if provider == "google" and login_hint:
+            kwargs["login_hint"] = login_hint
     elif provider == "google":
         # Without this Google silently re-approves the account that is still signed
         # in on the phone, so right after Logout it looks as if nobody logged out.

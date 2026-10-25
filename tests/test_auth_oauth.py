@@ -512,6 +512,60 @@ def test_normal_start_has_no_retry_tag(client):
     assert "state" not in fake.authorize_redirect.call_args.kwargs
 
 
+def _signed_in_callback(client, provider="google", userinfo=None):
+    fake = MagicMock()
+    fake.authorize_access_token.return_value = {
+        "userinfo": userinfo or {"sub": "sub-hint", "email": "Doc@Example.com"}}
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        return client.get(f"/auth/{provider}/callback?state=abc&code=xyz")
+
+
+def test_successful_google_sign_in_remembers_the_account_in_its_own_cookie(client):
+    rv = _signed_in_callback(client)
+    hint = [c for c in rv.headers.getlist("Set-Cookie") if c.startswith("tm_login_hint=")]
+    assert hint, "a successful Google sign-in must save the account hint"
+    assert "doc@example.com" in hint[0].lower().replace("%40", "@")
+    assert "HttpOnly" in hint[0] and "SameSite=Lax" in hint[0]
+    assert "Max-Age=31536000" in hint[0]
+
+
+def test_no_hint_cookie_without_an_email_or_for_other_providers(client):
+    rv = _signed_in_callback(client, userinfo={"sub": "sub-no-email"})
+    assert not any(c.startswith("tm_login_hint=") for c in rv.headers.getlist("Set-Cookie"))
+    rv = _signed_in_callback(client, provider="microsoft",
+                             userinfo={"sub": "ms-sub", "email": "a@b.com"})
+    assert not any(c.startswith("tm_login_hint=") for c in rv.headers.getlist("Set-Cookie"))
+
+
+def test_retry_start_passes_the_saved_account_to_google(client):
+    client.set_cookie("tm_login_hint", "doc@example.com")
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get("/auth/google/login?retry=1")
+    assert fake.authorize_redirect.call_args.kwargs["login_hint"] == "doc@example.com"
+
+
+def test_hint_is_used_only_on_the_retry_and_only_when_it_looks_like_an_email(client):
+    client.set_cookie("tm_login_hint", "doc@example.com")
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get("/auth/google/login")                    # normal start: picker, no hint
+    assert "login_hint" not in fake.authorize_redirect.call_args.kwargs
+    client.set_cookie("tm_login_hint", "not an email")
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get("/auth/google/login?retry=1")            # junk value ignored
+    assert "login_hint" not in fake.authorize_redirect.call_args.kwargs
+
+
+def test_client_sign_in_retry_never_gets_a_clinician_hint(client):
+    client.set_cookie("tm_login_hint", "doc@example.com")
+    fake = _fake_provider_client()
+    with patch.object(tm.oauth, "create_client", return_value=fake):
+        client.get("/client/auth/google/login?retry=1")
+    assert "login_hint" not in fake.authorize_redirect.call_args.kwargs
+
+
 def test_oauth_callback_failure_log_says_where_the_browser_came_from(client, caplog):
     fake = MagicMock()
     fake.authorize_access_token.side_effect = Exception("mismatching_state")
