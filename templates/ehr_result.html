@@ -30,12 +30,19 @@
     textarea { width: 100%; min-height: 12rem; font: inherit; padding: .5rem;
                border: 1px solid #ced4da; border-radius: 4px; resize: vertical; }
     button { font: inherit; padding: .5rem 1rem; border: 0; border-radius: 4px;
-             background: #0d6efd; color: #fff; cursor: pointer; }
+             background: #198754; color: #fff; cursor: pointer; }
+    button:hover { background: #157347; }
     .btn-start { display: inline-block; padding: .9rem 1.6rem; font-size: 1.2rem;
                  font-weight: 600; color: #fff; background: #198754;
                  border-radius: 6px; text-decoration: none; }
     .btn-start:hover { background: #157347; }
     .btn-quiet { background: #6c757d; }
+    .btn-quiet:hover { background: #5c636a; }
+    /* While an AI summary is being written, its button blinks so it is clear that
+       something is happening. Steady (no blinking) for people who reduce motion. */
+    @keyframes tm-blink { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+    .btn-generating { animation: tm-blink 1s ease-in-out infinite; cursor: progress; }
+    @media (prefers-reduced-motion: reduce) { .btn-generating { animation: none; } }
     .banner { padding: .75rem 1rem; border-radius: 4px; margin-top: 1rem; }
     .ok   { background: #d1e7dd; border: 1px solid #a3cfbb; }
     .bad  { background: #f8d7da; border: 1px solid #f1aeb5; }
@@ -132,7 +139,7 @@
       <option value="{{ s.id }}" {% if s.id == tmai_session %}selected{% endif %}>{{ s.label }}</option>
       {% endfor %}
     </select>
-    <button type="submit" formaction="{{ url_for('ehr_load_summary') }}">
+    <button type="submit" data-generates formaction="{{ url_for('ehr_load_summary') }}">
       Load recap
     </button>
     {% else %}
@@ -178,5 +185,27 @@
     </button>
   </form>
   {% endif %}
+  <script>
+    // Pressing a button marked data-generates starts an AI summary, which takes a
+    // few seconds. Show that it is working, and ignore a second press meanwhile.
+    document.addEventListener("submit", function (e) {
+      var b = e.submitter;
+      if (!b || !b.hasAttribute("data-generates")) return;
+      if (b.classList.contains("btn-generating")) { e.preventDefault(); return; }
+      b.dataset.label = b.textContent;
+      b.classList.add("btn-generating");
+      b.setAttribute("aria-busy", "true");
+      b.textContent = "Generating . . .";
+    });
+    // Coming back to this page with the Back button must not show a stuck button.
+    window.addEventListener("pageshow", function (e) {
+      if (!e.persisted) return;
+      document.querySelectorAll(".btn-generating").forEach(function (b) {
+        b.classList.remove("btn-generating");
+        b.removeAttribute("aria-busy");
+        if (b.dataset.label) b.textContent = b.dataset.label;
+      });
+    });
+  </script>
 </body>
 </html>

@@ -986,6 +986,8 @@ def test_the_pick_list_shows_all_my_sessions_with_name_and_session_id(client):
     assert b"(no conversation yet)" in rv.data
     assert b"THEIRSNOTMINE0001" not in rv.data
     assert b'<input type="text" id="tmai_session"' not in rv.data            # no free typing
+    assert b"data-generates" in rv.data              # Load recap shows "Generating . . ." while it works
+    assert b"#0d6efd" not in rv.data                 # no blue buttons on this page
 
 
 def test_the_newest_session_with_a_conversation_is_preselected(client):

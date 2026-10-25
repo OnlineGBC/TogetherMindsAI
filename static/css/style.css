@@ -60,6 +60,32 @@ main.container {
 /* ---- Color utilities ---- */
 .text-primary-green { color: var(--green-primary) !important; }
 
+/* Every Bootstrap "primary" button is green, matching the rest of the app (it was
+   Bootstrap's default blue). Uses Bootstrap's own button variables so hover, focus,
+   active and disabled states stay consistent. */
+.btn-primary {
+    --bs-btn-bg: #198754;
+    --bs-btn-border-color: #198754;
+    --bs-btn-hover-bg: #157347;
+    --bs-btn-hover-border-color: #146c43;
+    --bs-btn-active-bg: #146c43;
+    --bs-btn-active-border-color: #13653f;
+    --bs-btn-disabled-bg: #198754;
+    --bs-btn-disabled-border-color: #198754;
+    --bs-btn-focus-shadow-rgb: 60, 153, 110;
+}
+.btn-outline-primary {
+    --bs-btn-color: #198754;
+    --bs-btn-border-color: #198754;
+    --bs-btn-hover-bg: #198754;
+    --bs-btn-hover-border-color: #198754;
+    --bs-btn-active-bg: #198754;
+    --bs-btn-active-border-color: #198754;
+    --bs-btn-disabled-color: #198754;
+    --bs-btn-disabled-border-color: #198754;
+    --bs-btn-focus-shadow-rgb: 25, 135, 84;
+}
+
 .btn-primary-green {
     background: linear-gradient(135deg, var(--green-primary), var(--teal-primary));
     border: none;
