@@ -63,6 +63,3 @@ stripe>=9.0.0
 # Patient-consent demo video (video_demo/) — spoken narration + slide images
 edge-tts==7.2.8
 pillow==12.2.0
-# UNUSED: only the NDA generator needed this, and it was removed on 2026-06-28.
-# Safe to delete (nothing imports msoffcrypto).
-msoffcrypto-tool==6.0.0
