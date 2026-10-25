@@ -35,6 +35,7 @@
                  font-weight: 600; color: #fff; background: #198754;
                  border-radius: 6px; text-decoration: none; }
     .btn-start:hover { background: #157347; }
+    .btn-quiet { background: #6c757d; }
     .banner { padding: .75rem 1rem; border-radius: 4px; margin-top: 1rem; }
     .ok   { background: #d1e7dd; border: 1px solid #a3cfbb; }
     .bad  { background: #f8d7da; border: 1px solid #f1aeb5; }
@@ -122,8 +123,8 @@
     <h2>Load a session recap (optional)</h2>
     {% if recap_sessions %}
     <label for="tmai_session" class="muted">
-      Pick one of your sessions. Loads its saved recap, coding notes, and
-      suggested billing codes into the note below.
+      Pick one of your sessions. Writes a short, high-level summary of it into the
+      note below, with a link to the full TogetherMindsAI analysis.
     </label>
     <select id="tmai_session" name="tmai_session">
       <option value="" disabled {% if not tmai_session %}selected{% endif %}>Choose a session&hellip;</option>
@@ -135,11 +136,15 @@
       Load recap
     </button>
     {% else %}
-    <p class="muted">
-      No sessions of yours have a saved summary yet. Start a session, open its
-      summary, then reload this page.
-    </p>
+    <p class="muted">No sessions have been started yet.</p>
     {% endif %}
+    <button type="submit" class="btn-quiet" formaction="{{ url_for('ehr_refresh_sessions') }}">
+      Refresh my sessions
+    </button>
+    <p class="muted" style="margin-top:.4rem">
+      Started a session after opening this page? Press Refresh. (Reloading the
+      page itself does not work: Epic's sign-in code can be used only once.)
+    </p>
 
     <h2>Add an internist billing code (optional)</h2>
     <label for="em_code" class="muted">

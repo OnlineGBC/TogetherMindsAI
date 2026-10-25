@@ -86,6 +86,53 @@ def _get_claude_client():
     return _claude_client
 
 
+def claude_text(response) -> str:
+    """The reply text of a Messages response: the first TEXT block, stripped.
+
+    Never `response.content[0].text`. Sonnet 5.5 and Haiku 5.5 think by default, so
+    a thinking block can come first and has no `.text`; indexing blindly turned that
+    into an exception the callers swallow, i.e. a silently empty co-pilot or summary.
+    Returns "" when there is no text."""
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", None) in ("thinking", "redacted_thinking"):
+            continue
+        text = getattr(block, "text", None)
+        if isinstance(text, str):
+            return text.strip()
+    return ""
+
+
+def _thinking_off(model: str) -> dict:
+    """Request settings that keep a SHORT call from spending its token budget on
+    thinking. Sonnet 5.5 rejects {"type": "disabled"} (400) and uses "between_tools"
+    to turn thinking off; Haiku 5.5 accepts "disabled". Other models: leave alone."""
+    name = (model or "").lower()
+    if "haiku-5" in name:
+        return {"thinking": {"type": "disabled"}}
+    if "sonnet-5-5" in name:
+        return {"thinking": {"type": "between_tools"}}
+    return {}
+
+
+def claude_create(client, **kwargs):
+    """`client.messages.create` for a short answer, with thinking turned off.
+
+    If the API refuses that setting (a 400), retry ONCE without it and log it, so a
+    settings mismatch can never take the co-pilot or the summary down. Anything else
+    is raised for the caller to handle as before."""
+    extra = _thinking_off(kwargs.get("model"))
+    try:
+        return client.messages.create(**kwargs, **extra)
+    except Exception as exc:
+        if extra and exc.__class__.__name__ == "BadRequestError":
+            import logging
+            logging.getLogger(__name__).warning(
+                "Claude refused the thinking-off setting for %s (%s); retrying without it.",
+                kwargs.get("model"), exc)
+            return client.messages.create(**kwargs)
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Detection helpers
 # ---------------------------------------------------------------------------

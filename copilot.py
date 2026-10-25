@@ -23,7 +23,9 @@ Design notes
 import json
 import logging
 
-from ai_therapist import _get_claude_client, detect_crisis, detect_escalation
+import config
+
+from ai_therapist import _get_claude_client, claude_create, claude_text, detect_crisis, detect_escalation
 from clinical_reference import build_reference_cards, format_reference_block, retrieve
 
 logger = logging.getLogger(__name__)
@@ -40,9 +42,9 @@ SUGGESTION_CARD_TYPES = {"question", "technique", "observation"}
 MAX_CARDS_PER_TURN = 3
 
 # Model for the suggestion (question/technique/observation) call. Behind a
-# constant so swapping to a stronger model (e.g. "claude-opus-4-8") is one edit.
+# constant so swapping to a different model is one edit (config.CLAUDE_MODEL_SMART).
 # The grounded reference/risk layers are deterministic and don't use a model.
-ADVISOR_MODEL = "claude-sonnet-4-6"
+ADVISOR_MODEL = config.CLAUDE_MODEL_SMART
 
 _MODE_FRAMING = {
     "solo":   "a one-on-one session between the therapist and a single client",
@@ -171,13 +173,14 @@ def answer_therapist(question: str, transcript: str = "", notes: str = "", mode:
 
     try:
         client = _get_claude_client()
-        response = client.messages.create(
+        response = claude_create(
+            client,
             model=ADVISOR_MODEL,
             max_tokens=400,
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
-        return (response.content[0].text or "").strip()
+        return claude_text(response)
     except Exception as exc:
         logger.warning("Co-pilot reply generation failed (%s).", exc)
         return ""
@@ -215,13 +218,14 @@ def generate_suggestions(transcript: str, mode: str = "solo", therapist_notes: s
 
     try:
         client = _get_claude_client()
-        response = client.messages.create(
+        response = claude_create(
+            client,
             model=ADVISOR_MODEL,
             max_tokens=400,
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
-        raw = response.content[0].text
+        raw = claude_text(response)
     except Exception as exc:
         logger.warning("Co-pilot suggestion generation failed (%s); no cards.", exc)
         return []

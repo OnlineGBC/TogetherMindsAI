@@ -33,16 +33,18 @@ absent.
 
 import logging
 
-from ai_therapist import _get_claude_client
+import config
+from ai_therapist import _get_claude_client, claude_create, claude_text
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["generate", "DISCLAIMER"]
+__all__ = ["generate", "generate_ehr_brief", "DISCLAIMER"]
 
-# Opus for the clinical summary: an infrequent, on-demand, quality-sensitive call
-# (richer clinical synthesis + tighter grounding than Sonnet). Drop to
-# "claude-sonnet-4-6" to trade some quality for lower cost/latency.
-SUMMARY_MODEL = "claude-opus-4-8"
+# The full clinical summary is an infrequent, on-demand, quality-sensitive call. It
+# uses the app's SMART model (config.CLAUDE_MODEL_SMART, Sonnet 5.5; it was Opus 4.8
+# until 2026-10-25 — check a few real summaries if you change it again). The short
+# EHR chart summary uses the FAST model instead.
+SUMMARY_MODEL = config.CLAUDE_MODEL_SMART
 
 # Per-field output ceiling. Each field is only a few paragraphs, so this leaves
 # ample headroom; a call that still hits it is logged (see _call) rather than
@@ -100,7 +102,8 @@ _CLIENT_RECAP_SYSTEM = (
 )
 
 
-def _call(system_prompt: str, user_content: str, label: str, max_tokens: int = MAX_TOKENS) -> str:
+def _call(system_prompt: str, user_content: str, label: str, max_tokens: int = MAX_TOKENS,
+          model: "str | None" = None) -> str:
     """Make one plain-text summary call. Returns the text, or "" on failure.
 
     Never raises. Logs on API failure and on hitting the token ceiling (so a
@@ -108,8 +111,9 @@ def _call(system_prompt: str, user_content: str, label: str, max_tokens: int = M
     """
     try:
         client = _get_claude_client()
-        response = client.messages.create(
-            model=SUMMARY_MODEL,
+        response = claude_create(
+            client,
+            model=model or SUMMARY_MODEL,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
@@ -124,13 +128,35 @@ def _call(system_prompt: str, user_content: str, label: str, max_tokens: int = M
             label, max_tokens,
         )
 
-    # With thinking off, the first content block is the text answer (same shape
-    # the copilot call reads). Guard against an empty content list (e.g. refusal).
-    try:
-        text = response.content[0].text
-    except (IndexError, AttributeError):
+    # First TEXT block (a thinking block may come first); "" for an empty reply
+    # such as a refusal.
+    return claude_text(response)
+
+
+_EHR_BRIEF_SYSTEM = (
+    "You are a clinical documentation assistant. Write a SHORT, high-level summary of "
+    "one therapy session for the clinician to file in the patient's medical chart.\n\n"
+    "Three to five sentences, under 120 words. Cover the main topics, the overall mood, "
+    "any risk or safety signal that came up (leave risk out if none did), and any next "
+    "steps that were agreed. Refer to the person only as \"the patient\". Do not quote "
+    "them, give a diagnosis, or name a code. Write at an 8th-grade reading level in "
+    "plain, factual sentences.\n\n" + _GROUNDING
+)
+
+
+def generate_ehr_brief(transcript: str, mode: str = "solo") -> str:
+    """A short plain-text session summary for an EHR chart note, from the FAST model.
+
+    "" when there is no transcript or the call failed. Never raises. The full
+    analysis stays in TogetherMindsAI; the note links to it."""
+    if not transcript or not transcript.strip():
         return ""
-    return (text or "").strip()
+    return _call(
+        _EHR_BRIEF_SYSTEM,
+        f"Session type: {mode}.\n\nTranscript (speaker-labelled):\n{transcript}"
+        "\n\nWrite the chart summary now.",
+        label="ehr_brief", max_tokens=600, model=config.CLAUDE_MODEL_FAST,
+    )
 
 
 def generate(transcript: str, surfaced_codes: list, mode: str = "solo") -> "dict | None":

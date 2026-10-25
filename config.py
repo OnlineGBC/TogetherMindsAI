@@ -172,6 +172,14 @@ RECORDINGS_BUCKET: str = os.environ.get("RECORDINGS_BUCKET", "togethermindsai-re
 # context (e.g. the recording download link in retention notices).
 PUBLIC_BASE_URL: str = os.environ.get("PUBLIC_BASE_URL", "https://tm.onlinegbc.com").rstrip("/")
 
+# Which Claude model each kind of call uses. ONE place, so moving to a newer model
+# is a deliberate edit (or an environment setting plus a redeploy), never a surprise:
+# a new model changes defaults, and the code below was written and checked against
+# these two. SMART = live co-pilot, session summary, translation. FAST = the short
+# high-level summary filed to an EHR chart.
+CLAUDE_MODEL_SMART: str = os.environ.get("CLAUDE_MODEL_SMART", "claude-sonnet-5-5")
+CLAUDE_MODEL_FAST: str = os.environ.get("CLAUDE_MODEL_FAST", "claude-haiku-5-5")
+
 # ---------------------------------------------------------------------------
 # Subscription billing (Phase 4 Step 4 — Stripe). Three clinician tiers:
 #   free          — reflections chat + transcript

@@ -87,7 +87,7 @@ _CSRF_EXEMPT = {
     # not the session-wide one — see routes_ehr._launch_csrf_ok. The result
     # page can sit open for up to an hour across another tab's login, which
     # would otherwise invalidate the session-wide token from under it.
-    "ehr_write_note", "ehr_load_summary", "ehr_add_billing_code",
+    "ehr_write_note", "ehr_load_summary", "ehr_add_billing_code", "ehr_refresh_sessions",
 }
 _CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -191,7 +191,7 @@ _ROLE_CHOICE_EXEMPT = {
     # nothing in this flow reads role anyway, so it waits until their next
     # ordinary visit instead of interrupting the launch.
     "ehr_launch", "ehr_callback", "ehr_load_summary",
-    "ehr_add_billing_code", "ehr_write_note",
+    "ehr_add_billing_code", "ehr_write_note", "ehr_refresh_sessions",
 }
 
 
@@ -1609,6 +1609,10 @@ def _is_paid(clinician) -> bool:
         return True                        # billing disabled -> full access
     if clinician is None:
         return False
+    # Signed in through a hospital's EHR (Epic / Oracle Health): the full product by
+    # default. Their identity was already verified by the EHR, so no plan check.
+    if (getattr(clinician, "provider", "") or "") in ("epic", "oracle"):
+        return True
     # Comp access granted from the admin console outranks Stripe: these are
     # accounts we have decided get full access without paying. Best-effort — a
     # lookup problem must fall through to the normal subscription check, never
@@ -2582,10 +2586,11 @@ def api_translate_check():
         return jsonify({"error": "Text too long"}), 413
 
     try:
-        from ai_therapist import _get_claude_client
+        from ai_therapist import _get_claude_client, claude_create, claude_text
         client = _get_claude_client()
-        result = client.messages.create(
-            model="claude-sonnet-4-6",
+        result = claude_create(
+            client,
+            model=config.CLAUDE_MODEL_SMART,
             max_tokens=600,
             messages=[{
                 "role": "user",
@@ -2601,7 +2606,9 @@ def api_translate_check():
                 )
             }]
         )
-        reply = (result.content[0].text or "").strip()
+        reply = claude_text(result)
+        if not reply:
+            raise ValueError("empty reply from the model")   # fail open, as before
         if reply.upper() == "EN":
             return jsonify({"is_english": True}), 200
         return jsonify({"is_english": False, "translation": reply}), 200
@@ -3390,6 +3397,32 @@ def session_summary(session_id):
             "upgrade_url": url_for("pricing_page"),
         }), 402
     return jsonify(_session_summary_payload(session_id, ts))
+
+
+@app.route("/session/summary/<token>")
+def session_summary_page(token):
+    """The readable, therapist-only AI summary page for one session.
+
+    This is where a chart note filed from an EHR launch points ("for the full
+    analysis, open ..."), so it is keyed by the session's opaque download token and
+    the Session ID never appears in a chart. Only the clinician who led the session
+    can open it: signed out goes to sign-in and back here, anyone else gets a 403.
+    The summary is created on first view (a few seconds) and saved after that."""
+    ts = TherapySession.query.filter_by(download_token=token).first() if token else None
+    if ts is None:
+        abort(404)
+    gate = _therapist_gate_or_login(ts.id)
+    if gate is not None:
+        return gate
+    clinician = _session_clinician(ts.id)
+    if not _has_ai_analysis(clinician):
+        return render_template("session_summary_page.html", ts=ts, locked=True,
+                               payload=None, pricing_url=url_for("pricing_page"))
+    payload = _session_summary_payload(ts.id, ts)
+    log_event("session_summary_viewed", session_id=ts.id,
+              user_id=session.get("user_id"), via="session_token")
+    return render_template("session_summary_page.html", ts=ts, locked=False,
+                           payload=payload, pricing_url=None)
 
 
 # ---------------------------------------------------------------------------

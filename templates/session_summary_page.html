@@ -1,0 +1,71 @@
+{# The full AI summary of one session, as a readable page. Therapist-only: the route
+   checks that the signed-in clinician led the session. Linked from the note an EHR
+   launch files, so it stands alone (no app navbar) like the EHR result page. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Session summary — TogetherMindsAI</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+           margin: 2rem auto; padding: 0 1rem; max-width: 44rem; color: #212529; line-height: 1.5; }
+    h1 { font-size: 1.4rem; margin-bottom: .25rem; }
+    h2 { font-size: 1.05rem; margin-top: 1.75rem; }
+    .muted { color: #6c757d; }
+    .text { white-space: pre-wrap; }
+    .banner { padding: .75rem 1rem; border-radius: 4px; margin-top: 1rem;
+              background: #e2e3e5; border: 1px solid #c8ccd0; }
+    code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; }
+    ul { padding-left: 1.25rem; }
+  </style>
+</head>
+<body>
+  <h1>Session summary</h1>
+  <p class="muted">
+    {{ ts.friendly_name or "Unnamed session" }} &middot; {{ ts.mode }} &middot;
+    {{ ts.created_at.strftime("%b %d, %Y") }}
+  </p>
+
+  {% if locked %}
+  <div class="banner">
+    The AI session summary is not part of this account's plan.
+    {% if pricing_url %}<a href="{{ pricing_url }}">See plans</a>.{% endif %}
+  </div>
+  {% else %}
+
+  <h2>Clinical summary</h2>
+  {% if payload.clinical %}
+  <p class="text">{{ payload.clinical }}</p>
+  {% else %}
+  <div class="banner">
+    The AI write-up could not be made just now. Reload this page to try again.
+  </div>
+  {% endif %}
+
+  {% if payload.codes_rationale %}
+  <h2>Coding considerations</h2>
+  <p class="text">{{ payload.codes_rationale }}</p>
+  {% endif %}
+
+  {% if payload.codes %}
+  <h2>Reference codes that came up</h2>
+  <ul>
+    {% for c in payload.codes %}
+    <li>{{ c.label }}{% if c.code %} — <code>{{ c.code }}</code>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if payload.cpt_suggestion or payload.pos %}
+  <h2>Billing code considerations</h2>
+  <ul>
+    {% if payload.cpt_suggestion %}<li>CPT {{ payload.cpt_suggestion.code }} — {{ payload.cpt_suggestion.label }}</li>{% endif %}
+    {% if payload.pos %}<li>Place of Service {{ payload.pos.code }} — {{ payload.pos.label }}</li>{% endif %}
+  </ul>
+  {% endif %}
+
+  <p class="muted" style="margin-top:2rem">{{ payload.disclaimer }}</p>
+  {% endif %}
+</body>
+</html>

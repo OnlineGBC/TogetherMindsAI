@@ -49,7 +49,7 @@ from ai_therapist import (
 )
 
 CACHE_MIN_TOKENS = 2048  # Sonnet 4.6 threshold; bump to 4096 if migrating to Opus
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-5-5"
 
 
 def render_prompt(mode: str) -> str:

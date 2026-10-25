@@ -63,10 +63,11 @@ from flask import (session, request, redirect, render_template, make_response,
 from sqlalchemy import func as sa_func
 
 import billing_codes
+import clinical_summary
 import config
 import ehr
 import TogetherMindsAI as _tm
-from models import db, Clinician, EhrLaunchContext, SessionSummary, TherapySession, friendly_name_key
+from models import db, ChatMessage, Clinician, EhrLaunchContext, TherapySession, friendly_name_key
 from session_id import SESSION_ID_LENGTH
 
 log = logging.getLogger(__name__)
@@ -375,21 +376,36 @@ def _vendor_label(ctx):
 
 
 def _my_recap_sessions(clinician_id):
-    """The signed-in clinician's own sessions that already have a saved summary,
-    newest first, for the "Load recap" pick-list. Only sessions they LEAD
-    (therapist_id): the list is the ownership rule, so nothing else can be picked.
-    Empty when nobody is signed in."""
+    """EVERY session this clinician leads, newest first, for the "Load recap"
+    pick-list. Nothing is filtered out or capped: leading the session (therapist_id)
+    is the ownership rule, so nothing else can be picked. A session with no
+    conversation yet is still listed, and labelled, so it is never mistaken for a
+    missing one. Empty when nobody is signed in or no session has been started."""
     if not clinician_id:
         return []
-    rows = (db.session.query(TherapySession)
-            .join(SessionSummary, SessionSummary.session_id == TherapySession.id)
+    rows = (TherapySession.query
             .filter(TherapySession.therapist_id == clinician_id)
-            .order_by(TherapySession.created_at.desc())
-            .limit(50).all())
-    return [{"id": ts.id,
-             "label": "%s — %s — %s" % (ts.friendly_name or ts.id, ts.mode,
-                                        ts.created_at.strftime("%b %d, %Y"))}
-            for ts in rows]
+            .order_by(TherapySession.created_at.desc()).all())
+    if not rows:
+        return []
+    counts = dict(db.session.query(ChatMessage.session_id, sa_func.count())
+                  .filter(ChatMessage.session_id.in_([ts.id for ts in rows]))
+                  .group_by(ChatMessage.session_id).all())
+    out = []
+    for ts in rows:
+        has_chat = bool(counts.get(ts.id))
+        label = "%s · %s · %s · %s" % (ts.friendly_name or "(no name)", ts.id, ts.mode,
+                                       ts.created_at.strftime("%b %d, %Y"))
+        if not has_chat:
+            label += " (no conversation yet)"
+        out.append({"id": ts.id, "label": label, "has_chat": has_chat})
+    return out
+
+
+def _transcript_for(ts):
+    """The speaker-labelled transcript text of a session ("" when it has none)."""
+    messages, _mode, _generated_at = _tm._transcript_data(ts.id)
+    return _tm._session_transcript_text(messages, ts) or ""
 
 
 def _render_result(*, error=None, written=None, note_text="", ctx=None,
@@ -405,6 +421,9 @@ def _render_result(*, error=None, written=None, note_text="", ctx=None,
     as blank and unlinked on every subsequent page."""
     if tmai_session is None:
         tmai_session = (ctx.session_id if ctx else "") or ""
+    recap_sessions = _my_recap_sessions(_tm._current_clinician_id())
+    if not tmai_session:
+        tmai_session = next((x["id"] for x in recap_sessions if x["has_chat"]), "")
     return render_template(
         "ehr_result.html",
         vendor_label=_vendor_label(ctx),
@@ -414,7 +433,7 @@ def _render_result(*, error=None, written=None, note_text="", ctx=None,
         scope="", can_write=bool(ctx and not ctx.written_at),
         note_text=note_text, written=written, error=error, notice=notice,
         tmai_session=tmai_session, em_codes=billing_codes.INTERNIST_EM_CODES,
-        recap_sessions=_my_recap_sessions(_tm._current_clinician_id()),
+        recap_sessions=recap_sessions,
         ehr_csrf_token=(ctx.csrf_token if ctx else "") or "")
 
 
@@ -621,12 +640,37 @@ def register_ehr_routes(app):
 
         return page(written=ctx.written_reference, ctx=ctx)
 
+    @app.route("/ehr/refresh-sessions", methods=["POST"])
+    def ehr_refresh_sessions():
+        """Redraw this page with the clinician's CURRENT list of sessions.
+
+        The list is built when the page is drawn, and the launch page can sit open
+        while the clinician starts a session in another tab. Nothing here reaches
+        the EHR; the note text typed so far is kept."""
+        _require_enabled()
+        if not config.EHR_WRITE_ENABLED:
+            abort(404)
+
+        page = _render_result
+        ctx = _current_launch_ctx()
+        if ctx is None:
+            return page(error="This launch is no longer open. Start again from "
+                              "the patient's chart.")
+        if ctx.written_at:
+            return page(written=ctx.written_reference or "already filed", ctx=ctx)
+        if not _launch_csrf_ok(ctx):
+            return page(error="This page is no longer current. Reload it "
+                              "from the patient's chart and try again.", ctx=ctx)
+        return page(note_text=request.form.get("note_text") or "", ctx=ctx,
+                    tmai_session=(request.form.get("tmai_session") or "").strip() or None,
+                    notice="Your sessions list is up to date.")
+
     @app.route("/ehr/load-summary", methods=["POST"])
     def ehr_load_summary():
-        """Load a TogetherMindsAI session's cached recap into the note box, so
-        the clinician is not typing the whole thing by hand.
+        """Write a short, high-level summary of one of the clinician's own sessions
+        into the note box, with a pointer to the full TogetherMindsAI analysis.
 
-        Loads only. Nothing here reaches Epic — it fills the textarea on this
+        Loads only. Nothing here reaches the EHR — it fills the textarea on this
         same page, and "File this note in the chart" is still the only button
         that writes anything, same as if the clinician had typed it themself.
         """
@@ -649,8 +693,7 @@ def register_ehr_routes(app):
 
         raw = (request.form.get("tmai_session") or "").strip()
         if not raw:
-            return page(error="Enter the TogetherMindsAI session ID or name "
-                              "to load its recap.", ctx=ctx)
+            return page(error="Pick a session to load its summary.", ctx=ctx)
         if len(raw) > MAX_SESSION_LOOKUP_CHARS:
             return page(error="That is not a session ID or name.", ctx=ctx,
                         tmai_session=raw)
@@ -663,53 +706,52 @@ def register_ehr_routes(app):
         ts = _find_tmai_session(raw)
         # A session you do not lead gets the SAME answer as one that does not
         # exist, so this box cannot be used to find out which IDs or names are
-        # real, and another clinician's recap can never land in this chart.
+        # real, and another clinician's session can never land in this chart.
         if ts is None or ts.therapist_id != clinician_id:
             if ts is not None:
                 _tm.app.logger.warning("EHR recap load refused: not the session's clinician")
             return page(error="No TogetherMindsAI session found for that ID "
                               "or name.", ctx=ctx, tmai_session=raw)
 
-        summary_row = db.session.get(SessionSummary, ts.id)
-        if summary_row is None:
-            return page(error="No summary is cached for that session yet. "
-                              "Open its summary in TogetherMindsAI, then come "
-                              "back and load it here.", ctx=ctx, tmai_session=raw)
-
-        try:
-            payload = json.loads(summary_row.payload)
-        except ValueError:
-            return page(error="That session's summary could not be read.",
+        transcript = _transcript_for(ts)
+        if not transcript.strip():
+            return page(error="That session has no conversation to summarise yet.",
                         ctx=ctx, tmai_session=raw)
 
-        clinical = (payload.get("clinical") or "").strip()
-        codes_rationale = (payload.get("codes_rationale") or "").strip()
-        parts = []
-        if clinical:
-            parts.append(clinical)
-        if codes_rationale:
-            parts.append("Coding considerations:\n" + codes_rationale)
+        brief = clinical_summary.generate_ehr_brief(transcript, mode=ts.mode)
+        if not brief:
+            return page(error="TogetherMindsAI could not write the summary just "
+                              "now. Nothing was added — try again.",
+                        ctx=ctx, tmai_session=raw)
 
+        parts = [brief]
         billing_lines = []
-        cpt = payload.get("cpt_suggestion")
+        cpt = billing_codes.psychotherapy_cpt(
+            ts.mode, _tm._session_duration_minutes(ts.id))
         if cpt:
             billing_lines.append("CPT %s — %s" % (cpt["code"], cpt["label"]))
-        pos = payload.get("pos")
+        pos = billing_codes.place_of_service(_tm._session_at_home(ts.id))
         if pos:
             billing_lines.append("Place of Service %s — %s" % (pos["code"], pos["label"]))
         if billing_lines:
             parts.append("Billing code considerations:\n" + "\n".join(billing_lines))
 
-        note_text = "\n\n".join(parts)[:MAX_NOTE_CHARS]
-        if not note_text:
-            return page(error="That session's summary has no recap or "
-                              "coding notes to load.", ctx=ctx, tmai_session=raw)
+        # The pointer to the full analysis goes LAST and is added after any
+        # trimming, so a long summary can never cut the link off. The link carries
+        # an opaque token, never the Session ID.
+        link = "%s/session/summary/%s" % (config.PUBLIC_BASE_URL,
+                                          _tm._ensure_session_token(ts))
+        pointer = ("High-level summary generated by TogetherMindsAI. For the full "
+                   "TogetherMindsAI analysis of this session, open: %s "
+                   "(sign in to TogetherMindsAI to view)." % link)
+        body = "\n\n".join(parts)[:max(0, MAX_NOTE_CHARS - len(pointer) - 2)]
+        note_text = body + "\n\n" + pointer
 
         ctx.session_id = ts.id
         db.session.commit()
 
         # Metadata only, same rule as everywhere else in this file: which
-        # session it came from, never what the recap said.
+        # kind of vendor and how long, never what the summary said.
         _tm.log_event("ehr_summary_loaded", vendor=ehr.vendor_for_iss(ctx.iss),
                       chars=len(note_text))
 

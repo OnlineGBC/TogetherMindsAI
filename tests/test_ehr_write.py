@@ -52,6 +52,7 @@ import ehr
 import TogetherMindsAI as _tm
 from TogetherMindsAI import app
 import routes_ehr
+from models import ChatMessage as _ChatMessage
 from models import (db, init_encryption, EhrLaunchContext, AuditLog,
                      SessionSummary, TherapySession, friendly_name_key)
 
@@ -706,46 +707,6 @@ def test_loading_a_recap_is_invisible_while_writing_is_off(client):
         assert client.post("/ehr/load-summary").status_code == 404
 
 
-def test_loading_a_recap_fills_the_note_with_clinical_and_coding_notes(client):
-    with _WriteOn():
-        _context_row()
-        _session_row()
-        _summary_row()
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/load-summary",
-                         data={"tmai_session": TMAI_SESSION_ID})
-
-    assert b"Client recap here." in rv.data
-    assert b"Coding considerations:" in rv.data
-    assert b"F41.1 fits the anxiety discussed." in rv.data
-    assert b"nothing has been sent to the chart" in rv.data
-
-    ctx = db.session.get(EhrLaunchContext, "launch-1")
-    assert ctx.session_id == TMAI_SESSION_ID
-
-
-def test_loading_a_recap_redisplays_the_session_in_the_box(client):
-    """The session ID box used to go blank after a successful load, reading
-    as if it hadn't been used even though the note below proves it was."""
-    with _WriteOn():
-        _context_row()
-        _session_row()
-        _summary_row()
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/load-summary",
-                         data={"tmai_session": TMAI_SESSION_ID})
-    assert ('value="%s"' % TMAI_SESSION_ID).encode() in rv.data
-
-    # And it stays visible on a later page — e.g. after adding a billing
-    # code — because it's read from the linked launch, not just echoed once.
-    with _WriteOn():
-        rv2 = client.post("/ehr/add-billing-code",
-                          data={"note_text": "x", "em_code": "99213"})
-    assert ('value="%s"' % TMAI_SESSION_ID).encode() in rv2.data
-
-
 def test_an_unresolved_session_is_still_shown_back_for_correction(client):
     with _WriteOn():
         _context_row()
@@ -756,34 +717,6 @@ def test_an_unresolved_session_is_still_shown_back_for_correction(client):
     assert b"No TogetherMindsAI session found" in rv.data
 
 
-def test_loading_a_recap_by_friendly_name(client):
-    with _WriteOn():
-        _context_row()
-        _session_row(friendly_name="Smith weekly")
-        _summary_row()
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/load-summary",
-                         data={"tmai_session": "Smith weekly"})
-
-    assert b"Client recap here." in rv.data
-
-
-def test_loading_a_recap_never_reaches_epic(client):
-    """Loading fills a textarea. It must not be indistinguishable from filing
-    — the only thing that may ever POST to Epic is "File this note"."""
-    with _WriteOn():
-        _context_row()
-        _session_row()
-        _summary_row()
-        _hold(client)
-        _sign_in(client)
-        with patch.object(routes_ehr, "_post_json") as post:
-            client.post("/ehr/load-summary",
-                       data={"tmai_session": TMAI_SESSION_ID})
-    post.assert_not_called()
-
-
 def test_loading_a_recap_for_an_unknown_session_refuses(client):
     with _WriteOn():
         _context_row()
@@ -792,46 +725,6 @@ def test_loading_a_recap_for_an_unknown_session_refuses(client):
         rv = client.post("/ehr/load-summary",
                          data={"tmai_session": "no-such-session"})
     assert b"No TogetherMindsAI session found" in rv.data
-
-
-def test_loading_a_recap_with_no_cached_summary_refuses(client):
-    with _WriteOn():
-        _context_row()
-        _session_row()
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/load-summary",
-                         data={"tmai_session": TMAI_SESSION_ID})
-    assert b"No summary is cached" in rv.data
-
-
-def test_loading_a_recap_appends_cpt_and_pos_as_billing_considerations(client):
-    with _WriteOn():
-        _context_row()
-        _session_row()
-        _summary_row(cpt_suggestion={"code": "90834", "label": "Psychotherapy, 45 minutes"},
-                    pos={"code": "10", "label": "Telehealth Provided in Patient's Home"})
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/load-summary",
-                         data={"tmai_session": TMAI_SESSION_ID})
-
-    assert b"Billing code considerations:" in rv.data
-    assert b"CPT 90834" in rv.data
-    assert b"Place of Service 10" in rv.data
-
-
-def test_loading_a_recap_omits_billing_considerations_when_unknown(client):
-    with _WriteOn():
-        _context_row()
-        _session_row()
-        _summary_row(cpt_suggestion=None, pos=None)
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/load-summary",
-                         data={"tmai_session": TMAI_SESSION_ID})
-
-    assert b"Billing code considerations:" not in rv.data
 
 
 def test_a_clinician_cannot_load_a_session_they_do_not_lead(client):
@@ -863,36 +756,6 @@ def test_loading_a_recap_needs_a_signed_in_clinician(client):
     assert b"Client recap here." not in rv.data
 
 
-def test_the_pick_list_offers_only_my_sessions_that_have_a_summary(client):
-    with _WriteOn():
-        _context_row()
-        _session_row("MINEWITHSUMMARY01", friendly_name="Jones weekly")
-        _summary_row("MINEWITHSUMMARY01")
-        _session_row("MINENOSUMMARY0001")                       # no summary yet
-        _session_row("THEIRSWITHSUMMARY1", therapist_id="someone-else")
-        _summary_row("THEIRSWITHSUMMARY1")
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/add-billing-code",
-                         data={"note_text": "x", "em_code": "99213"})
-    assert b'<option value="MINEWITHSUMMARY01"' in rv.data
-    assert b"Jones weekly" in rv.data
-    assert b"MINENOSUMMARY0001" not in rv.data
-    assert b"THEIRSWITHSUMMARY1" not in rv.data
-    assert b'<input type="text" id="tmai_session"' not in rv.data   # no free typing
-
-
-def test_with_no_sessions_the_page_says_so_instead_of_offering_a_blank_box(client):
-    with _WriteOn():
-        _context_row()
-        _hold(client)
-        _sign_in(client)
-        rv = client.post("/ehr/add-billing-code",
-                         data={"note_text": "x", "em_code": "99213"})
-    assert b"No sessions of yours have a saved summary yet" in rv.data
-    assert b"Load recap" not in rv.data
-
-
 def test_the_launch_page_has_a_green_button_that_starts_a_session(client):
     with _WriteOn():
         _context_row()
@@ -902,6 +765,238 @@ def test_the_launch_page_has_a_green_button_that_starts_a_session(client):
     assert b"Click here to start your TMAI Session" in rv.data
     assert b'class="btn-start" href="/therapist"' in rv.data
     assert b'target="_blank"' in rv.data
+
+
+BRIEF = "The patient talked about work stress and poor sleep. Mood was low but steady."
+CHAT = "Therapist: How was your week?\nClient: Hard. I am not sleeping."
+
+
+def _ready(client, **session_over):
+    """A launch is open, a clinician is signed in, and they lead one session."""
+    _context_row()
+    _session_row(**session_over)
+    _hold(client)
+    _sign_in(client)
+
+
+def _load(client, picked=TMAI_SESSION_ID, brief=BRIEF, chat=CHAT):
+    """Press Load recap with the transcript and the Haiku call faked."""
+    with patch.object(routes_ehr, "_transcript_for", return_value=chat), \
+         patch.object(routes_ehr.clinical_summary, "generate_ehr_brief",
+                      return_value=brief) as gen:
+        rv = client.post("/ehr/load-summary", data={"tmai_session": picked})
+    return rv, gen
+
+
+def _note_box(rv):
+    """What is inside the note textarea on the page."""
+    import re
+    m = re.search(rb"<textarea[^>]*>(.*?)</textarea>", rv.data, re.S)
+    return m.group(1).decode("utf-8") if m else ""
+
+
+def test_loading_a_recap_writes_a_short_summary_with_a_link_to_the_full_analysis(client):
+    with _WriteOn():
+        _ready(client)
+        rv, gen = _load(client)
+
+    note = _note_box(rv)
+    assert BRIEF in note
+    assert "full TogetherMindsAI analysis" in note
+    assert config.PUBLIC_BASE_URL + "/session/summary/" in note
+    assert b"nothing has been sent to the chart" in rv.data
+    gen.assert_called_once()
+    assert db.session.get(EhrLaunchContext, "launch-1").session_id == TMAI_SESSION_ID
+
+
+def test_the_chart_note_never_contains_the_session_id(client):
+    """The Session ID is the key for joining a session. The link uses an opaque
+    token instead, so chart readers never see it."""
+    with _WriteOn():
+        _ready(client)
+        rv, _ = _load(client)
+    token = db.session.get(TherapySession, TMAI_SESSION_ID).download_token
+    note = _note_box(rv)
+    assert token and token in note
+    assert TMAI_SESSION_ID not in note
+
+
+def test_a_long_summary_is_trimmed_before_the_link_never_the_link(client):
+    with _WriteOn():
+        _ready(client)
+        rv, _ = _load(client, brief="x" * (routes_ehr.MAX_NOTE_CHARS + 500))
+    note = _note_box(rv)
+    assert len(note) <= routes_ehr.MAX_NOTE_CHARS
+    assert note.rstrip().endswith("to view).")
+    assert "/session/summary/" in note
+
+
+def test_loading_a_recap_redisplays_the_session_in_the_box(client):
+    with _WriteOn():
+        _ready(client)
+        rv, _ = _load(client)
+    assert ('<option value="%s" selected>' % TMAI_SESSION_ID).encode() in rv.data
+
+    # And it stays selected on a later page — e.g. after adding a billing code —
+    # because it is read from the linked launch, not just echoed once.
+    with _WriteOn():
+        rv2 = client.post("/ehr/add-billing-code",
+                          data={"note_text": "x", "em_code": "99213"})
+    assert ('<option value="%s" selected>' % TMAI_SESSION_ID).encode() in rv2.data
+
+
+def test_loading_a_recap_by_friendly_name(client):
+    with _WriteOn():
+        _ready(client, friendly_name="Smith weekly")
+        rv, _ = _load(client, picked="Smith weekly")
+    assert BRIEF in _note_box(rv)
+
+
+def test_loading_a_recap_never_reaches_epic(client):
+    """Loading fills a textarea. It must not be indistinguishable from filing
+    — the only thing that may ever POST to Epic is "File this note"."""
+    with _WriteOn():
+        _ready(client)
+        with patch.object(routes_ehr, "_post_json") as post:
+            _load(client)
+    post.assert_not_called()
+
+
+def test_a_session_with_no_conversation_says_so_and_calls_no_model(client):
+    with _WriteOn():
+        _ready(client)
+        rv, gen = _load(client, chat="")
+    assert b"no conversation to summarise" in rv.data
+    gen.assert_not_called()
+    assert _note_box(rv).strip() == ""
+
+
+def test_if_the_model_fails_nothing_is_added_to_the_note(client):
+    with _WriteOn():
+        _ready(client)
+        rv, _ = _load(client, brief="")
+    assert b"could not write the summary" in rv.data
+    assert "/session/summary/" not in _note_box(rv)
+    assert db.session.get(EhrLaunchContext, "launch-1").session_id is None
+
+
+def test_the_summary_adds_cpt_and_place_of_service_when_known(client):
+    with _WriteOn(), \
+         patch.object(_tm, "_session_duration_minutes", return_value=50), \
+         patch.object(_tm, "_session_at_home", return_value=True):
+        _ready(client)
+        rv, _ = _load(client)
+    note = _note_box(rv)
+    assert "Billing code considerations:" in note
+    assert "CPT 9" in note
+    assert "Place of Service 10" in note
+
+
+def test_the_summary_leaves_out_billing_lines_it_cannot_support(client):
+    with _WriteOn(), \
+         patch.object(_tm, "_session_duration_minutes", return_value=None), \
+         patch.object(_tm, "_session_at_home", return_value=None):
+        _ready(client)
+        rv, _ = _load(client)
+    assert "Billing code considerations:" not in _note_box(rv)
+
+
+def test_the_linked_session_id_is_encrypted_at_rest(client):
+    """Same rule as the FHIR ids on this row: read the RAW bytes, not the
+    ORM's decrypted view."""
+    with _WriteOn():
+        _ready(client)
+        _load(client)
+        raw = db.session.execute(db.text(
+            "SELECT session_id FROM ehr_launch_contexts"
+        )).first()
+    assert raw[0] != TMAI_SESSION_ID
+    assert TMAI_SESSION_ID not in raw[0]
+
+
+def _chat_row(session_id):
+    db.session.add(_ChatMessage(session_id=session_id, user_id="clinician-1",
+                                text="hello", timestamp=datetime.now(timezone.utc)))
+    db.session.commit()
+
+
+def test_the_pick_list_shows_all_my_sessions_with_name_and_session_id(client):
+    """Nothing is filtered out: a session with no conversation yet is listed and
+    labelled, and another clinician's session is not listed because it is not mine."""
+    with _WriteOn():
+        _context_row()
+        _session_row("MINEWITHCHAT00001", friendly_name="Jones weekly")
+        _chat_row("MINEWITHCHAT00001")
+        _session_row("MINENOCHATYET0001")
+        _session_row("THEIRSNOTMINE0001", therapist_id="someone-else")
+        _hold(client)
+        _sign_in(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "99213"})
+    assert b'<option value="MINEWITHCHAT00001"' in rv.data
+    assert b"Jones weekly" in rv.data and b"MINEWITHCHAT00001" in rv.data   # name AND id
+    assert b'<option value="MINENOCHATYET0001"' in rv.data                    # still listed
+    assert b"(no conversation yet)" in rv.data
+    assert b"THEIRSNOTMINE0001" not in rv.data
+    assert b'<input type="text" id="tmai_session"' not in rv.data            # no free typing
+
+
+def test_the_newest_session_with_a_conversation_is_preselected(client):
+    with _WriteOn():
+        _context_row()
+        _session_row("OLDERWITHCHAT0001")
+        _chat_row("OLDERWITHCHAT0001")
+        _hold(client)
+        _sign_in(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "99213"})
+    assert b'<option value="OLDERWITHCHAT0001" selected>' in rv.data
+
+
+def test_with_no_sessions_the_page_says_none_have_been_started(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        _sign_in(client)
+        rv = client.post("/ehr/add-billing-code",
+                         data={"note_text": "x", "em_code": "99213"})
+    assert b"No sessions have been started yet." in rv.data
+    assert b">\n      Load recap" not in rv.data
+    assert b"Refresh my sessions" in rv.data
+
+
+def test_refresh_shows_a_session_started_after_the_page_was_drawn(client):
+    with _WriteOn():
+        _context_row()
+        _hold(client)
+        _sign_in(client)
+        before = client.post("/ehr/add-billing-code",
+                             data={"note_text": "x", "em_code": "99213"})
+        assert b"No sessions have been started yet." in before.data
+        _session_row("STARTEDLATER00001", friendly_name="TestEpic1")
+        _chat_row("STARTEDLATER00001")
+        with patch.object(routes_ehr, "_post_json") as post:
+            rv = client.post("/ehr/refresh-sessions",
+                             data={"note_text": "My typed note."})
+    assert b'<option value="STARTEDLATER00001"' in rv.data
+    assert b"TestEpic1" in rv.data
+    assert "My typed note." in _note_box(rv)           # nothing the clinician typed is lost
+    post.assert_not_called()                           # never reaches Epic
+
+
+def test_refresh_is_invisible_while_writing_is_off(client):
+    with _WriteOn(EHR_WRITE_ENABLED=False):
+        assert client.post("/ehr/refresh-sessions").status_code == 404
+
+
+def test_refresh_checks_its_own_launch_token(client):
+    assert "ehr_refresh_sessions" in _tm._CSRF_EXEMPT
+    assert "ehr_refresh_sessions" in _tm._ROLE_CHOICE_EXEMPT
+    with patch.object(_tm, "_csrf_enabled", return_value=True), _WriteOn():
+        _context_row()
+        _hold(client)
+        rv = client.post("/ehr/refresh-sessions", data={"csrf_token": "wrong"})
+    assert b"no longer current" in rv.data
 
 
 # ===========================================================================
@@ -961,25 +1056,6 @@ def test_add_billing_code_refuses_the_wrong_launch_csrf_token(client):
                                "csrf_token": "wrong"})
     assert b"no longer current" in rv.data
     assert b"Billing code considerations:" not in rv.data
-
-
-def test_the_linked_session_id_is_encrypted_at_rest(client):
-    """Same rule as the FHIR ids on this row: read the RAW bytes, not the
-    ORM's decrypted view."""
-    with _WriteOn():
-        _context_row()
-        _session_row()
-        _summary_row()
-        _hold(client)
-        _sign_in(client)
-        client.post("/ehr/load-summary", data={"tmai_session": TMAI_SESSION_ID})
-
-        raw = db.session.execute(db.text(
-            "SELECT session_id FROM ehr_launch_contexts"
-        )).first()
-
-    assert raw[0] != TMAI_SESSION_ID
-    assert TMAI_SESSION_ID not in raw[0]
 
 
 # ---------------------------------------------------------------------------
