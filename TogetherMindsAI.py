@@ -2507,6 +2507,28 @@ def rtc_livekit_token():
     return jsonify({"token": token, "url": config.LIVEKIT_URL})
 
 
+_TILT_DIAG_KEYS = ("event", "gx", "gy", "gz", "beta", "gamma", "orient", "angle", "ua_app")
+
+
+@app.route("/rtc/tilt-diag", methods=["POST"])
+@limiter.limit("40 per minute")
+def rtc_tilt_diag():
+    """Log the patient phone's tilt-sensor readings (numbers only, no content).
+
+    Temporary test: proves whether the page can read which way the phone is held
+    inside the TMAI app, before the picture-turning fix is built on it."""
+    body = request.get_json(silent=True) or {}
+    user_id, err = _rtc_guard(body.get("session_id", ""))
+    if err:
+        return err
+    parts = []
+    for k in _TILT_DIAG_KEYS:
+        v = re.sub(r"[^A-Za-z0-9._-]", "", str(body.get(k, "")))[:24]
+        parts.append(f"{k}={v}")
+    app.logger.warning("TILT-DIAG %s", " ".join(parts))
+    return jsonify({"ok": True})
+
+
 @app.route("/rtc/stt-token", methods=["POST"])
 @limiter.limit("30 per minute")
 def rtc_stt_token():

@@ -1496,6 +1496,53 @@
     })();
     {% endif %}
 
+    {% if is_monitor and not is_watch_only %}
+    // Temporary test, the watched person only: report what the phone's tilt sensor
+    // says (which way is down), so we can prove the page can read it inside the
+    // TMAI app. Numbers only, sent to the server log; nothing shows on screen.
+    // Sends when the way the phone is held changes, at most every 1.5 seconds, and
+    // says "none" if no sensor reading arrives within 5 seconds.
+    (function () {
+        var last = 0, lastPos = "", got = false, g = null, tiltB = "", tiltG = "";
+        function pos() {
+            if (!g) { return ""; }
+            var ax = Math.abs(g.x), ay = Math.abs(g.y), az = Math.abs(g.z);
+            if (az > ax && az > ay) { return "flat"; }
+            if (ay >= ax) { return g.y >= 0 ? "upright" : "upside-down"; }
+            return g.x >= 0 ? "side-a" : "side-b";
+        }
+        function send(event) {
+            try {
+                var so = screen.orientation || {};
+                fetch("/rtc/tilt-diag", {
+                    method: "POST", credentials: "same-origin", keepalive: true,
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        session_id: SESSION_ID, event: event,
+                        gx: g ? g.x.toFixed(1) : "", gy: g ? g.y.toFixed(1) : "",
+                        gz: g ? g.z.toFixed(1) : "", beta: tiltB, gamma: tiltG,
+                        orient: so.type || "", angle: (so.angle === undefined ? "" : so.angle),
+                        ua_app: document.referrer.indexOf("android-app://") === 0 ? "app" : "unknown"
+                    })
+                }).catch(function () {});
+            } catch (e) {}
+        }
+        window.addEventListener("devicemotion", function (e) {
+            var a = e.accelerationIncludingGravity;
+            if (!a || a.x === null) { return; }
+            got = true;
+            g = { x: a.x, y: a.y, z: a.z };
+            var p = pos(), now = Date.now();
+            if (p !== lastPos && now - last > 1500) { lastPos = p; last = now; send(p); }
+        });
+        window.addEventListener("deviceorientation", function (e) {
+            if (e.beta === null) { return; }
+            tiltB = Math.round(e.beta); tiltG = Math.round(e.gamma);
+        });
+        setTimeout(function () { if (!got) { send("none"); } }, 5000);
+    })();
+    {% endif %}
+
     {% if has_brighten %}
     // Brighten — LOCAL only, and only in a monitor room. Puts a class on the grid;
     // the CSS filter does the work. Nothing is sent and the camera is untouched.
