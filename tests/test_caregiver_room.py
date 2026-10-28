@@ -493,10 +493,10 @@ def test_viewing_tools_belong_to_the_watcher_only():
     shared with the watched person (see the patient tests below)."""
     src = open(os.path.join(os.path.dirname(os.path.dirname(__file__)),
                             "templates", "session_live.html"), encoding="utf-8").read()
-    assert src.count("{% if is_watch_only %}") == 2           # button, script (with the wake lock)
-    assert "wakeLock" in src.split("{% if is_watch_only %}")[2]    # the script block
+    assert src.count("{% if is_watch_only %}") == 1           # the wake lock only
+    assert "wakeLock" in src.split("{% if is_watch_only %}")[1]
     assert "{% if not is_watch_only %}" in src                # mic/camera strip
-    assert "screen.orientation.lock" in src                    # sideways: only inside the watcher's script
+    assert "WATCH_ONLY && screen.orientation" in src          # sideways: watcher only
     assert "if (WATCH_ONLY) { return; }" in src               # onForeground guard
     assert "if (WATCH_ONLY) {" in src                          # joinAudio early exit
 
@@ -531,13 +531,10 @@ def _watched_room(client, role):
     return rv.get_data(as_text=True)
 
 
-def test_the_watched_person_has_no_full_screen(client):
-    """Their own-preview Full screen (22 Oct) turned the picture upside down in
-    landscape, so it is back to the watcher only."""
+def test_the_watched_person_can_fill_the_screen_with_their_own_view(client):
     html = _watched_room(client, roles.CAREGIVER)
-    assert 'id="rtcFullscreenBtn"' not in html
-    assert 'var pane = document.getElementById("rtcLive")' not in html
-    assert "screen.orientation.lock" not in html
+    assert 'id="rtcFullscreenBtn"' in html
+    assert 'var pane = document.getElementById("rtcLive")' in html
 
 
 def test_the_watched_person_is_not_forced_sideways_or_kept_awake(client):
