@@ -45,3 +45,12 @@ def test_the_page_reports_each_video_picture():
     assert "function camDiag(" in PAGE
     assert "camDiag(id, mediaEl);" in PAGE
     assert '"/rtc/cam-diag"' in PAGE
+
+
+def test_cam_diag_is_logged_at_a_level_the_server_keeps(enc_client, caplog):
+    """The app's logger drops INFO in production, which hid the first test run."""
+    sid = _seed()
+    _login(enc_client, "ther-1")
+    with _rtc_on(), caplog.at_level(logging.WARNING, logger=app.logger.name):
+        enc_client.post("/rtc/cam-diag", json={"session_id": sid, "track_w": 480})
+    assert any("CAM-DIAG" in r.getMessage() and r.levelno >= logging.WARNING for r in caplog.records)
