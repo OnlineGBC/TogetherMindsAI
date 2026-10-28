@@ -2526,7 +2526,7 @@ def rtc_cam_diag():
     for k in _CAM_DIAG_KEYS:
         v = re.sub(r"[^A-Za-z0-9._-]", "", str(body.get(k, "")))[:24]
         parts.append(f"{k}={v}")
-    app.logger.warning("CAM-DIAG %s", " ".join(parts))
+    app.logger.info("CAM-DIAG %s", " ".join(parts))
     return jsonify({"ok": True})
 
 
