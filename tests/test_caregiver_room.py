@@ -423,10 +423,27 @@ def test_full_screen_reaches_the_edges_but_clears_a_camera_cutout(client):
     assert "env(safe-area-inset-top" in css
 
 
-def test_full_screen_asks_for_landscape(client):
+def test_full_screen_follows_the_phone_and_never_forces_landscape(client):
+    """Like a camera app: portrait or landscape follows how the phone is held."""
     html = _room(client, roles.CAREGIVER)
-    assert 'screen.orientation.lock("landscape")' in html
-    assert "screen.orientation.unlock()" in html
+    assert "screen.orientation.lock" not in html
+    assert "screen.orientation.unlock" not in html
+
+
+def test_the_caregiver_sees_the_incoming_picture_mirrored(client):
+    """Exactly as it shows on the watched person's own (mirrored) screen. The video
+    is flipped, not the tile, so the name label reads normally."""
+    html = _room(client, roles.CAREGIVER)
+    assert 'if (WATCH_ONLY && videoGrid) { videoGrid.classList.add("mirror-remote"); }' in html
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert ('#rtcVideoGrid.mirror-remote .rtc-tile:not([data-tile="local"]) video '
+            '{ transform: scaleX(-1); }') in css
+
+
+def test_a_therapy_room_never_mirrors_the_incoming_picture(client):
+    """WATCH_ONLY is false outside a caregiver session, so the class is never set."""
+    assert "var WATCH_ONLY     = false;" in _room(client, roles.PSYCHOTHERAPIST)
 
 
 def test_full_screen_darkens_the_status_bar(client):
@@ -487,16 +504,16 @@ def test_the_clinical_roles_keep_their_own_words(client):
 
 
 def test_viewing_tools_belong_to_the_watcher_only():
-    """The wake lock, the sideways lock and the mic-revival guard are the
-    watcher's: a watcher must never ask for a mic, and the watched person's phone
-    is neither kept awake by us nor forced sideways. Full screen and Brighten are
-    shared with the watched person (see the patient tests below)."""
+    """The wake lock and the mic-revival guard are the watcher's: a watcher must
+    never ask for a mic, and the watched person's phone is not kept awake by us.
+    Nobody's screen is forced sideways. Full screen and Brighten are shared with
+    the watched person (see the patient tests below)."""
     src = open(os.path.join(os.path.dirname(os.path.dirname(__file__)),
                             "templates", "session_live.html"), encoding="utf-8").read()
     assert src.count("{% if is_watch_only %}") == 1           # the wake lock only
     assert "wakeLock" in src.split("{% if is_watch_only %}")[1]
     assert "{% if not is_watch_only %}" in src                # mic/camera strip
-    assert "WATCH_ONLY && screen.orientation" in src          # sideways: watcher only
+    assert "screen.orientation.lock" not in src               # nobody forced sideways
     assert "if (WATCH_ONLY) { return; }" in src               # onForeground guard
     assert "if (WATCH_ONLY) {" in src                          # joinAudio early exit
 

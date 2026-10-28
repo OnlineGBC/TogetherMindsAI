@@ -53,7 +53,7 @@ def test_every_page_shell_loads_the_new_stylesheet_version():
     """A changed stylesheet needs a new ?v= token or browsers keep the old one."""
     for name in ("base.html", "base_embed.html"):
         html = (ROOT / "templates" / name).read_text(encoding="utf-8")
-        assert "css/style.css') }}?v=2026-10-28-a" in html, name
+        assert "css/style.css') }}?v=2026-10-28-b" in html, name
 
 
 # --- the EHR launch page -----------------------------------------------------

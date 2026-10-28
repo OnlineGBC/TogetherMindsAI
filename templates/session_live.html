@@ -1234,6 +1234,9 @@
     var bgUpload  = document.getElementById("rtcBgUpload");
     var videoGrid = document.getElementById("rtcVideoGrid");
     var camTrack = null, bgMode = "none", bgImageURL = null, TP = null, presetURLs = {};
+    // The caregiver sees the incoming picture mirrored, exactly as it shows on the
+    // watched person's own screen (their own picture is mirrored, see cameraOn).
+    if (WATCH_ONLY && videoGrid) { videoGrid.classList.add("mirror-remote"); }
 
     // Temporary: report the size and turn of each video picture, so a sideways or
     // upside-down picture on a phone held in landscape can be traced from the logs.
@@ -1482,15 +1485,8 @@
             } else {
                 pane.classList.add("fill-window");
             }
-            // A wide picture on a tall screen is mostly black bars. The WATCHER holds
-            // the phone sideways, so ask for landscape — allowed only while full
-            // screen, and only on some browsers (iPhone refuses). The watched person
-            // is not asked: they may be holding the phone upright to check framing.
-            try {
-                if (WATCH_ONLY && screen.orientation && screen.orientation.lock) {
-                    screen.orientation.lock("landscape").catch(function () {});
-                }
-            } catch (e) {}
+            // No orientation lock: full screen follows the phone, portrait or
+            // landscape, like a camera app, with the picture upright in both.
             paint();
         }
         function leave() {
@@ -1499,8 +1495,6 @@
                 catch (e) {}
             }
             pane.classList.remove("fill-window");
-            try { if (screen.orientation && screen.orientation.unlock) { screen.orientation.unlock(); } }
-            catch (e) {}
             paint();
         }
 
