@@ -2507,29 +2507,6 @@ def rtc_livekit_token():
     return jsonify({"token": token, "url": config.LIVEKIT_URL})
 
 
-_CAM_DIAG_KEYS = ("tile", "role", "track_w", "track_h", "video_w", "video_h",
-                  "facing", "orient", "angle", "inner_w", "inner_h", "ua_app")
-
-
-@app.route("/rtc/cam-diag", methods=["POST"])
-@limiter.limit("30 per minute")
-def rtc_cam_diag():
-    """Log the shape of a camera picture (sizes and orientation only, no content).
-
-    Temporary diagnostic for sideways / upside-down video on a phone held in
-    landscape: it records what the camera sends and how the screen is turned."""
-    body = request.get_json(silent=True) or {}
-    user_id, err = _rtc_guard(body.get("session_id", ""))
-    if err:
-        return err
-    parts = []
-    for k in _CAM_DIAG_KEYS:
-        v = re.sub(r"[^A-Za-z0-9._-]", "", str(body.get(k, "")))[:24]
-        parts.append(f"{k}={v}")
-    app.logger.info("CAM-DIAG %s", " ".join(parts))
-    return jsonify({"ok": True})
-
-
 @app.route("/rtc/stt-token", methods=["POST"])
 @limiter.limit("30 per minute")
 def rtc_stt_token():

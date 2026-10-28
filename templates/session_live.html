@@ -1232,41 +1232,8 @@
     var videoGrid = document.getElementById("rtcVideoGrid");
     var camTrack = null, bgMode = "none", bgImageURL = null, TP = null, presetURLs = {};
 
-    // Temporary: report the size and turn of each video picture, so a sideways or
-    // upside-down picture on a phone held in landscape can be traced from the logs.
-    // Sizes and orientation only; never any picture content.
-    function camDiag(id, el) {
-        function send() {
-            try {
-                var st = {}, ms = el.srcObject;
-                var vt = ms && ms.getVideoTracks && ms.getVideoTracks()[0];
-                if (vt && vt.getSettings) { st = vt.getSettings(); }
-                var so = screen.orientation || {};
-                fetch("/rtc/cam-diag", {
-                    method: "POST", credentials: "same-origin", keepalive: true,
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        session_id: SESSION_ID, tile: id === "local" ? "local" : "remote",
-                        role: WATCH_ONLY ? "watcher" : "watched",
-                        track_w: st.width || "", track_h: st.height || "",
-                        video_w: el.videoWidth || "", video_h: el.videoHeight || "",
-                        facing: st.facingMode || "", orient: so.type || "",
-                        angle: (so.angle === undefined ? "" : so.angle),
-                        inner_w: window.innerWidth, inner_h: window.innerHeight,
-                        ua_app: /; wv\)|TMAI/i.test(navigator.userAgent) ? "app" : "browser"
-                    })
-                }).catch(function () {});
-            } catch (e) {}
-        }
-        el.addEventListener("loadedmetadata", function () { setTimeout(send, 500); });
-        if (screen.orientation && screen.orientation.addEventListener) {
-            screen.orientation.addEventListener("change", function () { setTimeout(send, 800); });
-        }
-    }
-
     function addTile(id, label, mediaEl) {
         removeTile(id);
-        camDiag(id, mediaEl);
         var t = document.createElement("div");
         t.setAttribute("data-tile", id);
         t.className = "rtc-tile";
