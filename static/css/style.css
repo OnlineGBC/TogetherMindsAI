@@ -686,6 +686,10 @@ body.sw-resizing .chat-pane, body.sw-resizing .video-pane { transition: none !im
    .brighten-own, which the script sets for them and never for the watcher. */
 #rtcVideoGrid.brighten-own.brighten-low  [data-tile="local"] video { filter: brightness(1.45) contrast(1.08); }
 #rtcVideoGrid.brighten-own.brighten-high [data-tile="local"] video { filter: brightness(1.9) contrast(1.18); }
+/* The watched person's own front camera, mirrored like the camera app, so their
+   face is upright when the phone is held sideways. The video only (not the tile,
+   so the "You" label reads normally); their screen only. Set by the script. */
+#rtcVideoGrid.mirror-own [data-tile="local"] video { transform: scaleX(-1); }
 
 /* ---- Clearly visible scrollbars in the session room ---- */
 body.therapy-page .chat-window .card-body,

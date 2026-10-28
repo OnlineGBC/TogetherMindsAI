@@ -554,6 +554,34 @@ def test_the_watched_person_gets_brighten_for_their_own_preview(client):
     assert "#rtcVideoGrid.brighten-own.brighten-high" in css
 
 
+def test_the_watched_persons_own_picture_is_mirrored(client):
+    """Unmirrored, the watched person's own front camera shows upside down with the
+    phone held sideways and the screen not turning. Mirrored (like the camera app),
+    it is upright either way. The video is flipped, not the tile, and a rear camera
+    is left alone."""
+    html = _watched_room(client, roles.CAREGIVER)
+    assert "var MIRROR_OWN     = true;" in html
+    assert ('videoGrid.classList.toggle("mirror-own", MIRROR_OWN && _facing !== "environment")'
+            in html)
+    css = open(os.path.join(os.path.dirname(__file__), "..",
+                            "static", "css", "style.css"), encoding="utf-8").read()
+    assert '#rtcVideoGrid.mirror-own [data-tile="local"] video { transform: scaleX(-1); }' in css
+
+
+# No other screen mirrors its own picture. One role per test: the seeded rows
+# reuse the same ids, so a second role in the same test would see the first.
+def test_the_caregiver_does_not_mirror(client):
+    assert "var MIRROR_OWN     = false;" in _room(client, roles.CAREGIVER)
+
+
+def test_a_therapy_client_does_not_mirror(client):
+    assert "var MIRROR_OWN     = false;" in _watched_room(client, roles.PSYCHOTHERAPIST)
+
+
+def test_a_therapist_does_not_mirror(client):
+    assert "var MIRROR_OWN     = false;" in _room(client, roles.PSYCHOTHERAPIST)
+
+
 def test_a_therapy_room_is_unchanged_for_the_person_being_seen(client):
     """Caregiver sessions only, for now: a client in a clinical room still has no
     full screen button and no Brighten menu."""

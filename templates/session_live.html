@@ -566,6 +566,9 @@
     // The caregiver only watches: joins to receive, never asks for or publishes a
     // mic or camera. The server token agrees (can_publish is off for them).
     var WATCH_ONLY     = {{ 'true' if is_watch_only else 'false' }};
+    // The person being watched in a caregiver session sees their own front camera
+    // mirrored, like the phone's camera app (see cameraOn).
+    var MIRROR_OWN     = {{ 'true' if (is_monitor and not is_watch_only) else 'false' }};
     window.SESSION_MODE             = "{{ mode }}";
     window.END_SESSION_REDIRECT_URL  = "/progress/" + USER_ID + "/{{ mode }}";
 
@@ -1312,6 +1315,14 @@
         await applyBackground();
         await lkRoom.localParticipant.publishTrack(camTrack, { source: LivekitClient.Track.Source.Camera });
         addTile("local", "You", camTrack.attach());
+        // Mirror the watched person's own front-camera picture. Unmirrored, it shows
+        // upside down when the phone is held sideways and the screen does not turn;
+        // mirrored, it is upright either way, as in the camera app. Their screen
+        // only: the picture sent to the caregiver is untouched. A rear camera is
+        // never mirrored.
+        var _facing = "";
+        try { _facing = camTrack.mediaStreamTrack.getSettings().facingMode || ""; } catch (e) {}
+        videoGrid.classList.toggle("mirror-own", MIRROR_OWN && _facing !== "environment");
         // Put the fresh self-tile back at the user's remembered drag position.
         var _lt = videoGrid.querySelector('[data-tile="local"]');
         if (_lt) { _restoreSelfPos(_lt); }
