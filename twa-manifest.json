@@ -35,7 +35,7 @@
   "isMetaQuest": false,
   "fullScopeUrl": "https://tm.onlinegbc.com/static/",
   "minSdkVersion": 21,
-  "orientation": "default",
+  "orientation": "portrait",
   "fingerprints": [],
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
