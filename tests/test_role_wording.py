@@ -89,30 +89,14 @@ def test_unknown_role_falls_back_to_clinical_wording():
 
 
 # ---------------------------------------------------------------------------
-# The disclaimer bar, which every visitor sees
+# Baby cam: no disclaimer bar and no crisis lines on any page, for any visitor
 # ---------------------------------------------------------------------------
 
-def test_the_bar_matches_the_signed_in_practitioner(client):
-    with app.app_context():
-        _clinician(role=roles.HYPNOTHERAPIST)
-    _login(client)
-    body = client.get("/pricing").get_data(as_text=True)
-    assert "supporting your practitioner" in body
-    assert "supporting your clinician" not in body
+GONE_EVERYWHERE = ("disclaimer-bar", "988", "741741", "findahelpline.com",
+                   "befrienders.org", "wellnessModal", "Checking in with you")
 
 
-def test_a_caregiver_is_not_told_about_clinical_care(client):
-    with app.app_context():
-        _clinician(role=roles.CAREGIVER)
-    _login(client)
-    body = client.get("/pricing").get_data(as_text=True)
-    assert "helps you watch and record" in body
-    assert "your clinician" not in body
-
-
-def test_crisis_numbers_show_for_every_role(client):
-    """These sit outside the wording switch on purpose. A wording change must
-    never be able to remove them."""
+def test_no_role_sees_the_disclaimer_bar_or_crisis_lines(client):
     for role in roles.ROLES:
         with app.app_context():
             db.session.query(Clinician).delete()
@@ -120,22 +104,20 @@ def test_crisis_numbers_show_for_every_role(client):
             _clinician(role=role)
         _login(client)
         body = client.get("/pricing").get_data(as_text=True)
-        assert "988" in body, role
-        assert "741741" in body, role
-        assert "findahelpline.com" in body, role
+        for gone in GONE_EVERYWHERE:
+            assert gone not in body, (role, gone)
 
 
-def test_signed_out_visitors_still_get_the_clinical_wording(client):
-    """No account, so nothing to key on — keep the wording the app had before."""
-    body = client.get("/welcome").get_data(as_text=True)
-    assert "supporting your clinician" in body
+def test_signed_out_visitors_see_no_disclaimer_bar_or_crisis_lines(client):
+    for path in ("/welcome", "/privacy", "/tos", "/session/join"):
+        body = client.get(path).get_data(as_text=True)
+        for gone in GONE_EVERYWHERE:
+            assert gone not in body, (path, gone)
 
 
-def test_a_client_sees_the_wording_of_the_practitioner_running_the_session(client):
-    """The client's own account type is irrelevant — what matters is who they are
-    actually seeing."""
+def test_a_client_sees_no_crisis_lines_at_the_consent_gate(client):
     with app.app_context():
-        _clinician("coach", role=roles.HYPNOTHERAPIST)
+        _clinician("coach", role=roles.CAREGIVER)
         now = datetime.now(timezone.utc)
         db.session.add(TherapySession(
             id="s1", mode="solo", created_by="coach", created_at=now,
@@ -144,8 +126,8 @@ def test_a_client_sees_the_wording_of_the_practitioner_running_the_session(clien
     with client.session_transaction() as s:
         s["user_id"] = "client-1"             # a client, not the practitioner
     body = client.get("/session/s1/consent").get_data(as_text=True)
-    assert "supporting your practitioner" in body
-    assert "supporting your clinician" not in body
+    for gone in GONE_EVERYWHERE:
+        assert gone not in body, gone
 
 
 # ---------------------------------------------------------------------------
@@ -158,19 +140,23 @@ def _flat(html: str) -> str:
     return re.sub(r"\s+", " ", html)
 
 
-def test_privacy_explains_that_hipaa_is_clinical_only(client):
-    """These pages are read signed out, so they stay static — a reader with no
-    account has no role. The split is explained instead of switched."""
-    body = _flat(client.get("/privacy").get_data(as_text=True))
-    assert "Accounts that are not clinical" in body
-    assert "technical protections are identical for every account" in body
-    assert "not acting as a HIPAA business associate" in body
+def test_privacy_is_about_a_baby_cam(client):
+    body = _flat(client.get("/privacy").get_data(as_text=True)).split("<main", 1)[-1].split("</main>", 1)[0]
+    assert "TogetherMindsAI is a baby cam" in body
+    assert "not saved" in body
+    assert "30 days" in body
+    for gone in ("HIPAA", "clinician", "Clinician", "Anthropic", "AssemblyAI",
+                 "co-pilot", "transcri", "Crisis Resources", "6 years"):
+        assert gone not in body, gone
 
 
-def test_terms_scope_the_clinical_claims(client):
-    body = _flat(client.get("/tos").get_data(as_text=True))
-    assert "Not every account is clinical" in body
-    assert "creates no clinical record" in body
+def test_terms_are_about_a_baby_cam(client):
+    body = _flat(client.get("/tos").get_data(as_text=True)).split("<main", 1)[-1].split("</main>", 1)[0]
+    assert "TogetherMindsAI is a baby cam" in body
+    assert "not</strong> a medical device" in body
+    for gone in ("Not every account is clinical", "clinical record",
+                 "emergency service", "licensure"):
+        assert gone not in body, gone
 
 
 # ---------------------------------------------------------------------------

@@ -129,8 +129,11 @@ def test_the_picker_itself_is_reachable(client):
     _login(client)
     rv = client.get("/choose-role")
     assert rv.status_code == 200
-    for _value, label, _blurb in roles.choices():
-        assert label in rv.get_data(as_text=True)
+    body = rv.get_data(as_text=True)
+    # Baby cam: the only choice is the caregiver, sent as a hidden value.
+    assert 'name="role" value="caregiver"' in body
+    for value in (roles.PSYCHOTHERAPIST, roles.HYPNOTHERAPIST):
+        assert f'value="{value}"' not in body, value
 
 
 def test_api_callers_get_json_not_a_redirect(client):

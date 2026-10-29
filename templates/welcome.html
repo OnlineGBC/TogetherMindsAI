@@ -231,74 +231,43 @@
   .consumer-divider { color: var(--text-muted); }
 </style>
 
-<!-- Hero — clinician-first -->
+<!-- Hero -->
 <div class="welcome-hero text-center mb-3">
-    <i class="bi bi-clipboard2-pulse-fill d-inline-block mb-1" style="font-size:2.6rem;"></i>
+    <i class="bi bi-camera-video-fill d-inline-block mb-1" style="font-size:2.6rem;"></i>
     <h1>TogetherMindsAI</h1>
-    <p class="tagline">An AI co-pilot that supports the clinician during sessions — quiet suggestions, technique reminders, and risk alerts that help them lead.</p>
-    <span class="pill-anon"><i class="bi bi-clipboard2-pulse-fill me-1"></i>Supports the clinician</span>
-    <span class="pill-free"><i class="bi bi-shield-lock-fill me-1"></i>Encrypted &amp; private</span>
+    <p class="tagline">A baby cam. Watch your baby live from another room, on your phone, tablet or computer.</p>
+    <span class="pill-anon"><i class="bi bi-camera-video-fill me-1"></i>Live video</span>
+    <span class="pill-free"><i class="bi bi-shield-lock-fill me-1"></i>Private</span>
 </div>
 
-<!-- Primary clinician CTA -->
+<!-- Primary CTA -->
 <div class="clinician-card mb-2">
     <div class="d-flex align-items-center gap-2 mb-2">
-        <span class="cc-badge"><i class="bi bi-clipboard2-pulse-fill"></i></span>
-        <h2 class="cc-title mb-0">Lead a session with the Co-Pilot</h2>
+        <span class="cc-badge"><i class="bi bi-camera-video-fill"></i></span>
+        <h2 class="cc-title mb-0">Watch your baby</h2>
     </div>
     <p class="cc-sub mb-3">
-        The clinician leads the session. A private panel surfaces brief suggestions,
-        technique reminders, and high-priority risk alerts during the conversation.
+        Sign in, start a session, and give the Session ID to the phone or tablet in
+        your baby's room. Open it there, and you will see your baby live on your screen.
     </p>
     <div class="cc-feature-strip mb-3">
         <div class="row g-0 cc-features text-center">
-            <div class="col-4"><i class="bi bi-eye-slash-fill"></i><div class="cc-feat-label">Clinician-Led</div></div>
-            <div class="col-4"><i class="bi bi-lightbulb-fill"></i><div class="cc-feat-label">Technique cues</div></div>
-            <div class="col-4"><i class="bi bi-shield-check"></i><div class="cc-feat-label">Safety-aware</div></div>
+            <div class="col-4"><i class="bi bi-camera-video-fill"></i><div class="cc-feat-label">Live video</div></div>
+            <div class="col-4"><i class="bi bi-phone-fill"></i><div class="cc-feat-label">Phone, tablet, computer</div></div>
+            <div class="col-4"><i class="bi bi-shield-check"></i><div class="cc-feat-label">Private</div></div>
         </div>
     </div>
     <div class="text-center">
         <a href="/therapist" class="btn btn-primary-green btn-lg px-5 rounded-3 fw-semibold">
-            Start as a clinician<i class="bi bi-arrow-right ms-2"></i>
+            Start watching<i class="bi bi-arrow-right ms-2"></i>
         </a>
-        <p class="cc-foot mb-0 mt-2">Runs 1:1, couple, or group sessions.</p>
     </div>
 </div>
 
-<!-- Privacy strip (slate panel) -->
-<div class="privacy-strip mb-2">
-    <div class="row g-2 text-center">
-        <div class="col-4">
-            <i class="bi bi-robot privacy-icon"></i>
-            <div class="privacy-title">AI-Assisted</div>
-            <p class="d-none d-md-block">Anthropic's Claude &mdash; reflects, doesn't direct.</p>
-        </div>
-        <div class="col-4">
-            <i class="bi bi-emoji-smile privacy-icon"></i>
-            <div class="privacy-title">Sentiment-aware</div>
-            <p class="d-none d-md-block">Reads tone and emotion to set the right pace.</p>
-        </div>
-        <div class="col-4">
-            <i class="bi bi-shield-lock-fill privacy-icon"></i>
-            <div class="privacy-title">Encrypted</div>
-            <p class="d-none d-md-block">Encrypted at rest. Sensitive fields redacted from logs.</p>
-        </div>
-    </div>
-</div>
-
-<!-- Safety framing -->
-<div class="safety-alert mb-2">
-    <i class="bi bi-info-circle-fill me-1"></i>
-    <strong>An assistive aid, not a clinician.</strong>
-    The Co-Pilot supports the clinician's judgement &mdash; it does not diagnose, treat, or
-    replace it, and the clinician remains responsible for the session. Crisis resources are
-    always shown in the bar above.
-</div>
-
-<!-- Join — for clients invited by a clinician, or returning users -->
+<!-- Join: the device that goes in the baby's room -->
 <div class="text-center">
     <a href="/session/join" class="rejoin-btn">
-        <i class="bi bi-box-arrow-in-right me-1"></i>Invited to a session? Enter your Session ID
+        <i class="bi bi-box-arrow-in-right me-1"></i>Setting up the baby's room? Enter your Session ID
     </a>
 </div>
 
@@ -318,7 +287,7 @@
             <div class="modal-body">
                 That session already has its participant, so you can't join right now.
                 If you just left it, please wait a few seconds and try again. If this keeps
-                happening, contact your clinician.
+                happening, contact the person who started the session.
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-primary-green rounded-pill px-4" data-bs-dismiss="modal">OK</button>

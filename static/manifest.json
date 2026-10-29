@@ -1,7 +1,7 @@
 {
   "name": "TogetherMindsAI",
   "short_name": "TogetherMinds",
-  "description": "AI-powered reflective support for solo, couple, and group therapy sessions.",
+  "description": "A baby cam. Watch your baby live from another room.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",
