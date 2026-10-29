@@ -6,119 +6,51 @@
 <div class="row justify-content-center">
     <div class="col-lg-8">
         <h1 class="fw-bold mb-1">Privacy Policy</h1>
-        <p class="text-muted small mb-4"><em>Last updated: June 20, 2026</em></p>
+        <p class="text-muted small mb-4"><em>Last updated: October 2026</em></p>
 
         <h5 class="fw-bold mt-4">1. About This App</h5>
-        <p>TogetherMindsAI is an AI assistant for licensed clinicians, operated by Global Business Consulting, Inc. (GBCai4org).
-        It is not a licensed mental health service and does not provide medical advice, diagnosis, or treatment.</p>
+        <p>TogetherMindsAI is a baby cam, operated by Global Business Consulting, Inc. (GBCai4org).
+        It sends live video and sound from one device (for example, a phone in your baby's room) to the
+        device of the person watching. It is not a medical device and does not provide medical advice.</p>
 
         <h5 class="fw-bold mt-4">2. What We Collect</h5>
         <ul>
-            <li><strong>Session messages</strong> — the text you send during a session</li>
-            <li><strong>Spoken audio</strong> (only if you join audio) — transcribed to text in real time. The audio is <strong>not recorded by default</strong> (only the text is kept). If recording is used, it happens <strong>only with every participant's consent</strong> and can be declined or stopped at any time.</li>
-            <li><strong>Session ID</strong> — a randomly generated code used to identify your session</li>
-            <li><strong>Display name</strong> — the name you choose within a session (need not be your real name)</li>
-            <li><strong>Usage metadata</strong> — timestamps, session mode (solo/couple/group), and rate-limiting data</li>
+            <li><strong>Live video and sound</strong> &mdash; passed between the devices in the session. It is
+                <strong>not saved</strong> unless the person watching turns recording on.</li>
+            <li><strong>Recordings</strong> (only if recording is turned on) &mdash; the person watching must first
+                confirm they are the parent or guardian of the person being recorded, or have their permission.</li>
+            <li><strong>Account sign-in</strong> &mdash; the person watching signs in with a Google or Microsoft
+                account. We keep the account's ID and its email address (the email is stored encrypted and used
+                only to send that person their own recording links and notices).</li>
+            <li><strong>Session ID</strong> &mdash; a randomly generated code used to identify the session</li>
+            <li><strong>Usage data</strong> &mdash; timestamps and rate-limiting data</li>
         </ul>
-        <p>We do not collect your name, email address, phone number, or any account credentials.
-        No account is required to use the app.</p>
+        <p>The device in the baby's room does not need an account.</p>
 
         <h5 class="fw-bold mt-4">3. How We Store It</h5>
-        <p>Your data is encrypted at rest. It is stored in a Google Cloud SQL database in the
-        United States, where all data is encrypted at the storage layer with <strong>AES-256</strong>.
-        In addition, sensitive fields &mdash; message content, session summaries, display names, and
-        session labels &mdash; carry a second layer of application-level encryption before they are
-        written to the database.</p>
+        <p>Stored data is kept in Google Cloud in the United States and is encrypted at rest
+        with <strong>AES-256</strong>.</p>
 
         <h5 class="fw-bold mt-4">4. How Long We Keep It</h5>
-        <p>Clinician-led sessions are clinical records, retained for <strong>up to 6 years</strong>,
-        consistent with clinical-record retention practices. Audit logs are also retained for
-        <strong>6 years</strong> as required by applicable regulations.</p>
-        <p>If a session is recorded, the audio/video recording is kept for <strong>30 days</strong>
-        and then permanently deleted. The written transcript is kept for <strong>up to 6 years</strong>
-        &mdash; as the clinical record for clinician-led sessions, and as session notes otherwise
-        (see <a href="#non-clinical">Accounts that are not clinical</a>).</p>
+        <p>A recording is kept for <strong>30 days</strong> and then permanently deleted.</p>
 
-        <h5 class="fw-bold mt-4" id="non-clinical">Accounts that are not clinical</h5>
-        <p>TogetherMindsAI is also used by practitioners who are <strong>not</strong> licensed health
-        providers &mdash; for example hypnotherapists and coaches &mdash; and by caregivers monitoring
-        a baby or a patient.</p>
-        <p>The <strong>technical protections are identical for every account</strong>: the same
-        encryption at rest and in transit, the same access controls, the same audit logging, and the
-        same service providers listed below.</p>
-        <p>What differs is the legal footing. <strong>HIPAA and our Business Associate Agreements apply
-        to clinician-led accounts.</strong> For other accounts we are not acting as a HIPAA business
-        associate, their sessions are not health care, and what is stored is session notes or a
-        recording rather than a clinical record.</p>
+        <h5 class="fw-bold mt-4">5. Service providers</h5>
+        <p>We do not sell, rent, or share your data with third parties. Google LLC (Google Cloud) hosts
+        the app, its database and file storage, and our self-hosted audio/video server.
+        (<a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">google.com/privacy</a>)</p>
 
-        <h5 class="fw-bold mt-4">5. Service providers (sub-processors)</h5>
-        <p>We do not sell, rent, or share your data with third parties. The following service providers
-        process data on our behalf, each under a signed Business Associate Agreement (HIPAA):</p>
-        <ul>
-            <li><strong>Google LLC (Google Cloud)</strong> — hosting, database, file storage, and our
-                self-hosted audio/video server. <em>Receives: all stored data.</em>
-                (<a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">google.com/privacy</a>)
-            </li>
-            <li><strong>AssemblyAI</strong> — converts session speech to text (live transcription).
-                <em>Receives: session audio.</em>
-                (<a href="https://www.assemblyai.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">assemblyai.com</a>)
-            </li>
-            <li><strong>Anthropic (Claude)</strong> — powers the AI co-pilot, session summaries, and
-                translation assistance. <em>Receives: session transcript text.</em>
-                (<a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener noreferrer">anthropic.com/privacy</a>)
-            </li>
-        </ul>
-        <p class="text-muted small">Our real-time audio/video runs on open-source software (LiveKit) that we
-        host ourselves on Google Cloud; the LiveKit company does not receive your data.</p>
-
-        <h5 class="fw-bold mt-4" id="about-the-ai">6. About the AI (AI transparency)</h5>
-        <p>This service uses artificial intelligence to (1) transcribe spoken sessions to text, (2) provide a
-        private "co-pilot" that suggests questions, techniques, and reference information to your clinician,
-        and (3) generate session summaries.</p>
-        <p><strong>The AI supports your clinician — it does not diagnose, treat, or make decisions about your
-        care.</strong> A licensed professional reviews and controls everything; you are always interacting with
-        a human clinician, assisted by AI. In a crisis, contact your clinician or emergency services
-        (US: call or text 988).</p>
-        <ul>
-            <li><strong>Intended purpose:</strong> assistive decision support for a licensed clinician during a
-                session — not an autonomous or stand-alone medical device.</li>
-            <li><strong>Human oversight:</strong> a clinician supervises the session and reviews all AI output;
-                automated risk/crisis detection only surfaces resources to the client and an alert to the
-                clinician — it never acts on its own.</li>
-            <li><strong>Limitations:</strong> AI transcription and suggestions may be incomplete or contain
-                errors, and any reference codes are decision-support, not diagnoses; the clinician verifies them.</li>
-            <li><strong>Our role:</strong> we deploy a third-party general-purpose AI model (Anthropic) within
-                this service. Your data is never used to train any AI model.</li>
-            <li><strong>Record-keeping:</strong> AI-related events (suggestions generated, risk alerts,
-                transcript access) are recorded in a tamper-evident audit log.</li>
-            <li><strong>Monitoring &amp; concerns:</strong> we monitor the system and act on issues; report
-                concerns to <a href="mailto:privacy@onlinegbc.com">privacy@onlinegbc.com</a>.</li>
-        </ul>
-
-        <h5 class="fw-bold mt-4">7. Age Requirement</h5>
+        <h5 class="fw-bold mt-4">6. Age Requirement</h5>
         <p>This app is intended for users aged 18 and older. We do not knowingly collect data from minors.</p>
 
-        <h5 class="fw-bold mt-4">8. Your Rights</h5>
-        <p>To request access to or deletion of a session's data, contact the clinician who led the session
-        (the record-holder), or us, and provide the Session ID. Note that clinical records may be subject
-        to retention obligations that limit deletion.</p>
+        <h5 class="fw-bold mt-4">7. Your Rights</h5>
+        <p>To request access to or deletion of a session's data, contact us and provide the Session ID.</p>
 
-        <h5 class="fw-bold mt-4">9. Crisis Resources</h5>
-        <p>If you are in crisis, please contact a real person immediately:</p>
-        <ul>
-            <li><strong>US:</strong> call or text <strong>988</strong>, or text HOME to <strong>741741</strong></li>
-            <li><strong>Worldwide:</strong>
-                <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a> or
-                <a href="https://befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a>
-            </li>
-        </ul>
-
-        <h5 class="fw-bold mt-4">10. Contact</h5>
+        <h5 class="fw-bold mt-4">8. Contact</h5>
         <p>For privacy questions or data deletion requests:<br>
         Global Business Consulting, Inc. (GBCai4org)<br>
         <strong>Email:</strong> <a href="mailto:privacy@onlinegbc.com">privacy@onlinegbc.com</a></p>
 
-        <h5 class="fw-bold mt-4">11. Changes to This Policy</h5>
+        <h5 class="fw-bold mt-4">9. Changes to This Policy</h5>
         <p>We may update this policy from time to time. The "Last updated" date at the top will reflect any changes.</p>
     </div>
 </div>

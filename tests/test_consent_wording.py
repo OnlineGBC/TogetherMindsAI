@@ -96,17 +96,17 @@ def test_the_age_card_accepts_a_trusted_adults_permission(client):
 
 def test_the_age_card_no_longer_repeats_the_crisis_number(client):
     """Asked for because 988 is already on every page and in the Terms. It must be
-    gone from THIS CARD and still present in the bar — not gone from the app."""
+    gone from THIS CARD. (The crisis bar and the crisis lines in the Terms have
+    since been removed everywhere, so 988 is no longer on the page at all.)"""
     body = _getting_started(client)
     assert "Under 18: please speak with a trusted adult" not in body
-    # Still there where it belongs: the always-on disclaimer bar.
-    assert "988" in body
+    assert "988" not in body
 
 
-def test_the_crisis_number_is_still_in_the_terms(client):
+def test_the_terms_have_no_crisis_numbers(client):
     body = _flat(client.get("/tos").get_data(as_text=True))
-    assert "988" in body
-    assert "under 18" in body.lower()
+    for gone in ("988", "911", "741741", "findahelpline.com", "befrienders.org"):
+        assert gone not in body, gone
 
 
 def test_the_client_is_told_the_session_starts_with_audio_and_video(client):

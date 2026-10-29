@@ -224,9 +224,9 @@ def test_navbar_home_link_points_to_root(client):
     assert 'href="/home"' not in body, (
         "Navbar must not link to /home — that route was removed"
     )
-    # The nav link in base.html should now point at /
-    assert '<a class="nav-link" href="/"' in body, (
-        "Navbar Home link must target /"
+    # The brand link in base.html points at /
+    assert '<a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/"' in body, (
+        "Navbar brand link must target /"
     )
 
 
@@ -235,7 +235,7 @@ def test_tos_page_returns_200(client):
     assert rv.status_code == 200
     assert b"Terms of Service" in rv.data
     assert b"togethermindsai@onlinegbc.com" in rv.data
-    assert b"findahelpline.com" in rv.data
+    assert b"findahelpline.com" not in rv.data      # no crisis lines
 
 
 def test_auth_page_redirects_to_join_without_pending(client):
@@ -262,11 +262,11 @@ def test_progress_page_returns_200(client):
     assert client.get(f"/progress/{user_id}/solo").status_code == 200
 
 
-def test_privacy_page_has_ai_transparency_and_subprocessors(client):
+def test_privacy_page_names_its_service_provider(client):
     body = client.get("/privacy").get_data(as_text=True)
-    assert "About the AI" in body                 # AIA transparency section
-    assert "AssemblyAI" in body                    # sub-processor disclosed
-    assert "sub-processor" in body.lower()
+    assert "Google LLC (Google Cloud)" in body    # the one provider, disclosed
+    for gone in ("AssemblyAI", "Anthropic"):
+        assert gone not in body, gone             # no speech-to-text or AI in a baby cam
 
 
 def test_privacy_page_discloses_recording_30day_deletion(client):

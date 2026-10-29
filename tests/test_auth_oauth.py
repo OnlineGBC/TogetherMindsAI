@@ -670,7 +670,7 @@ def test_navbar_shows_the_epic_subject_when_there_is_no_email(client):
 def test_navbar_no_account_menu_when_logged_out(client):
     html = client.get("/welcome").get_data(as_text=True)
     assert 'id="acctMenu"' not in html
-    assert "Clinician sign-in" in html
+    assert "Clinician sign-in" not in html      # no nav links in the baby cam header
 
 
 def test_oauth_routes_extracted_to_module(client):

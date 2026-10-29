@@ -74,115 +74,82 @@ def _client_account(cid="cli-1"):
 
 
 # ---------------------------------------------------------------------------
-# Who can see it
+# The header: the name on the left, the account on the right, no nav links
 # ---------------------------------------------------------------------------
 
-def test_a_visitor_who_has_not_signed_in_can_see_the_price(client):
-    """The whole point. A price nobody can find is not a price."""
+def test_the_header_has_no_navigation_links(client):
+    """Baby cam: Home, My sessions, Pricing and the two sign-in links are gone."""
     nav = _nav(client.get("/welcome").get_data(as_text=True))
-    assert "Pricing" in nav
-    assert "/pricing" in nav
+    assert nav
+    assert 'class="nav-link"' not in nav
+    for gone in ("Home", "My sessions", "Pricing", "Clinician sign-in",
+                 "Client sign-in", "navbar-toggler"):
+        assert gone not in nav, gone
 
 
-def test_a_signed_in_client_can_see_the_price(client):
-    """Missed in the original report, and missing for the same reason: the link
-    lived in the clinician branch."""
+def test_the_header_name_is_babycamsecure(client):
+    nav = _nav(client.get("/welcome").get_data(as_text=True))
+    assert "BabyCamSecure" in nav
+    assert "TogetherMindsAI" not in nav
+
+
+def test_a_signed_in_account_sees_its_menu_with_sign_out(client):
+    with app.app_context():
+        _clinician()
+    with client.session_transaction() as s:
+        s["clinician_id"] = "clin-1"
+        s["user_id"] = "clin-1"
+    nav = _nav(client.get("/welcome").get_data(as_text=True))
+    assert 'id="acctMenu"' in nav
+    assert "c@example.com" in nav
+    assert "/logout" in nav
+    assert "Sign out" in nav
+
+
+def test_a_signed_in_client_sees_its_menu_with_sign_out(client):
     with app.app_context():
         _client_account()
     with client.session_transaction() as s:
         s["client_account_id"] = "cli-1"
     nav = _nav(client.get("/welcome").get_data(as_text=True))
-    assert "Pricing" in nav
+    assert 'id="acctMenu"' in nav
+    assert "/logout" in nav
 
 
-def test_a_clinician_still_sees_it(client):
-    with app.app_context():
-        _clinician()
-    with client.session_transaction() as s:
-        s["clinician_id"] = "clin-1"
-        s["user_id"] = "clin-1"
+def test_a_visitor_sees_no_account_menu(client):
     nav = _nav(client.get("/welcome").get_data(as_text=True))
-    assert "Pricing" in nav
+    assert 'id="acctMenu"' not in nav
 
 
-def test_it_is_the_last_link_for_a_visitor(client):
-    """Asked for as the rightmost entry."""
+def test_the_brand_still_links_home(client):
+    """The live session hooks the brand link and Sign out to ask before leaving."""
     nav = _nav(client.get("/welcome").get_data(as_text=True))
-    hrefs = re.findall(r'class="nav-link" href="([^"]+)"', nav)
-    assert hrefs[-1].endswith("/pricing"), hrefs
+    assert 'href="/"' in nav
 
 
-def test_a_clinician_keeps_the_position_the_old_link_had(client):
-    """Third: Home, My sessions, Pricing. Asked to leave it where it was."""
-    with app.app_context():
-        _clinician()
-    with client.session_transaction() as s:
-        s["clinician_id"] = "clin-1"
-        s["user_id"] = "clin-1"
-    nav = _nav(client.get("/welcome").get_data(as_text=True))
-    hrefs = re.findall(r'class="nav-link" href="([^"]+)"', nav)
-    assert len(hrefs) >= 3
-    assert hrefs[2].endswith("/pricing"), hrefs
-
-
-def test_the_sign_in_links_are_still_there_for_a_visitor(client):
-    """Adding Pricing must not have displaced anything."""
-    nav = _nav(client.get("/welcome").get_data(as_text=True))
-    assert "Clinician sign-in" in nav
-    assert "Client sign-in" in nav
-    assert "Home" in nav
-
-
-def test_every_page_that_uses_the_header_shows_it(client):
-    """One header, so this is really a check that these pages use it — and that
-    none of them renders a nav of its own."""
+def test_every_page_that_uses_the_header_shows_the_new_one(client):
     asserted = []
     for path in ("/welcome", "/client/login", "/login", "/pricing", "/privacy",
                  "/tos"):
         rv = client.get(path, follow_redirects=True)
         if rv.status_code != 200:
-            continue                       # not reachable anonymously; not a nav bug
+            continue
         html = rv.get_data(as_text=True)
         if "<nav" not in html:
-            continue                       # no header on this page at all
-        assert "Pricing" in _nav(html), path
+            continue
+        assert "BabyCamSecure" in _nav(html), path
         asserted.append(path)
-    # A floor, so the skips above can never quietly turn this into a test of
-    # nothing. All six are reachable without signing in today.
     assert len(asserted) == 6, asserted
 
 
-# ---------------------------------------------------------------------------
-# The one screen it must NOT appear on
-# ---------------------------------------------------------------------------
-
-def _render_header(**ctx):
-    """The header as a browser would receive it, for a given context.
-
-    Rendered rather than read as text: an earlier version of this test compared
-    the positions of `in_live_session` and `pricing_page` in the source, which
-    passed even with the link moved OUT of the block — there is a later
-    {% endif %} (the account menu's) that satisfied the position check.
-    """
-    from flask import render_template
-    # render_template, not jinja_env.render: the header reads values supplied by
-    # the app's context processors (the disclaimer wording, the CSRF token), and
-    # rendering through Jinja directly skips those entirely.
-    with app.test_request_context("/"):
-        html = render_template("base.html", **ctx)
-    return _nav(html)
-
-
-def test_the_live_session_header_stays_focused(client):
-    """Mid-call the nav hides Home and the sessions list so nobody wanders out of
-    a session. Offering to browse prices during someone's therapy is exactly that."""
-    assert "Pricing" not in _render_header(in_live_session=True)
-
-
-def test_it_is_the_live_session_flag_that_hides_it(client):
-    """The other half: without the flag the same header DOES show Pricing, so the
-    test above is about the flag and not about some other accident."""
-    assert "Pricing" in _render_header(in_live_session=False)
+def test_pricing_is_still_reachable_from_the_start_page(client):
+    """It left the header, so the start page is where a signed-in account finds it."""
+    with app.app_context():
+        _clinician()
+    with client.session_transaction() as s:
+        s["clinician_id"] = "clin-1"
+        s["user_id"] = "clin-1"
+    assert "/pricing" in client.get("/therapist").get_data(as_text=True)
 
 
 # ---------------------------------------------------------------------------

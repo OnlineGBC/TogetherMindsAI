@@ -208,7 +208,7 @@ def test_at_home_is_recorded_regardless_of_the_licensure_decision(enc_client):
         assert SessionLocation.query.filter_by(session_id=sid).count() == 1
 
 
-def test_declined_intl_shows_worldwide_crisis(enc_client):
+def test_declined_intl_shows_no_crisis_lines(enc_client):
     with app.app_context():
         sid = _seed_session()
         db.session.add(SessionStateCert(session_id=sid, state="C:FR", therapist_id=THER,
@@ -218,8 +218,9 @@ def test_declined_intl_shows_worldwide_crisis(enc_client):
     assert rv.status_code == 403
     assert b"France (FR)" in rv.data                     # location shown
     assert b"isn't able to see clients" in rv.data       # declined (not blocked)
-    # worldwide crisis branch (unique phrase), not the US 988-first text
-    assert b"finds a line in your country" in rv.data
+    # no crisis lines on this page, worldwide or US
+    assert b"finds a line in your country" not in rv.data
+    assert b"988" not in rv.data
 
 
 def test_invalid_location_redirects_to_consent(enc_client):

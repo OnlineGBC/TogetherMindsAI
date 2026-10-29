@@ -102,9 +102,15 @@
             </div>
             <div class="plan-price mb-3">$0 <small>/month</small></div>
             <ul class="list-unstyled mb-4">
+              {# Baby cam wording. The other roles' lists are about therapy, so only the
+                 caregiver lists are used; any other account sees a plain line. #}
+              {% if role == 'caregiver' %}
               {% for feat in free_features %}
               <li class="plan-feat mb-2"><i class="bi bi-check-circle-fill me-2"></i>{{ feat }}</li>
               {% endfor %}
+              {% else %}
+              <li class="plan-feat mb-2"><i class="bi bi-check-circle-fill me-2"></i>Live audio and video</li>
+              {% endif %}
             </ul>
             <div class="mt-auto">
               <button class="btn btn-outline-secondary rounded-pill w-100" disabled>Always free</button>
@@ -124,9 +130,13 @@
             <div class="plan-price mb-3">{{ price_label }} <small>/month</small></div>
             <ul class="list-unstyled mb-4">
               <li class="plan-feat mb-2"><i class="bi bi-check-circle-fill me-2"></i>Everything in Free</li>
+              {% if role == 'caregiver' %}
               {% for feat in paid_features %}
               <li class="plan-feat mb-2"><i class="bi bi-check-circle-fill me-2"></i>{{ feat }}</li>
               {% endfor %}
+              {% else %}
+              <li class="plan-feat mb-2"><i class="bi bi-check-circle-fill me-2"></i>Audio and video recording</li>
+              {% endif %}
             </ul>
             <div class="mt-auto">
               {% if is_paid %}

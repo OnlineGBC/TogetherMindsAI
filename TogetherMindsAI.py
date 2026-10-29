@@ -248,23 +248,21 @@ def _block_disabled_clinician():
 
 @app.before_request
 def _require_role_choice():
-    """Make a signed-in clinician pick a role before using the app.
+    """Give a signed-in account with no role the caregiver role, without asking.
 
-    Only bites when role IS NULL, which after the one-time backfill means new
-    accounts only. Clients are never asked — a role describes the practitioner,
-    not the person they are seeing.
-
-    Deliberately a redirect rather than a blocked page: the account is usable the
-    moment they choose, and there is nothing to lose by asking again later.
+    Baby cam: nobody is shown a role picker. Only bites when role IS NULL, which
+    after the one-time backfill means new accounts only. Clients are never touched
+    — a role describes the practitioner, not the person they are seeing. An account
+    that already has a role keeps it; only an admin changes it.
     """
     if request.endpoint in _ROLE_CHOICE_EXEMPT or request.endpoint is None:
         return
     clin = _current_clinician_row()
     if clin is None or roles.is_valid(getattr(clin, "role", None)):
         return
-    if request.path.startswith("/api/") or request.path.startswith("/rtc/"):
-        return jsonify({"error": "role_required"}), 403
-    return redirect(url_for("choose_role", next=request.path))
+    clin.role = roles.CAREGIVER
+    db.session.commit()
+    log_event("role_chosen", user_id=clin.id, role=roles.CAREGIVER, automatic=True)
 
 
 @app.after_request
