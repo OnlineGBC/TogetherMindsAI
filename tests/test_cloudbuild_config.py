@@ -36,7 +36,11 @@ def test_the_ehr_launch_has_everything_it_needs():
     match = re.search(r"--set-env-vars\s*\n\s*-\s*(\S+)", text)
     assert match, "--set-env-vars not found in cloudbuild.yaml"
     env_pairs = dict(p.split("=", 1) for p in match.group(1).split(",") if "=" in p)
-    assert env_pairs.get("EHR_ENABLED") == "true", env_pairs
+    # BabyCamSecure runs with EHR off on purpose. Off is fine; what must never happen
+    # is the launch ON and unconfigured, or write-back ON without the launch.
+    assert env_pairs.get("EHR_ENABLED") in ("true", "false"), env_pairs
+    if env_pairs.get("EHR_ENABLED") == "false":
+        assert env_pairs.get("EHR_WRITE_ENABLED") == "false", env_pairs
     assert "EPIC_CLIENT_ID=EPIC_CLIENT_ID:" in text
     assert "EPIC_SANDBOX_CLIENT_SECRET=EPIC_SANDBOX_CLIENT_SECRET:" in text
     assert "CERNER_CLIENT_SECRET=CERNER_CLIENT_SECRET:" in text

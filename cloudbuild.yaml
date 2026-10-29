@@ -1,6 +1,7 @@
 # cloudbuild.yaml
 # ----------------
-# CI/CD pipeline for TogetherMindsAI on Google Cloud Build.
+# CI/CD pipeline for BabyCamSecure (Cloud Run service: babycamsecure) on Google Cloud Build.
+# The TogetherMindsAI app deploys from its own branch with its own copy of this file.
 #
 # Trigger (deploy-on-push-main) is disabled — run manually via Cloud Build UI or gcloud builds submit.
 #
@@ -19,10 +20,10 @@
 
 substitutions:
   _REGION: us-central1
-  _SERVICE_NAME: togethermindsai
+  _SERVICE_NAME: babycamsecure
   _AR_REPO: togethermindsai-repo
   _SQL_CONN_NAME: togethermindsai-python:us-central1:togethermindsai-db
-  _TAG: latest
+  _TAG: babycam
 
 steps:
   # ── 0. Pull previous image for layer caching ────────────────────────────────
@@ -143,8 +144,10 @@ steps:
       # /ehr/load-summary, /ehr/add-billing-code — filing a note back into the
       # chart. Separate from EHR_ENABLED on purpose: a read going wrong shows a
       # stale field, a write going wrong leaves a permanent chart entry.
+      # BabyCamSecure: EHR is off. --set-env-vars replaces ALL settings, so this app's own
+      # address (PUBLIC_BASE_URL) must be listed here or a deploy would drop it.
       - --set-env-vars
-      - BILLING_ENABLED=true,RECORDING_ENABLED=true,EHR_ENABLED=true,EHR_WRITE_ENABLED=true
+      - BILLING_ENABLED=true,RECORDING_ENABLED=true,EHR_ENABLED=false,EHR_WRITE_ENABLED=false,PUBLIC_BASE_URL=https://babycamsecure-pofun7pgcq-uc.a.run.app
       # Stripe secrets PINNED to :2 = LIVE keys (verified: :1 is sk_test_, :2 is
       # sk_live_). Still pinned rather than :latest so a new secret version cannot
       # silently change what production charges against. To revert to test mode,
