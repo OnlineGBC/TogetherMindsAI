@@ -40,13 +40,12 @@ def _login(client, uid):
 
 
 def test_progress_full_page_has_site_chrome(client):
-    """The standalone Progress page keeps the navbar and Back button. The crisis
-    bar is gone from every page (baby cam)."""
+    """The standalone Progress page keeps the navbar, crisis bar, and Back button."""
     uid = "u-full"
     _login(client, uid)
     body = client.get(f"/progress/{uid}/solo").get_data(as_text=True)
     assert "navbar-brand" in body          # the real top nav element
-    assert "disclaimer-bar" not in body    # no crisis bar
+    assert "disclaimer-bar" in body        # the crisis bar
     assert "Back to Solo Therapy" in body
     assert "Your Progress" in body
 

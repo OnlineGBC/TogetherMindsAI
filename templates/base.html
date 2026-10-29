@@ -145,6 +145,21 @@
     </div>
 </nav>
 
+<!-- Persistent disclaimer bar -->
+<div class="disclaimer-bar py-2 px-3 text-center">
+    <small>
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        {# Wording follows the practitioner's role — see roles.WORDING. The crisis
+           numbers below are OUTSIDE that switch and show for every role. #}
+        <strong>{{ words.disclaimer_lead }}</strong> &mdash; {{ words.disclaimer_rest }} &mdash;
+        <strong>US:</strong> call or text <strong>988</strong> &bull; text <strong>HOME to 741741</strong>.
+        <strong>Worldwide:</strong>
+        <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer" class="text-reset fw-bold">findahelpline.com</a>
+        &bull;
+        <a href="https://befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer" class="text-reset fw-bold">befrienders.org</a>.
+    </small>
+</div>
+
 <!-- Main content -->
 <main class="container py-4">
     {% with flashed = get_flashed_messages(with_categories=true) %}
@@ -164,7 +179,8 @@
 <footer class="footer-bar text-center py-3 mt-auto">
     <small class="text-muted">
         {%- set _newtab = ' target="_blank" rel="noopener"' if in_live_session|default(false) else '' %}
-        &copy; {{ current_year }} TogetherMindsAI &mdash; baby cam
+        &copy; {{ current_year }} TogetherMindsAI &mdash; AI co-pilot for clinician-led sessions
+        &middot; <a href="/privacy#about-the-ai" class="text-reset"{{ _newtab|safe }}>About the AI</a>
         &middot; <a href="/privacy" class="text-reset"{{ _newtab|safe }}>Privacy</a>
         &middot; <a href="/tos" class="text-reset"{{ _newtab|safe }}>Terms</a>
     </small>
@@ -185,6 +201,40 @@
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
 </script>
+
+<!-- Wellness check-in modal (triggered after inactivity) -->
+<div class="modal fade" id="wellnessModal" tabindex="-1" aria-labelledby="wellnessModalLabel" aria-modal="true" role="dialog">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold" id="wellnessModalLabel">
+                    <i class="bi bi-heart-pulse-fill text-primary-green me-2"></i>Checking in with you
+                </h5>
+            </div>
+            <div class="modal-body pt-2">
+                <p class="mb-2">You've been quiet for a while &mdash; how are you doing?</p>
+                <p class="text-muted small mb-0">
+                    If you're struggling right now, real support is available 24/7.
+                    <strong>US:</strong> call or text <strong>988</strong>, or text <strong>HOME to 741741</strong>.
+                    <strong>Outside the US:</strong>
+                    <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a>
+                    or <a href="https://befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a>
+                    have directories for your country.
+                    This AI cannot replace a human &mdash; please reach out to a real person if you need help.
+                </p>
+            </div>
+            <div class="modal-footer border-0 pt-0 gap-2">
+                <a href="https://findahelpline.com" target="_blank" rel="noopener noreferrer"
+                   class="btn btn-outline-danger btn-sm rounded-pill">
+                    <i class="bi bi-telephone-fill me-1"></i>Find support in my country
+                </a>
+                <button type="button" class="btn btn-primary-green btn-sm rounded-pill" data-bs-dismiss="modal">
+                    I'm okay &mdash; continue
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Display Name prompt modal (shown on therapy page load) -->
 <div class="modal fade" id="displayNameModal" tabindex="-1"

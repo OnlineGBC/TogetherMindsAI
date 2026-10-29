@@ -145,21 +145,12 @@ def test_a_coach_sees_the_clinical_price_but_no_icd_promise(client):
     assert "ICD" not in body           # never advertised to a role that cannot have it
 
 
-def test_no_role_is_shown_therapy_features_on_the_plans_page(client):
-    """Baby cam: the plans page lists video and recording only, whatever the
-    account's role."""
-    for role in roles.ROLES:
-        with app.app_context():
-            db.session.query(Clinician).delete()
-            db.session.commit()
-            _clinician(role=role)
-        _login(client)
-        body = client.get("/pricing").data.decode()
-        for promise in ("ICD and billing codes", "AI co-pilot suggestions",
-                        "AI session recap", "Full session transcript",
-                        "Guided reflections chat", "Safety and risk alerts"):
-            assert promise not in body, (role, promise)
-        assert "Live audio and video" in body, role
+def test_a_psychotherapist_is_offered_icd_codes(client):
+    with app.app_context():
+        _clinician(role=roles.PSYCHOTHERAPIST)
+    _login(client)
+    body = client.get("/pricing").data.decode()
+    assert "ICD and billing codes" in body
 
 
 def test_a_caregiver_is_not_promised_chat_or_ai(client):

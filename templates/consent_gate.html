@@ -15,19 +15,35 @@
     <div class="col-md-9 col-lg-7 col-xl-6">
 
         <div class="text-center mb-3">
-            <span class="consent-hero-icon mb-2"><i class="bi bi-camera-video-fill"></i></span>
-            <h3 class="fw-bold mb-1">Before you join</h3>
+            <span class="consent-hero-icon mb-2"><i class="bi bi-mic-fill"></i></span>
+            <h3 class="fw-bold mb-1">Before you join this session</h3>
             <p class="text-muted mb-0 small">Please read this and agree to continue.</p>
         </div>
 
         <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-4 small">
-                <p class="mb-2">This device will start <strong>sending live video and sound</strong> to
-                    the person watching. You can turn the camera or microphone off at any time from the
-                    controls in the session.</p>
-                <p class="mb-3">Nothing is saved unless the person watching turns <strong>recording</strong>
-                    on. A recording is kept for <strong>30 days</strong> and then permanently deleted. See our
+                {# First, because it is the thing that happens the moment they
+                   continue. This is the per-session gate and the one that is
+                   RECORDED — audit row, transcript line, and a note to the
+                   clinician — so a notice about how the session begins belongs
+                   here and not only on the Getting Started page. #}
+                <p class="mb-2">This session will start with <strong>audio and video enabled</strong>,
+                    although you can turn either off at any time from the controls in the session.</p>
+                <p class="mb-2">Your speech in this session is <strong>transcribed to text by an automated (AI)
+                    service</strong>, and that text becomes part of the session transcript — your
+                    {{ words.practitioner }}'s confidential record. Your session is
+                    <strong>not recorded by default</strong> — only the text is kept.</p>
+                <p class="mb-2">Recording the audio/video is a <strong>separate, optional</strong> feature that
+                    stays off unless <strong>every participant consents</strong>, and anyone can decline or stop it
+                    at any time. If a session is recorded, the audio/video is kept for <strong>30 days</strong> and
+                    then permanently deleted; the written transcript is kept as the {{ words.record }} for
+                    <strong>up to 6 years</strong>.</p>
+                <p class="mb-2">This session is also supported by a private <strong>AI co-pilot</strong> that
+                    assists your {{ words.practitioner }}; it does not replace their judgment. Speech and text are
+                    handled by our service providers under signed HIPAA agreements — see our
                     <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy&nbsp;Policy</a>.</p>
+                <p class="mb-3">By continuing, you <strong>consent to live AI transcription</strong> as described.
+                    You can turn your own transcription off at any time from the audio controls.</p>
 
                 <form method="post" action="{{ url_for('session_consent_post', session_id=session_id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />

@@ -111,21 +111,17 @@ def test_root_redirects_to_welcome(client):
     assert "/welcome" in rv.headers.get("Location", "")
 
 
-def test_welcome_page_is_baby_cam_first(client):
-    """The welcome page is baby-cam-first: it leads with the watch CTA to
-    /therapist (the sign-in path) and the session-join action, and no longer
-    surfaces the consumer 'anonymous / free' self-guided modes."""
+def test_welcome_page_is_clinician_first(client):
+    """The welcome page is therapist-first: it leads with the Co-Pilot CTA to
+    /therapist and the session-join action, and no longer surfaces the consumer
+    'anonymous / free' self-guided modes."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
     assert "TogetherMindsAI" in body
-    # The watch CTA is the primary action.
+    # Clinician CTA is the primary action.
     assert 'href="/therapist"' in body
-    assert "Start watching" in body
-    assert "baby cam" in body.lower()
-    # No therapy or crisis wording on the landing page.
-    for gone in ("Start as a clinician", "Co-Pilot", "988", "741741"):
-        assert gone not in body, gone
+    assert "Start as a clinician" in body
     # Join action for invited clients / returning users.
     assert 'href="/session/join"' in body
     # The consumer 'anonymous / free / self-guided modes' framing is gone.
@@ -161,12 +157,12 @@ def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
     a ghost circle on top of the icon, looking like a broken image. The hero
     must use page-scoped classes only.
 
-    The baby-cam hero uses a page-scoped camera icon."""
+    The therapist-first hero uses a page-scoped clipboard-pulse icon."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    assert "bi-camera-video-fill" in body, (
-        "Welcome hero must render the baby-cam camera icon"
+    assert "bi-clipboard2-pulse-fill" in body, (
+        "Welcome hero must render the clinician clipboard-pulse icon"
     )
     # Lock out the original bug — no bare global hero-icon class on hero icons.
     assert 'bi-heart-pulse-fill hero-icon' not in body
@@ -239,7 +235,7 @@ def test_tos_page_returns_200(client):
     assert rv.status_code == 200
     assert b"Terms of Service" in rv.data
     assert b"togethermindsai@onlinegbc.com" in rv.data
-    assert b"findahelpline.com" not in rv.data      # baby cam: no crisis lines
+    assert b"findahelpline.com" in rv.data
 
 
 def test_auth_page_redirects_to_join_without_pending(client):
@@ -266,11 +262,11 @@ def test_progress_page_returns_200(client):
     assert client.get(f"/progress/{user_id}/solo").status_code == 200
 
 
-def test_privacy_page_names_its_service_provider(client):
+def test_privacy_page_has_ai_transparency_and_subprocessors(client):
     body = client.get("/privacy").get_data(as_text=True)
-    assert "Google LLC (Google Cloud)" in body    # the one provider, disclosed
-    for gone in ("AssemblyAI", "Anthropic", "About the AI"):
-        assert gone not in body, gone             # no speech-to-text or AI in a baby cam
+    assert "About the AI" in body                 # AIA transparency section
+    assert "AssemblyAI" in body                    # sub-processor disclosed
+    assert "sub-processor" in body.lower()
 
 
 def test_privacy_page_discloses_recording_30day_deletion(client):

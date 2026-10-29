@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Set up your baby cam — TogetherMindsAI{% endblock %}
+{% block title %}How will you use TogetherMindsAI?{% endblock %}
 
 {% block content %}
 <style>
@@ -23,9 +23,10 @@
   <div class="col-12 col-md-9 col-lg-7">
 
     <div class="text-center mb-4">
-      <h3 class="fw-bold mb-2">Set up your baby cam</h3>
+      <h3 class="fw-bold mb-2">How will you use TogetherMindsAI?</h3>
       <p class="text-muted mb-0">
-        You will watch your baby live on this device.
+        This sets which features you see. Pick the one that fits your work.
+        Only an administrator can change it later, so choose carefully.
       </p>
     </div>
 
@@ -38,7 +39,16 @@
     <form method="post" action="{{ url_for('choose_role_post') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="next" value="{{ next or '' }}">
-      <input type="hidden" name="role" value="caregiver">
+
+      {% for value, label, blurb in choices %}
+      <label class="role-card d-flex gap-3 p-3 mb-3">
+        <input class="form-check-input flex-shrink-0" type="radio" name="role" value="{{ value }}" required>
+        <span>
+          <span class="role-name d-block">{{ label }}</span>
+          <span class="role-blurb">{{ blurb }}</span>
+        </span>
+      </label>
+      {% endfor %}
 
       <div class="d-grid mt-4">
         <button class="btn btn-primary btn-lg rounded-pill" type="submit">Continue</button>

@@ -29,38 +29,84 @@
 <div class="row justify-content-center">
     <div class="col-md-10 col-lg-10 col-xl-9">
 
-        <!-- Compact title row: inline icon + heading -->
+        <!-- Compact title row: inline icon + heading + subtitle -->
         <div class="d-flex align-items-center justify-content-center flex-wrap gap-2 mb-3">
-            <i class="bi bi-camera-video-fill fs-2 text-primary-green"></i>
-            <h3 class="fw-bold mb-0">Getting Started</h3>
+            {% if therapy_mode == "solo" %}
+                <i class="bi bi-person-fill fs-2 text-primary-green"></i>
+            {% elif therapy_mode == "couple" %}
+                <i class="bi bi-people-fill fs-2 text-primary-green"></i>
+            {% else %}
+                <i class="bi bi-person-lines-fill fs-2 text-primary-green"></i>
+            {% endif %}
+            <h3 class="fw-bold mb-0">
+                {% if therapy_mode == "solo" %}Getting Started with your 1:1 Session
+                {% elif therapy_mode == "couple" %}Getting Started with Couple Check-in
+                {% else %}Getting Started with Group Circle{% endif %}
+            </h3>
+            <span class="text-muted small d-none d-md-inline">— moments from your session.</span>
         </div>
 
         <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-3 p-md-4">
 
+                <!-- Clinician-led status row -->
+                <div class="auth-status-row d-flex align-items-center justify-content-center flex-wrap gap-2 small mb-3">
+                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
+                        <i class="bi bi-person-badge-fill me-1"></i>
+                        <span class="d-none d-md-inline">Clinician-led session — kept as a clinical record</span>
+                        <span class="d-md-none">Clinician-led session</span>
+                    </span>
+                    <span class="badge text-success-emphasis bg-success-subtle border border-success-subtle rounded-pill px-3 py-1 fw-normal">
+                        <i class="bi bi-shield-lock-fill me-1"></i>
+                        <span class="d-none d-md-inline">Encrypted — never sold or used to train AI</span>
+                        <span class="d-md-none">Encrypted &amp; confidential</span>
+                    </span>
+                    {% if therapy_mode == "couple" %}
+                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
+                        <i class="bi bi-link-45deg me-1"></i>
+                        <span class="d-none d-md-inline">Share your session URL with your partner after starting</span>
+                        <span class="d-md-none">Share session URL after starting</span>
+                    </span>
+                    {% elif therapy_mode == "group" %}
+                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
+                        <i class="bi bi-link-45deg me-1"></i>
+                        <span class="d-none d-md-inline">Share the generated Session ID with your group after starting</span>
+                        <span class="d-md-none">Share Session ID after starting</span>
+                    </span>
+                    {% endif %}
+                </div>
+
                 <p class="fw-semibold mb-2 small auth-please-read">Please read before continuing:</p>
 
+                <!-- 3-up informational grid on ≥lg, stacked on smaller (no per-card checkboxes; single acceptance below) -->
                 <div class="row g-2 mb-3">
                     <div class="col-lg-4">
                         <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
+                            {# The crisis number used to be repeated here. It is on
+                               every page in the disclaimer bar and again in the
+                               Terms, so this card states the requirement only. #}
                             <span class="small">
-                                I am <strong>18 years of age or older</strong>.
+                                I am <strong>18 years of age or older</strong>, or I have a
+                                trusted adult's permission to participate.
                             </span>
                         </div>
                     </div>
                     <div class="col-lg-4">
                         <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
-                                This device will <strong>send live video and sound</strong> to the
-                                person watching. I can turn the camera or microphone off in the session.
+                                This session is <strong>led by a licensed professional</strong>, who is
+                                responsible for it. An AI assists the clinician privately.
+                                I understand that this session will start with
+                                <strong>audio and video enabled</strong>, although I can turn it off.
                             </span>
                         </div>
                     </div>
                     <div class="col-lg-4">
                         <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
-                                Nothing is saved unless the person watching turns <strong>recording</strong>
-                                on. A recording is kept for 30 days, then deleted.
+                                My conversation is kept as part of the clinician's
+                                <strong>confidential clinical record</strong> — encrypted, retained
+                                up to six years, and accessible to them.
                             </span>
                         </div>
                     </div>
@@ -121,32 +167,50 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body pt-2" style="max-height: 65vh; overflow-y: auto;">
-                <p class="text-muted small">Last updated: October 2026</p>
+                <p class="text-muted small">Last updated: April 2026</p>
 
                 <h6 class="fw-semibold mt-3">1. What TogetherMindsAI is</h6>
-                <p>TogetherMindsAI is a baby cam. It sends live video and sound from one device, such as a phone or tablet in your baby's room, to the device of the person watching.</p>
-                <p>It is <strong>not</strong> a medical device and it does not replace a doctor, a nurse, or an adult who is watching your baby. Do not rely on it as your only way to keep your baby safe.</p>
+                <p>TogetherMindsAI is an AI assistant used by a licensed clinician to support the session they lead. The app itself is <strong>not</strong> a licensed mental health service, a medical service, or a substitute for the professional care your clinician provides.</p>
+                <p>The AI assistant is not a therapist, psychologist, psychiatrist, counsellor, or licensed professional, and nothing it produces is a diagnosis, treatment, or clinical advice. Your clinician is responsible for your care and for any clinical decisions.</p>
 
                 <h6 class="fw-semibold mt-3">2. Who can use this service</h6>
                 <p>You must be <strong>18 years of age or older</strong> to use TogetherMindsAI. By continuing past the Getting Started screen you confirm that you meet this requirement.</p>
+                <p>If you are under 18 and need support, please speak with a trusted adult or contact a crisis line such as <strong>988</strong> (US, free, 24/7) or text <strong>988</strong>, or text <strong>HOME</strong> to <strong>741741</strong>. Outside the US:
+                    <a href="https://www.findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a> or
+                    <a href="https://www.befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a>
+                    have directories for your country.
+                </p>
 
-                <h6 class="fw-semibold mt-3">3. Your video and your data</h6>
-                <p>Live video and sound are shown only to the people in the session. They are <strong>not saved</strong> unless the person watching turns recording on. That person must first confirm they are the parent or guardian of the person being recorded, or have their permission.</p>
-                <p>A recording is kept for <strong>30 days</strong> and then permanently deleted. We do not sell your data. See our <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a> for details.</p>
+                <h6 class="fw-semibold mt-3">3. This is not emergency support</h6>
+                <p>TogetherMindsAI is <strong>not an emergency service</strong>. If you or someone else is in immediate danger, call your local emergency services — <strong>911</strong> (US), <strong>999</strong> (UK), <strong>000</strong> (Australia), or <strong>112</strong> (EU) — or go to your nearest emergency room.</p>
+                <p>If you are experiencing a mental health crisis, please contact a crisis line:</p>
+                <ul>
+                    <li><strong>988</strong> — Suicide &amp; Crisis Lifeline (US, call or text, 24/7)</li>
+                    <li><strong>741741</strong> — Crisis Text Line (US, text HOME)</li>
+                    <li><strong>116 123</strong> — Samaritans (UK &amp; Ireland, free, 24/7)</li>
+                    <li><a href="https://www.findahelpline.com" target="_blank" rel="noopener noreferrer">findahelpline.com</a> — find a line in your country</li>
+                    <li><a href="https://www.befrienders.org/find-support-now" target="_blank" rel="noopener noreferrer">befrienders.org</a> — find a line in your country</li>
+                </ul>
 
-                <h6 class="fw-semibold mt-3">4. No guarantee of availability</h6>
-                <p>TogetherMindsAI is provided <strong>as-is</strong>. We do not guarantee that the service will be available at any particular time, that the video and sound will always be clear or will never drop out, or that the service is suitable for your specific situation.</p>
+                <h6 class="fw-semibold mt-3">4. Your data in clinician-led sessions</h6>
+                <p>When a licensed professional leads a session, the conversation is treated as part of that clinician's <strong>clinical record</strong>. We do not collect your name, email, or phone number; the session is identified by a randomly generated code.</p>
+                <p>Messages are stored <strong>encrypted</strong> and are <strong>never</strong> used to train AI models, sold, or shared. They are accessible to and downloadable by the clinician who led the session.</p>
+                <p>Such sessions are <strong>retained for up to six (6) years</strong>, consistent with clinical-record retention practices. The clinician is responsible for the record.</p>
 
-                <h6 class="fw-semibold mt-3">5. Limitation of liability</h6>
-                <p>To the maximum extent permitted by applicable law, TogetherMindsAI and its operators shall not be liable for any harm &mdash; including personal injury or any other damages &mdash; arising from your use of this service. Your use is entirely at your own risk.</p>
+                <h6 class="fw-semibold mt-3">5. No guarantee of availability or accuracy</h6>
+                <p>TogetherMindsAI is provided <strong>as-is</strong>. We do not guarantee that the service will be available at any particular time, that the AI's responses will be accurate, appropriate, or complete, or that the service is suitable for your specific situation.</p>
+                <p>AI responses may sometimes be unhelpful, incomplete, or incorrect. Always exercise your own judgement. If something the AI says concerns you, please disregard it and seek qualified human support.</p>
 
-                <h6 class="fw-semibold mt-3">6. Acceptable use</h6>
-                <p>You agree not to use TogetherMindsAI to watch or record anyone without the right to do so, to impersonate another person, or for any unlawful purpose.</p>
+                <h6 class="fw-semibold mt-3">6. Limitation of liability</h6>
+                <p>To the maximum extent permitted by applicable law, TogetherMindsAI and its operators shall not be liable for any harm — including emotional distress, personal injury, or any other damages — arising from your use of this service. Your use is entirely at your own risk.</p>
 
-                <h6 class="fw-semibold mt-3">7. Changes to these terms</h6>
+                <h6 class="fw-semibold mt-3">7. Acceptable use</h6>
+                <p>You agree not to use TogetherMindsAI to impersonate another person, attempt to extract harmful, illegal, or manipulative content from the AI, or use the service for any unlawful purpose.</p>
+
+                <h6 class="fw-semibold mt-3">8. Changes to these terms</h6>
                 <p>We may update these terms from time to time. Continued use of the service after changes are posted constitutes acceptance of the revised terms.</p>
 
-                <h6 class="fw-semibold mt-3">8. Contact</h6>
+                <h6 class="fw-semibold mt-3">9. Contact</h6>
                 <p class="mb-0">If you have questions about these terms, please contact <a href="mailto:togethermindsai@onlinegbc.com">togethermindsai@onlinegbc.com</a>.</p>
             </div>
             <div class="modal-footer border-0 pt-0 gap-2">

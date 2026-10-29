@@ -84,47 +84,42 @@ def _flat(html):
     return " ".join(html.split())
 
 
-def _main(html):
-    """Just the page's own content: between the navigation bar and the footer."""
-    return html.split("<main", 1)[-1].split("</main>", 1)[0]
-
-
 # ---------------------------------------------------------------------------
 # The client's Getting Started cards
 # ---------------------------------------------------------------------------
 
-def test_the_age_card_says_eighteen_or_older(client):
+def test_the_age_card_accepts_a_trusted_adults_permission(client):
     body = _getting_started(client)
     assert "18 years of age or older" in body
+    assert "or I have a trusted adult's permission to participate" in body
 
 
-def test_getting_started_has_no_crisis_or_therapy_wording(client):
-    """Baby cam: no 988 / 911 / crisis lines and nothing about clinicians."""
-    body = _main(_getting_started(client))
-    for gone in ("988", "911", "741741", "crisis", "clinician", "clinical record",
-                 "licensed professional", "co-pilot"):
-        assert gone not in body.lower(), gone
-
-
-def test_the_terms_have_no_crisis_or_therapy_wording(client):
-    body = _main(_flat(client.get("/tos").get_data(as_text=True))).lower()
-    for gone in ("988", "911", "741741", "crisis", "clinician", "clinical",
-                 "mental health", "licensed"):
-        assert gone not in body, gone
-    assert "baby cam" in body
-    assert "18 years of age or older" in body
-
-
-def test_the_client_is_told_this_device_sends_video_and_sound(client):
+def test_the_age_card_no_longer_repeats_the_crisis_number(client):
+    """Asked for because 988 is already on every page and in the Terms. It must be
+    gone from THIS CARD and still present in the bar — not gone from the app."""
     body = _getting_started(client)
-    assert "send live video and sound" in body
-    assert "turn the camera or microphone off" in body
+    assert "Under 18: please speak with a trusted adult" not in body
+    # Still there where it belongs: the always-on disclaimer bar.
+    assert "988" in body
 
 
-def test_getting_started_says_nothing_is_saved_unless_recording_is_on(client):
+def test_the_crisis_number_is_still_in_the_terms(client):
+    body = _flat(client.get("/tos").get_data(as_text=True))
+    assert "988" in body
+    assert "under 18" in body.lower()
+
+
+def test_the_client_is_told_the_session_starts_with_audio_and_video(client):
     body = _getting_started(client)
-    assert "Nothing is saved unless the person watching turns" in body
-    assert "30 days" in body
+    assert "start with <strong>audio and video enabled</strong>" in body
+    assert "although I can turn it off" in body
+
+
+def test_the_clinical_record_card_is_untouched(client):
+    """Only two of the three cards were changed."""
+    body = _getting_started(client)
+    assert "confidential clinical record" in body
+    assert "retained" in body and "six years" in body
 
 
 def test_continuing_still_needs_the_box_ticked(client):
@@ -188,21 +183,26 @@ def test_the_attestation_is_written_in_the_first_person():
 # The per-session gate — the one that is recorded
 # ---------------------------------------------------------------------------
 
-def test_the_gate_says_this_device_sends_video_and_sound():
+def test_the_recorded_gate_says_the_session_starts_with_audio_and_video():
     src = _flat(open(os.path.join(ROOT, "templates", "consent_gate.html"),
                      encoding="utf-8").read())
-    assert "sending live video and sound" in src
+    assert "start with <strong>audio and video enabled</strong>" in src
 
 
-def test_the_gate_makes_the_baby_cam_disclosures():
+def test_the_recorded_gate_still_makes_every_disclosure_it_made_before():
+    """The live-session block that was deleted said all of this too. This gate is
+    now the only place it is said — and unlike that block, it is recorded."""
     src = _flat(open(os.path.join(ROOT, "templates", "consent_gate.html"),
                      encoding="utf-8").read())
-    for claim in ("Nothing is saved unless the person watching turns",
+    for claim in ("transcribed to text by an automated (AI)",
+                  "not recorded by default",
+                  "every participant consents",
                   "30 days",
+                  "up to 6 years",
+                  "HIPAA agreements",
+                  "consent to live AI transcription",
                   "locationAttest"):
         assert claim in src, claim
-    for gone in ("transcribed", "AI co-pilot", "HIPAA", "up to 6 years"):
-        assert gone not in src, gone
 
 
 def test_the_gate_is_still_required_per_session():
