@@ -498,28 +498,43 @@ def test_embed_pages_strip_chrome(enc_client):
     assert "<nav " not in enc_client.get("/tos?embed=1").get_data(as_text=True)
 
 
-def test_in_session_header_has_no_nav_links_and_keeps_sign_out(enc_client):
-    """The header carries no nav links anywhere; in a session the account menu
-    (Sign out) is still there."""
+def test_in_session_nav_hides_home_and_my_sessions(enc_client):
+    """In a live session the nav is focused: Home + My/Your sessions are hidden;
+    the account menu (Sign out) stays. The dashboard still shows them."""
     with app.app_context():
         sid = _seed("ther-1", mode="solo")
     with enc_client.session_transaction() as s:
         s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
     html = enc_client.get(f"/therapy/solo/{sid}").get_data(as_text=True)
-    assert "bi-house-fill" not in html           # no Home link
-    assert "bi-clipboard2-pulse" not in html     # no My sessions link
+    assert "bi-house-fill" not in html           # Home nav hidden in-session
+    assert "bi-clipboard2-pulse" not in html     # My sessions nav hidden in-session
     assert "/logout" in html                      # account menu / Sign out remains
-    assert "bi-house-fill" not in enc_client.get("/therapist").get_data(as_text=True)
+    # The dashboard (not in-session) still shows the sessions nav.
+    assert "bi-clipboard2-pulse" in enc_client.get("/therapist").get_data(as_text=True)
 
 
-def test_pricing_link_is_not_in_the_header(enc_client):
-    """Baby cam: the header has no links. A signed-in account finds Pricing on the
-    start page."""
+def test_pricing_link_is_in_the_navbar_for_clinicians(enc_client):
+    """It was only reachable from a link at the very bottom of the dashboard, and
+    not at all from the home page. It belongs in the masthead — and it keeps the
+    position it had when it read "Plans & billing"."""
     with enc_client.session_transaction() as s:
         s["clinician_id"] = "ther-1"; s["user_id"] = "ther-1"
     html = enc_client.get("/therapist").get_data(as_text=True)
-    assert "bi-credit-card" not in html.split("</nav>", 1)[0]
-    assert "/pricing" in html                     # still on the start page
+    assert "Pricing" in html
+    assert "bi-credit-card" in html
+    # Still sits between My sessions and the account menu.
+    assert html.index("bi-clipboard2-pulse") < html.index("bi-credit-card") < html.index("acctMenu")
+
+
+def test_pricing_link_is_shown_to_a_signed_out_visitor(enc_client):
+    """This test used to assert the OPPOSITE — that the link was hidden from
+    anyone not signed in, on the reasoning that subscriptions are per clinician.
+    That reasoning was wrong: it meant nobody could find out what the software
+    cost without signing up first. The rule is now that a price is public.
+    """
+    html = enc_client.get("/welcome").get_data(as_text=True)
+    assert "bi-credit-card" in html
+    assert "Pricing" in html
 
 
 def test_billing_link_hidden_during_a_live_session(enc_client):

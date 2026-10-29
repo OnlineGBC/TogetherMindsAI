@@ -228,9 +228,9 @@ def test_navbar_home_link_points_to_root(client):
     assert 'href="/home"' not in body, (
         "Navbar must not link to /home — that route was removed"
     )
-    # The brand link in base.html points at /
-    assert '<a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/"' in body, (
-        "Navbar brand link must target /"
+    # The nav link in base.html should now point at /
+    assert '<a class="nav-link" href="/"' in body, (
+        "Navbar Home link must target /"
     )
 
 

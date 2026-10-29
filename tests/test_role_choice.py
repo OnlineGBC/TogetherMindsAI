@@ -64,35 +64,21 @@ def _login(client, uid="doc"):
 # The gate
 # ---------------------------------------------------------------------------
 
-def test_clinician_without_a_role_becomes_a_caregiver_without_being_asked(client):
-    """Baby cam: no picker. The first request gives the account the caregiver role
-    and carries on to the page they asked for."""
+def test_clinician_without_a_role_is_sent_to_the_picker(client):
     with app.app_context():
         _clinician(role=None)
     _login(client)
     rv = client.get("/therapist")
-    assert rv.status_code == 200
-    with app.app_context():
-        assert db.session.get(Clinician, "doc").role == roles.CAREGIVER
+    assert rv.status_code in (301, 302)
+    assert "/choose-role" in rv.headers["Location"]
 
 
-def test_the_automatic_role_is_written_to_the_audit_log(client):
-    from models import AuditLog
+def test_the_picker_remembers_where_they_were_going(client):
     with app.app_context():
         _clinician(role=None)
     _login(client)
-    client.get("/therapist")
-    with app.app_context():
-        assert AuditLog.query.filter_by(event_type="role_chosen").count() == 1
-
-
-def test_an_existing_role_is_never_overwritten_by_the_automatic_one(client):
-    with app.app_context():
-        _clinician(role=roles.PSYCHOTHERAPIST)
-    _login(client)
-    client.get("/therapist")
-    with app.app_context():
-        assert db.session.get(Clinician, "doc").role == roles.PSYCHOTHERAPIST
+    rv = client.get("/therapist")
+    assert "next=%2Ftherapist" in rv.headers["Location"] or "next=/therapist" in rv.headers["Location"]
 
 
 def test_clinician_with_a_role_is_not_asked(client):
@@ -150,16 +136,14 @@ def test_the_picker_itself_is_reachable(client):
         assert f'value="{value}"' not in body, value
 
 
-def test_api_callers_with_no_role_get_the_caregiver_role_not_an_error(client):
-    """A fetch() used to get a 403 role_required; now the role is set and the call
-    goes through."""
+def test_api_callers_get_json_not_a_redirect(client):
+    """A fetch() cannot follow a redirect to an HTML page and would fail oddly."""
     with app.app_context():
         _clinician(role=None)
     _login(client)
     rv = client.post("/api/display-name", json={"name": "x"})
-    assert rv.status_code != 403 or rv.get_json().get("error") != "role_required"
-    with app.app_context():
-        assert db.session.get(Clinician, "doc").role == roles.CAREGIVER
+    assert rv.status_code == 403
+    assert rv.get_json()["error"] == "role_required"
 
 
 # ---------------------------------------------------------------------------
