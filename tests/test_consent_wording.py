@@ -75,6 +75,17 @@ def _getting_started(client):
     return _flat(client.get("/auth/solo").get_data(as_text=True))
 
 
+def _shows(body, token):
+    """True if `token` is on the page. A bare substring test is flaky for short
+    numbers like 988: every page carries random tokens (the CSP nonce, the CSRF
+    token) that contain '988' by chance now and then. A number only counts when it
+    stands on its own."""
+    import re
+    if token.isdigit():
+        return re.search(r"(?<![A-Za-z0-9_-])%s(?![A-Za-z0-9_-])" % token, body) is not None
+    return token in body
+
+
 def _live_src():
     return open(LIVE, encoding="utf-8").read()
 
@@ -100,13 +111,13 @@ def test_the_age_card_no_longer_repeats_the_crisis_number(client):
     since been removed everywhere, so 988 is no longer on the page at all.)"""
     body = _getting_started(client)
     assert "Under 18: please speak with a trusted adult" not in body
-    assert "988" not in body
+    assert not _shows(body, "988")
 
 
 def test_the_terms_have_no_crisis_numbers(client):
     body = _flat(client.get("/tos").get_data(as_text=True))
     for gone in ("988", "911", "741741", "findahelpline.com", "befrienders.org"):
-        assert gone not in body, gone
+        assert not _shows(body, gone), gone
 
 
 def test_the_client_is_told_the_session_starts_with_audio_and_video(client):
@@ -115,11 +126,12 @@ def test_the_client_is_told_the_session_starts_with_audio_and_video(client):
     assert "although I can turn it off" in body
 
 
-def test_the_clinical_record_card_is_untouched(client):
-    """Only two of the three cards were changed."""
+def test_the_third_card_says_nothing_is_saved_unless_recording_is_on(client):
+    """The clinical-record card was replaced for the baby cam."""
     body = _getting_started(client)
-    assert "confidential clinical record" in body
-    assert "retained" in body and "six years" in body
+    assert "Nothing is saved unless the person watching turns" in body
+    assert "30 days" in body
+    assert "clinical record" not in body
 
 
 def test_continuing_still_needs_the_box_ticked(client):
@@ -183,26 +195,25 @@ def test_the_attestation_is_written_in_the_first_person():
 # The per-session gate — the one that is recorded
 # ---------------------------------------------------------------------------
 
-def test_the_recorded_gate_says_the_session_starts_with_audio_and_video():
+def test_the_gate_says_this_device_sends_video_and_sound():
     src = _flat(open(os.path.join(ROOT, "templates", "consent_gate.html"),
                      encoding="utf-8").read())
-    assert "start with <strong>audio and video enabled</strong>" in src
+    assert "sending live video and sound" in src
+    assert "turn the camera or microphone off" in src
 
 
-def test_the_recorded_gate_still_makes_every_disclosure_it_made_before():
-    """The live-session block that was deleted said all of this too. This gate is
-    now the only place it is said — and unlike that block, it is recorded."""
+def test_the_gate_makes_the_baby_cam_disclosures_and_no_ai_ones():
+    """A baby cam has no transcription and no co-pilot, so the gate must not
+    claim consent to either."""
     src = _flat(open(os.path.join(ROOT, "templates", "consent_gate.html"),
                      encoding="utf-8").read())
-    for claim in ("transcribed to text by an automated (AI)",
-                  "not recorded by default",
-                  "every participant consents",
+    for claim in ("Nothing is saved unless the person watching turns",
                   "30 days",
-                  "up to 6 years",
-                  "HIPAA agreements",
-                  "consent to live AI transcription",
-                  "locationAttest"):
+                  "locationAttest"):        # the licensed-session block is untouched
         assert claim in src, claim
+    for gone in ("transcribed", "AI co-pilot", "HIPAA", "live AI transcription",
+                 "up to 6 years"):
+        assert gone not in src, gone
 
 
 def test_the_gate_is_still_required_per_session():

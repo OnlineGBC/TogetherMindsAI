@@ -201,24 +201,11 @@
                     </div>
                 </div>
 
-                <!-- Required acknowledgment -->
-                <div class="tcp-ack d-flex align-items-start gap-2 mb-2" id="ackBox">
-                    <input class="form-check-input mt-1" type="checkbox" id="agreeTherapist" required>
-                    <label class="mb-0" for="agreeTherapist">
-                        {# The attestation differs by role: a coach holds no licence to
-                           attest to, and a caregiver is confirming permission to record. #}
-                        {{ words.attestation }}
-                    </label>
-                </div>
-                <p class="text-muted small mb-4" id="ackHint">
-                    <i class="bi bi-arrow-up-short"></i>Confirm the statement above to enable the options below.
-                </p>
-
                 <!-- Start button: a Group session (any number of cameras) -->
                 <div class="d-grid gap-2">
                     <form method="POST" action="/therapist/start/group" class="m-0">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
-                        <button type="submit" class="mode-btn therapist-start-btn w-100" data-mode="group" disabled>
+                        <button type="submit" class="mode-btn therapist-start-btn w-100" data-mode="group">
                             <span class="mb-chip"><i class="bi bi-camera-video-fill"></i></span>
                             <span>
                                 <span class="mb-title d-block">Start watching</span>
@@ -246,21 +233,4 @@
     <a href="/" class="text-muted small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>Back to home</a>
     <a href="{{ url_for('pricing_page') }}" class="text-muted small text-decoration-none"><i class="bi bi-credit-card me-1"></i>Pricing</a>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script nonce="{{ csp_nonce }}">
-    var agree   = document.getElementById("agreeTherapist");
-    var buttons = document.querySelectorAll(".therapist-start-btn");
-    var ackHint = document.getElementById("ackHint");
-    var ackBox  = document.getElementById("ackBox");
-
-    // The start options are gated on the acknowledgment: they stay disabled
-    // until the "licensed professional" box is ticked.
-    agree.addEventListener("change", function () {
-        buttons.forEach(function (b) { b.disabled = !agree.checked; });
-        if (ackHint) { ackHint.classList.toggle("d-none", agree.checked); }
-        if (ackBox)  { ackBox.classList.toggle("is-checked", agree.checked); }
-    });
-</script>
 {% endblock %}

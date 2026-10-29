@@ -96,6 +96,17 @@ GONE_EVERYWHERE = ("disclaimer-bar", "988", "741741", "findahelpline.com",
                    "befrienders.org", "wellnessModal", "Checking in with you")
 
 
+def _shows(body, token):
+    """True if `token` is on the page. A bare substring test is flaky for short
+    numbers like 988: every page carries random tokens (the CSP nonce, the CSRF
+    token) that contain '988' by chance now and then. A number only counts when it
+    stands on its own."""
+    import re
+    if token.isdigit():
+        return re.search(r"(?<![A-Za-z0-9_-])%s(?![A-Za-z0-9_-])" % token, body) is not None
+    return token in body
+
+
 def test_no_role_sees_the_disclaimer_bar_or_crisis_lines(client):
     for role in roles.ROLES:
         with app.app_context():
@@ -105,14 +116,14 @@ def test_no_role_sees_the_disclaimer_bar_or_crisis_lines(client):
         _login(client)
         body = client.get("/pricing").get_data(as_text=True)
         for gone in GONE_EVERYWHERE:
-            assert gone not in body, (role, gone)
+            assert not _shows(body, gone), (role, gone)
 
 
 def test_signed_out_visitors_see_no_disclaimer_bar_or_crisis_lines(client):
     for path in ("/welcome", "/privacy", "/tos", "/session/join"):
         body = client.get(path).get_data(as_text=True)
         for gone in GONE_EVERYWHERE:
-            assert gone not in body, (path, gone)
+            assert not _shows(body, gone), (path, gone)
 
 
 def test_a_client_sees_no_crisis_lines_at_the_consent_gate(client):
@@ -127,7 +138,7 @@ def test_a_client_sees_no_crisis_lines_at_the_consent_gate(client):
         s["user_id"] = "client-1"             # a client, not the practitioner
     body = client.get("/session/s1/consent").get_data(as_text=True)
     for gone in GONE_EVERYWHERE:
-        assert gone not in body, gone
+        assert not _shows(body, gone), gone
 
 
 # ---------------------------------------------------------------------------

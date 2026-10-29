@@ -9,7 +9,7 @@
         <!-- Header -->
         <div class="d-flex align-items-center justify-content-between mb-2 mb-md-3 gap-2 flex-wrap">
             <div class="d-flex align-items-center gap-2 min-w-0">
-                <i class="bi bi-{{ mode_icon }} text-primary-green fs-3 flex-shrink-0"></i>
+                <i class="bi bi-{{ 'camera-video-fill' if is_monitor else mode_icon }} text-primary-green fs-3 flex-shrink-0"></i>
                 <div class="min-w-0">
                     <div class="d-flex align-items-center gap-2">
                         <h4 class="mb-0 fw-bold text-truncate" style="color: #15403A">{{ 'Baby Cam' if is_monitor else mode_label }}</h4>

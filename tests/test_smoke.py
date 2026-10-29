@@ -111,17 +111,18 @@ def test_root_redirects_to_welcome(client):
     assert "/welcome" in rv.headers.get("Location", "")
 
 
-def test_welcome_page_is_clinician_first(client):
-    """The welcome page is therapist-first: it leads with the Co-Pilot CTA to
-    /therapist and the session-join action, and no longer surfaces the consumer
-    'anonymous / free' self-guided modes."""
+def test_welcome_page_is_baby_cam_first(client):
+    """The welcome page is baby-cam-first: it leads with the watch CTA to
+    /therapist (the sign-in path) and the session-join action, and no longer
+    surfaces the consumer 'anonymous / free' self-guided modes."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
     assert "TogetherMindsAI" in body
-    # Clinician CTA is the primary action.
+    # The watch CTA is the primary action.
     assert 'href="/therapist"' in body
-    assert "Start as a clinician" in body
+    assert "Start watching" in body
+    assert "Start as a clinician" not in body
     # Join action for invited clients / returning users.
     assert 'href="/session/join"' in body
     # The consumer 'anonymous / free / self-guided modes' framing is gone.
@@ -157,12 +158,12 @@ def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
     a ghost circle on top of the icon, looking like a broken image. The hero
     must use page-scoped classes only.
 
-    The therapist-first hero uses a page-scoped clipboard-pulse icon."""
+    The baby-cam hero uses a page-scoped camera icon."""
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    assert "bi-clipboard2-pulse-fill" in body, (
-        "Welcome hero must render the clinician clipboard-pulse icon"
+    assert "bi-camera-video-fill" in body, (
+        "Welcome hero must render the baby-cam camera icon"
     )
     # Lock out the original bug — no bare global hero-icon class on hero icons.
     assert 'bi-heart-pulse-fill hero-icon' not in body

@@ -208,6 +208,17 @@ def test_at_home_is_recorded_regardless_of_the_licensure_decision(enc_client):
         assert SessionLocation.query.filter_by(session_id=sid).count() == 1
 
 
+def _shows(body, token):
+    """True if `token` is on the page. A bare substring test is flaky for short
+    numbers like 988: every page carries random tokens (the CSP nonce, the CSRF
+    token) that contain '988' by chance now and then. A number only counts when it
+    stands on its own."""
+    import re
+    if token.isdigit():
+        return re.search(r"(?<![A-Za-z0-9_-])%s(?![A-Za-z0-9_-])" % token, body) is not None
+    return token in body
+
+
 def test_declined_intl_shows_no_crisis_lines(enc_client):
     with app.app_context():
         sid = _seed_session()
@@ -220,7 +231,7 @@ def test_declined_intl_shows_no_crisis_lines(enc_client):
     assert b"isn't able to see clients" in rv.data       # declined (not blocked)
     # no crisis lines on this page, worldwide or US
     assert b"finds a line in your country" not in rv.data
-    assert b"988" not in rv.data
+    assert not _shows(rv.data.decode(), "988")
 
 
 def test_invalid_location_redirects_to_consent(enc_client):

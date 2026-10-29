@@ -115,8 +115,7 @@
 <footer class="footer-bar text-center py-3 mt-auto">
     <small class="text-muted">
         {%- set _newtab = ' target="_blank" rel="noopener"' if in_live_session|default(false) else '' %}
-        &copy; {{ current_year }} TogetherMindsAI &mdash; AI co-pilot for clinician-led sessions
-        &middot; <a href="/privacy#about-the-ai" class="text-reset"{{ _newtab|safe }}>About the AI</a>
+        &copy; {{ current_year }} TogetherMindsAI
         &middot; <a href="/privacy" class="text-reset"{{ _newtab|safe }}>Privacy</a>
         &middot; <a href="/tos" class="text-reset"{{ _newtab|safe }}>Terms</a>
     </small>

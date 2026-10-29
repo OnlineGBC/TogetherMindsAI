@@ -52,6 +52,17 @@ def client():
         db.drop_all()
 
 
+def _shows(body, token):
+    """True if `token` is on the page. A bare substring test is flaky for short
+    numbers like 988: every page carries random tokens (the CSP nonce, the CSRF
+    token) that contain '988' by chance now and then. A number only counts when it
+    stands on its own."""
+    import re
+    if token.isdigit():
+        return re.search(r"(?<![A-Za-z0-9_-])%s(?![A-Za-z0-9_-])" % token, body) is not None
+    return token in body
+
+
 def _login(client, role=roles.CAREGIVER, uid="parent"):
     with app.app_context():
         db.session.add(Clinician(
@@ -211,4 +222,101 @@ def test_no_page_shows_the_crisis_bar_or_the_wellness_popup(client):
         body = client.get(path).get_data(as_text=True)
         for gone in ("disclaimer-bar", "wellnessModal", "Checking in with you",
                      "988", "741741", "findahelpline.com"):
-            assert gone not in body, (path, gone)
+            assert not _shows(body, gone), (path, gone)
+
+
+# ---------------------------------------------------------------------------
+# Sign-in, consent, footer, welcome, start page, room icon
+# ---------------------------------------------------------------------------
+
+def _main(html):
+    return html.split("<main", 1)[-1].split("</main>", 1)[0]
+
+
+def _text(html):
+    import re
+    return re.sub(r"<style.*?</style>|<[^>]+>", " ", html, flags=re.S).lower()
+
+
+def test_sign_in_screen_is_baby_cam_wording(client):
+    with client.session_transaction() as s:
+        s["pending_group_session"] = "g1"
+    main = _main(client.get("/auth/group").get_data(as_text=True))
+    assert "Getting Started</h3>" in main
+    assert "Baby cam session" in main
+    assert "Private" in main
+    for gone in ("Group Circle", "1:1 Session", "Couple Check-in", "licensed professional",
+                 "clinical record", "co-pilot", "led by", "used to train AI",
+                 "Share the generated Session ID with your group"):
+        assert gone not in main, gone
+
+
+def test_consent_screen_has_no_ai_or_clinician_claims(client):
+    _login(client)
+    now = datetime.now(timezone.utc)
+    with app.app_context():
+        db.session.add(TherapySession(
+            id="g1", mode="group", created_by="parent", created_at=now,
+            retention_expires_at=now + timedelta(days=30), therapist_id="parent"))
+        db.session.commit()
+    with client.session_transaction() as s:
+        s["user_id"] = "camera-1"
+        s.pop("clinician_id", None)
+    body = _main(client.get("/session/g1/consent").get_data(as_text=True))
+    text = _text(body)
+    assert "sending live video and sound" in text
+    for gone in ("transcri", "co-pilot", "hipaa", "clinician", "ai transcription"):
+        assert gone not in text, gone
+    # a caregiver session never asks for a location
+    assert "stateSelect" not in body and "locationAttest" not in body
+
+
+def test_footer_is_just_the_name_and_the_legal_links(client):
+    body = client.get("/welcome").get_data(as_text=True)
+    footer = body.split("<footer", 1)[-1].split("</footer>", 1)[0]
+    assert "TogetherMindsAI" in footer
+    assert 'href="/privacy"' in footer and 'href="/tos"' in footer
+    for gone in ("AI co-pilot", "clinician-led", "About the AI", "about-the-ai"):
+        assert gone not in footer, gone
+
+
+def test_welcome_page_is_baby_cam_wording(client):
+    text = _text(_main(client.get("/welcome").get_data(as_text=True)))
+    assert "baby cam" in text
+    assert "start watching" in text
+    assert "setting up the baby" in text
+    for gone in ("clinician", "co-pilot", "assistive aid", "sentiment", "ai-assisted",
+                 "anthropic", "claude", "therapy"):
+        assert gone not in text, gone
+
+
+def test_start_page_has_no_checkbox_and_the_button_is_ready(client):
+    """Option C: no confirmation box and no locked button on the start page. The
+    saved confirmation is the one asked for just before recording."""
+    import re
+    _login(client)
+    main = _main(client.get("/therapist").get_data(as_text=True))
+    assert 'type="checkbox"' not in main
+    assert "enable the options below" not in main
+    assert "Confirm the statement above" not in main
+    btn = re.search(r'<button[^>]*therapist-start-btn[^>]*>', main).group(0)
+    assert "disabled" not in btn
+
+
+def test_start_watching_needs_no_confirmation_field(client):
+    _login(client)
+    with client.session_transaction() as s:
+        s["csrf_token"] = "t"
+    rv = client.post("/therapist/start/group", data={"csrf_token": "t"})
+    assert rv.status_code == 302 and "/therapy/group/" in rv.headers["Location"]
+
+
+def test_caregiver_room_header_uses_a_camera_icon(client):
+    html = _group_room(client, roles.CAREGIVER)
+    assert "bi-camera-video-fill text-primary-green fs-3" in html
+    assert "bi-person-lines-fill text-primary-green fs-3" not in html
+
+
+def test_other_roles_keep_the_group_icon_in_the_room_header(client):
+    html = _group_room(client, roles.PSYCHOTHERAPIST)
+    assert "bi-person-lines-fill text-primary-green fs-3" in html

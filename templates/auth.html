@@ -38,42 +38,21 @@
             {% else %}
                 <i class="bi bi-person-lines-fill fs-2 text-primary-green"></i>
             {% endif %}
-            <h3 class="fw-bold mb-0">
-                {% if therapy_mode == "solo" %}Getting Started with your 1:1 Session
-                {% elif therapy_mode == "couple" %}Getting Started with Couple Check-in
-                {% else %}Getting Started with Group Circle{% endif %}
-            </h3>
+            <h3 class="fw-bold mb-0">Getting Started</h3>
             <span class="text-muted small d-none d-md-inline">— moments from your session.</span>
         </div>
 
         <div class="card shadow-sm border-0 rounded-4">
             <div class="card-body p-3 p-md-4">
 
-                <!-- Clinician-led status row -->
+                <!-- Status row -->
                 <div class="auth-status-row d-flex align-items-center justify-content-center flex-wrap gap-2 small mb-3">
                     <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
-                        <i class="bi bi-person-badge-fill me-1"></i>
-                        <span class="d-none d-md-inline">Clinician-led session — kept as a clinical record</span>
-                        <span class="d-md-none">Clinician-led session</span>
+                        <i class="bi bi-camera-video-fill me-1"></i>Baby cam session
                     </span>
                     <span class="badge text-success-emphasis bg-success-subtle border border-success-subtle rounded-pill px-3 py-1 fw-normal">
-                        <i class="bi bi-shield-lock-fill me-1"></i>
-                        <span class="d-none d-md-inline">Encrypted — never sold or used to train AI</span>
-                        <span class="d-md-none">Encrypted &amp; confidential</span>
+                        <i class="bi bi-shield-lock-fill me-1"></i>Private &mdash; never sold
                     </span>
-                    {% if therapy_mode == "couple" %}
-                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
-                        <i class="bi bi-link-45deg me-1"></i>
-                        <span class="d-none d-md-inline">Share your session URL with your partner after starting</span>
-                        <span class="d-md-none">Share session URL after starting</span>
-                    </span>
-                    {% elif therapy_mode == "group" %}
-                    <span class="badge text-primary-emphasis bg-primary-subtle border border-primary-subtle rounded-pill px-3 py-1 fw-normal">
-                        <i class="bi bi-link-45deg me-1"></i>
-                        <span class="d-none d-md-inline">Share the generated Session ID with your group after starting</span>
-                        <span class="d-md-none">Share Session ID after starting</span>
-                    </span>
-                    {% endif %}
                 </div>
 
                 <p class="fw-semibold mb-2 small auth-please-read">Please read before continuing:</p>
@@ -94,8 +73,6 @@
                     <div class="col-lg-4">
                         <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
-                                This session is <strong>led by a licensed professional</strong>, who is
-                                responsible for it. An AI assists the clinician privately.
                                 I understand that this session will start with
                                 <strong>audio and video enabled</strong>, although I can turn it off.
                             </span>
@@ -104,9 +81,9 @@
                     <div class="col-lg-4">
                         <div class="consent-item h-100 p-2 p-md-3 rounded-3 border border-2">
                             <span class="small">
-                                My conversation is kept as part of the clinician's
-                                <strong>confidential clinical record</strong> — encrypted, retained
-                                up to six years, and accessible to them.
+                                Nothing is saved unless the person watching turns
+                                <strong>recording</strong> on. A recording is kept for 30 days,
+                                then deleted.
                             </span>
                         </div>
                     </div>
