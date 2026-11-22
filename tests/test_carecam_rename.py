@@ -179,3 +179,9 @@ def test_other_roles_keep_analysis_and_icd_in_the_transcript_email():
 
 def test_caregiver_disclaimer_uses_the_new_name():
     assert roles.words(roles.CAREGIVER)["disclaimer_lead"].startswith("CareCam Secure")
+
+
+def test_watch_from_another_room_or_across_the_world(client):
+    welcome = _text(client.get("/welcome").get_data(as_text=True))
+    assert "from another room or across the world" in welcome
+    assert "from another room or across the world." in _template("therapist.html")
