@@ -196,3 +196,37 @@ def test_login_page_is_plain_sign_in_for_caregivers(client):
     for gone in ("Clinician", "clinician", "Co-Pilot", "risk alerts", "Clients never see it"):
         assert gone not in text, gone
     assert "Sign in with Google" in text and "Sign in with Microsoft" in text
+
+
+def test_no_template_still_uses_the_old_name():
+    """Every template but the EHR result page (EHR is off in this app) is free of
+    the old product name. The support email address is lowercase and allowed."""
+    left = []
+    folder = os.path.join(ROOT, "templates")
+    for dirpath, _dirs, files in os.walk(folder):
+        for f in files:
+            if not f.endswith(".html") or f == "ehr_result.html":
+                continue
+            path = os.path.join(dirpath, f)
+            with open(path, encoding="utf-8") as fh:
+                if "TogetherMindsAI" in fh.read():
+                    left.append(os.path.relpath(path, folder))
+    assert left == [], left
+
+
+def test_the_web_manifest_names_the_app_familycarecam():
+    import json
+    with open(os.path.join(ROOT, "static", "manifest.json"), encoding="utf-8") as f:
+        m = json.load(f)
+    assert m["name"] == "FamilyCareCam"
+    assert m["short_name"] == "FamilyCareCam"
+    assert "therapy" not in m["description"].lower()
+    assert "TogetherMinds" not in json.dumps(m)
+
+
+def test_join_and_feedback_pages_use_the_new_name(client):
+    for path in ("/session/join", "/feedback"):
+        body = client.get(path).get_data(as_text=True)
+        title = re.search(r"<title>(.*?)</title>", body, re.S).group(1)
+        assert "FamilyCareCam" in title, (path, title)
+        assert "TogetherMindsAI" not in body.replace("togethermindsai@", ""), path

@@ -1,7 +1,7 @@
 {
-  "name": "TogetherMindsAI",
-  "short_name": "TogetherMinds",
-  "description": "AI-powered reflective support for solo, couple, and group therapy sessions.",
+  "name": "FamilyCareCam",
+  "short_name": "FamilyCareCam",
+  "description": "Watch over someone you care for, live, from another room or across the world.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",
