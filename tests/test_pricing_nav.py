@@ -89,7 +89,7 @@ def test_the_header_has_no_navigation_links(client):
 
 def test_the_header_name_is_babycamsecure(client):
     nav = _nav(client.get("/welcome").get_data(as_text=True))
-    assert "BabyCamSecure" in nav
+    assert "CareCam Secure" in nav
     assert "TogetherMindsAI" not in nav
 
 
@@ -137,7 +137,7 @@ def test_every_page_that_uses_the_header_shows_the_new_one(client):
         html = rv.get_data(as_text=True)
         if "<nav" not in html:
             continue
-        assert "BabyCamSecure" in _nav(html), path
+        assert "CareCam Secure" in _nav(html), path
         asserted.append(path)
     assert len(asserted) == 6, asserted
 

@@ -1017,11 +1017,11 @@ def test_emails_footer_stamps_send_time_in_us_eastern(enc_client):
         rid = _seed_recording(sid, expires_in=timedelta(days=7), token="tokT")
     _, plain, html = _email_at(rid, "early",
                                datetime(2026, 8, 9, 16, 0, tzinfo=timezone.utc))
-    stamp = re.compile(r"Sent automatically by TogetherMindsAI at "
+    stamp = re.compile(r"Sent automatically by CareCam Secure at "
                        r"\d{2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [AP]M US Eastern time\.")
     for body in (plain, html):
         assert stamp.search(body), f"footer stamp missing/misformatted in: {body[-300:]}"
-        assert "Sent automatically by TogetherMindsAI." not in body   # old bare footer
+        assert "Sent automatically by CareCam Secure." not in body   # old bare footer
 
 
 def test_recording_email_bullets_are_parallel_and_flag_dead_links(enc_client):
@@ -1054,7 +1054,7 @@ def test_send_email_from_header_has_product_display_name():
         smtp = mock_smtplib.SMTP.return_value.__enter__.return_value
         tm._send_email(["doc@example.com"], "Subj", "plain", "<p>html</p>")
     msg = smtp.send_message.call_args[0][0]
-    assert msg["From"] == "TogetherMindsAI <noreply@example.com>"
+    assert msg["From"] == "CareCam Secure <noreply@example.com>"
     assert msg["To"] == "doc@example.com"
 
 

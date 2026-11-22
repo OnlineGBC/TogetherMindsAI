@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block body_class %}therapy-page{% if is_therapist_led %} tcp-session{% endif %}{% endblock %}
-{% block title %}{{ 'Baby Cam' if is_monitor else mode_label }} — TogetherMindsAI{% endblock %}
+{% block title %}{{ 'CareCam' if is_monitor else mode_label }} — CareCam Secure{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -12,7 +12,7 @@
                 <i class="bi bi-{{ 'camera-video-fill' if is_monitor else mode_icon }} text-primary-green fs-3 flex-shrink-0"></i>
                 <div class="min-w-0">
                     <div class="d-flex align-items-center gap-2">
-                        <h4 class="mb-0 fw-bold text-truncate" style="color: #15403A">{{ 'Baby Cam' if is_monitor else mode_label }}</h4>
+                        <h4 class="mb-0 fw-bold text-truncate" style="color: #15403A">{{ 'CareCam' if is_monitor else mode_label }}</h4>
                         {% if is_therapist_led %}<span class="session-private-chip flex-shrink-0"><i class="bi bi-lock-fill"></i>Private</span>{% endif %}
                     </div>
                     <small class="text-muted d-none d-md-block">
@@ -422,7 +422,7 @@
                     session to a client physically located there</strong> — through a license, an
                     applicable interstate compact (e.g., PSYPACT or the Counseling Compact) or
                     cross-border authorization, or other lawful authority — and I accept professional
-                    responsibility for this session. I understand TogetherMindsAI does not verify my
+                    responsibility for this session. I understand CareCam Secure does not verify my
                     authorization and relies on this certification.
                 </p>
             </div>

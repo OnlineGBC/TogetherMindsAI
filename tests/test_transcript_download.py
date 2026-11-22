@@ -124,7 +124,7 @@ def test_docx_includes_friendly_session_name(client):
 
 def test_transcript_email_footer_stamps_send_time_in_us_eastern(client):
     """The end-session transcript email carries the same timestamped footer as the
-    recording emails — not the old bare "Sent automatically by TogetherMindsAI."."""
+    recording emails — not the old bare "Sent automatically by CareCam Secure."."""
     import re
     import TogetherMindsAI as tm
 
@@ -137,11 +137,11 @@ def test_transcript_email_footer_stamps_send_time_in_us_eastern(client):
         db.session.commit()
         _, plain, html = tm._session_email_content(ts)
 
-    stamp = re.compile(r"Sent automatically by TogetherMindsAI at "
+    stamp = re.compile(r"Sent automatically by CareCam Secure at "
                        r"\d{2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [AP]M US Eastern time\.")
     for body in (plain, html):
         assert stamp.search(body), f"footer stamp missing/misformatted in: {body[-300:]}"
-        assert "Sent automatically by TogetherMindsAI." not in body   # old bare footer
+        assert "Sent automatically by CareCam Secure." not in body   # old bare footer
 
 
 @pytest.mark.parametrize("fmt", ["pdf", "docx"])

@@ -3,7 +3,7 @@ tests/test_cloudbuild_target.py
 -------------------------------
 Which Cloud Run app does `gcloud builds submit --config cloudbuild.yaml` deploy?
 
-On this branch (babycamsecure) the answer must be BabyCamSecure, with its own
+On this branch (babycamsecure) the answer must be CareCam Secure, with its own
 settings. The check reads the file as text (PyYAML is not a dependency). It exists
 because the deploy line `--set-env-vars` REPLACES every setting on the service, so a
 plain deploy would drop PUBLIC_BASE_URL and switch EHR back on if they were not
@@ -63,5 +63,5 @@ def test_the_file_keeps_the_always_on_single_instance_settings():
 
 def test_the_header_says_which_app_this_file_deploys():
     head = "\n".join(_file().splitlines()[:6])
-    assert "BabyCamSecure" in head
+    assert "CareCam Secure" in head
     assert "babycamsecure" in head

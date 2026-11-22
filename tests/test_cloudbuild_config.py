@@ -36,7 +36,7 @@ def test_the_ehr_launch_has_everything_it_needs():
     match = re.search(r"--set-env-vars\s*\n\s*-\s*(\S+)", text)
     assert match, "--set-env-vars not found in cloudbuild.yaml"
     env_pairs = dict(p.split("=", 1) for p in match.group(1).split(",") if "=" in p)
-    # BabyCamSecure runs with EHR off on purpose. Off is fine; what must never happen
+    # CareCam Secure runs with EHR off on purpose. Off is fine; what must never happen
     # is the launch ON and unconfigured, or write-back ON without the launch.
     assert env_pairs.get("EHR_ENABLED") in ("true", "false"), env_pairs
     if env_pairs.get("EHR_ENABLED") == "false":

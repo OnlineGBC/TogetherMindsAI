@@ -118,7 +118,7 @@ def test_welcome_page_is_baby_cam_first(client):
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    assert "TogetherMindsAI" in body
+    assert "CareCam Secure" in body
     # The watch CTA is the primary action.
     assert 'href="/therapist"' in body
     assert "Start watching" in body

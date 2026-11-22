@@ -1,5 +1,5 @@
 {% extends layout|default("base.html") %}
-{% block title %}Baby Cam — TogetherMindsAI{% endblock %}
+{% block title %}Start watching — CareCam Secure{% endblock %}
 {# In the live-session modal iframe, links/forms navigate the whole page, not the modal. #}
 {% block head %}{% if embed %}<base target="_top">{% endif %}{% endblock %}
 {% block body_class %}therapist-start-page{% endblock %}
@@ -135,7 +135,7 @@
                 </div>
                 <p class="text-muted small mb-3">Resume a session you started earlier.</p>
                 {% if my_sessions %}
-                {% set labels = {'solo': 'Baby cam', 'couple': 'Baby cam', 'group': 'Baby cam'} %}
+                {% set labels = {'solo': 'CareCam', 'couple': 'CareCam', 'group': 'CareCam'} %}
                 {% set icons  = {'solo': 'camera-video-fill', 'couple': 'camera-video-fill', 'group': 'camera-video-fill'} %}
                 <div class="d-grid gap-2 tcp-sessions-scroll">
                     {% for s in my_sessions %}
@@ -169,8 +169,8 @@
         <!-- Hero -->
         <div class="text-center mb-3">
             <span class="tcp-hero-icon mb-2"><i class="bi bi-camera-video-fill"></i></span>
-            <h3 class="fw-bold mb-1">Baby Cam</h3>
-            <p class="text-muted mb-0">Watch your baby live from another room.</p>
+            <h3 class="fw-bold mb-1">CareCam</h3>
+            <p class="text-muted mb-0">Watch over someone you care for, live, from another room.</p>
         </div>
 
         <div class="card tcp-card border-0">
@@ -189,14 +189,14 @@
                         <span class="tcp-step-num">2</span>
                         <div>
                             <div class="tcp-step-title">Share the code</div>
-                            <p class="tcp-step-text">Open the Session ID on the device in your baby's room.</p>
+                            <p class="tcp-step-text">Open the Session ID on the device in the room of the person you are watching over.</p>
                         </div>
                     </div>
                     <div class="tcp-step d-flex align-items-start gap-2">
                         <span class="tcp-step-num">3</span>
                         <div>
                             <div class="tcp-step-title">Watch</div>
-                            <p class="tcp-step-text">You see your baby live on your screen.</p>
+                            <p class="tcp-step-text">You see them live on your screen.</p>
                         </div>
                     </div>
                 </div>
@@ -209,7 +209,7 @@
                             <span class="mb-chip"><i class="bi bi-camera-video-fill"></i></span>
                             <span>
                                 <span class="mb-title d-block">Start watching</span>
-                                <span class="mb-sub">Opens a private room for your baby cam</span>
+                                <span class="mb-sub">Opens a private room for your camera</span>
                             </span>
                             <i class="bi bi-arrow-right mb-arrow"></i>
                         </button>

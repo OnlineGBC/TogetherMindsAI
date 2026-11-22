@@ -2671,7 +2671,7 @@ def _send_email(to_emails, subject: str, plain_body: str, html_body: str) -> Non
     # Display name so clinician-facing mail reads as the product, not personal mail
     # from whoever owns the SMTP account.
     msg["From"] = formataddr(
-        ("TogetherMindsAI", config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER))
+        ("CareCam Secure", config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER))
     msg["To"] = ", ".join(to_emails)
     msg.set_content(plain_body)
     msg.add_alternative(html_body, subtype="html")
@@ -2692,7 +2692,7 @@ def _send_email(to_emails, subject: str, plain_body: str, html_body: str) -> Non
 
 def _icd_refresh_reminder_content():
     """Return (subject, plain_body, html_body) for the annual ICD-refresh email."""
-    subject = "TogetherMindsAI — Annual ICD code refresh due (co-pilot grounding)"
+    subject = "CareCam Secure — Annual ICD code refresh due (co-pilot grounding)"
 
     steps = [
         ("Why", "WHO publishes ICD-11 on a roughly annual release cycle. Refresh the therapist "
@@ -3550,7 +3550,7 @@ def _sent_at_line() -> str:
     """Footer stamp: when this email was sent, in US Eastern. Written out as
     'US Eastern time' rather than EDT/EST so it reads the same year-round."""
     now = _eastern(datetime.now(timezone.utc))
-    return ("Sent automatically by TogetherMindsAI at "
+    return ("Sent automatically by CareCam Secure at "
             f"{now.strftime('%d %b %Y')}, {now.strftime('%I:%M %p').lstrip('0')} "
             "US Eastern time.")
 
@@ -3567,7 +3567,8 @@ def _recording_email_content(row, kind: str):
     from html import escape as h
     # Wording follows the practitioner's role: a coach's file is "session notes",
     # not a clinical record, and calling it one would overstate what it is.
-    _w = roles.words(roles.role_of(_session_clinician(row.session_id)))
+    _role = roles.role_of(_session_clinician(row.session_id))
+    _w = roles.words(_role)
     video_url = _recording_download_url(row)
     pdf_url   = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/pdf"
     docx_url  = f"{config.PUBLIC_BASE_URL}/recording/download/{row.download_token}/docx"
@@ -3580,17 +3581,17 @@ def _recording_email_content(row, kind: str):
     if kind == "reminder":
         # Name the date, never "tomorrow" — the deadline can be the same calendar day
         # as this email. "Final notice" distinguishes it from the earlier warning.
-        subject = f"TogetherMindsAI — final notice: your audio/video session will be deleted on {expires_str}"
+        subject = f"CareCam Secure — final notice: your audio/video session will be deleted on {expires_str}"
         heading = f"Final notice: your audio/video session will be deleted on {expires_str}"
         lead = ("This is a final reminder: the recording below is scheduled to be "
                 f"permanently deleted on {expires_str}. Download it now if you still need it.")
     elif kind == "early":
-        subject = f"TogetherMindsAI — your audio/video session will be deleted on {expires_str}"
+        subject = f"CareCam Secure — your audio/video session will be deleted on {expires_str}"
         heading = f"Your audio/video session will be deleted on {expires_str}"
         lead = (f"The recording below is scheduled to be permanently deleted on {expires_str}. "
                 "Download it while you still can — we will send one final notice before it goes.")
     else:
-        subject = "TogetherMindsAI — your audio/video session is ready"
+        subject = "CareCam Secure — your audio/video session is ready"
         heading = "Your audio/video session is ready"
         # "30 days" is counted from the session's LAST recording, not from this
         # email — say so, or a mail sent days later reads as if the clock starts now.
@@ -3600,15 +3601,25 @@ def _recording_email_content(row, kind: str):
     # Retention / download guidance — shown as bullets on BOTH the ready and reminder
     # emails, right under the lead. The video expires (30 days); the transcript +
     # analysis are the long-lived clinical record — spelled out so it's unambiguous.
-    bullets = [
-        "We recommend you download both the video and the transcript for your permanent record.",
-        (f"The recording will be permanently deleted on or about {expires_str}. "
-         "Once deleted, it cannot be recovered and the download links below will stop "
-         "working — download it before then."),
-        (f"The transcript and AI analysis are the {_w['record']}, and are retained for "
-         "six years, or longer if prevailing US law requires it."),
-        "Please store any downloaded copies securely, in line with your practice's requirements.",
-    ]
+    _delete_bullet = (f"The recording will be permanently deleted on or about {expires_str}. "
+                      "Once deleted, it cannot be recovered and the download links below will stop "
+                      "working — download it before then.")
+    if _role == roles.CAREGIVER:
+        # A caregiver has a video only: no transcript, no analysis, no clinical record,
+        # and no practice whose requirements apply.
+        bullets = [
+            "We recommend you download the video if you want to keep it.",
+            _delete_bullet,
+            "Please store any downloaded copy securely, because it shows someone you care for.",
+        ]
+    else:
+        bullets = [
+            "We recommend you download both the video and the transcript for your permanent record.",
+            _delete_bullet,
+            (f"The transcript and AI analysis are the {_w['record']}, and are retained for "
+             "six years, or longer if prevailing US law requires it."),
+            "Please store any downloaded copies securely, in line with your practice's requirements.",
+        ]
     # Friendly session name (if the clinician set one) shown alongside the ID, so they
     # can tell which client/session this is at a glance. Best-effort: never break the
     # email if the lookup/decryption fails.
@@ -3619,7 +3630,9 @@ def _recording_email_content(row, kind: str):
     except Exception:
         friendly = ""
     session_label_txt = f"{friendly}  (ID: {row.session_id})" if friendly else row.session_id
-    access_note = (f"Only you, signed in to TogetherMindsAI as this session's {_w['practitioner']}, "
+    _holder = ("the account that started this session" if _role == roles.CAREGIVER
+               else f"this session's {_w['practitioner']}")
+    access_note = (f"Only you, signed in to CareCam Secure as {_holder}, "
                    "can open these links. No one else can download this recording or the "
                    "documents, even if they receive this email.")
 
@@ -3831,11 +3844,11 @@ def _warn_recording_hours(clinician, minutes_left: int, threshold) -> None:
         if not (first_warning or minutes_left <= 0):
             return
         if minutes_left <= 0:
-            subject = "TogetherMindsAI — your recording time has run out"
+            subject = "CareCam Secure — your recording time has run out"
             lead = ("Recording has stopped because you have used all your hours. "
                     "Add 40 more hours for $9.99 to start recording again.")
         else:
-            subject = f"TogetherMindsAI — {left} of recording time"
+            subject = f"CareCam Secure — {left} of recording time"
             lead = (f"You have {left} of recording time this month. "
                     "You can add 40 more hours for $9.99 at any time.")
         url = f"{config.PUBLIC_BASE_URL}/pricing"
@@ -4267,20 +4280,27 @@ def _session_email_content(ts):
     """Return (subject, plain, html) for the end-session transcript email — the
     transcript-only counterpart of _recording_email_content (no video)."""
     from html import escape as h
-    _w = roles.words(roles.role_of(_session_clinician(ts.id)))
+    _role = roles.role_of(_session_clinician(ts.id))
+    _w = roles.words(_role)
     token    = ts.download_token
     pdf_url  = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/pdf"
     docx_url = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/docx"
-    subject = "TogetherMindsAI — your session transcript is ready"
-    lead = ("Your session has ended. The transcript, AI analysis and ICD codes are "
-            "ready to download.")
+    subject = "CareCam Secure — your session transcript is ready"
+    # A caregiver's session has a transcript only: no AI analysis and no ICD codes.
+    _what = "Transcript" if _role == roles.CAREGIVER else "Transcript + AI analysis + ICD codes"
+    _what_html = "Transcript" if _role == roles.CAREGIVER else "Transcript, AI analysis &amp; ICD codes"
+    lead = ("Your session has ended. The transcript is ready to download." if _role == roles.CAREGIVER
+            else "Your session has ended. The transcript, AI analysis and ICD codes are "
+                 "ready to download.")
+    _holder = ("the account that started this session" if _role == roles.CAREGIVER
+               else f"this session's {_w['practitioner']}")
     sent_at = _sent_at_line()
     plain = (
         f"{lead}\n\n"
-        f"Sign in as this session's {_w['practitioner']} to open these:\n"
-        f"  • Transcript + AI analysis + ICD codes (PDF): {pdf_url}\n"
-        f"  • Transcript + AI analysis + ICD codes (Word): {docx_url}\n\n"
-        f"Only you, signed in as this session's {_w['practitioner']}, can open these links.\n"
+        f"Sign in as {_holder} to open these:\n"
+        f"  • {_what} (PDF): {pdf_url}\n"
+        f"  • {_what} (Word): {docx_url}\n\n"
+        f"Only you, signed in as {_holder}, can open these links.\n"
         f"\n{sent_at}\n"
     )
     _link = "color:#2e7d32;text-decoration:none;font-weight:600;"
@@ -4288,10 +4308,10 @@ def _session_email_content(ts):
         '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;">'
         '<h2 style="color:#2e7d32;">Your session transcript is ready</h2>'
         f'<p style="color:#212121;line-height:1.5;">{h(lead)}</p>'
-        f'<p style="margin:6px 0;"><a href="{h(pdf_url)}" style="{_link}">📄 Transcript, AI analysis &amp; ICD codes (PDF)</a></p>'
-        f'<p style="margin:6px 0;"><a href="{h(docx_url)}" style="{_link}">📝 Transcript, AI analysis &amp; ICD codes (Word)</a></p>'
+        f'<p style="margin:6px 0;"><a href="{h(pdf_url)}" style="{_link}">📄 {_what_html} (PDF)</a></p>'
+        f'<p style="margin:6px 0;"><a href="{h(docx_url)}" style="{_link}">📝 {_what_html} (Word)</a></p>'
         '<p style="color:#555;font-size:13px;margin-top:14px;">'
-        'Only you, signed in as this session\'s clinician, can open these links.</p>'
+        f'Only you, signed in as {h(_holder)}, can open these links.</p>'
         f'<p style="color:#888;font-size:12px;margin-top:20px;">{h(sent_at)}</p>'
         "</div>"
     )
