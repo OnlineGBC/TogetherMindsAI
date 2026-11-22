@@ -2671,7 +2671,7 @@ def _send_email(to_emails, subject: str, plain_body: str, html_body: str) -> Non
     # Display name so clinician-facing mail reads as the product, not personal mail
     # from whoever owns the SMTP account.
     msg["From"] = formataddr(
-        ("CareCam Secure", config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER))
+        ("FamilyCareCam", config.FEEDBACK_FROM_EMAIL or config.FEEDBACK_SMTP_USER))
     msg["To"] = ", ".join(to_emails)
     msg.set_content(plain_body)
     msg.add_alternative(html_body, subtype="html")
@@ -2692,7 +2692,7 @@ def _send_email(to_emails, subject: str, plain_body: str, html_body: str) -> Non
 
 def _icd_refresh_reminder_content():
     """Return (subject, plain_body, html_body) for the annual ICD-refresh email."""
-    subject = "CareCam Secure — Annual ICD code refresh due (co-pilot grounding)"
+    subject = "FamilyCareCam — Annual ICD code refresh due (co-pilot grounding)"
 
     steps = [
         ("Why", "WHO publishes ICD-11 on a roughly annual release cycle. Refresh the therapist "
@@ -3550,7 +3550,7 @@ def _sent_at_line() -> str:
     """Footer stamp: when this email was sent, in US Eastern. Written out as
     'US Eastern time' rather than EDT/EST so it reads the same year-round."""
     now = _eastern(datetime.now(timezone.utc))
-    return ("Sent automatically by CareCam Secure at "
+    return ("Sent automatically by FamilyCareCam at "
             f"{now.strftime('%d %b %Y')}, {now.strftime('%I:%M %p').lstrip('0')} "
             "US Eastern time.")
 
@@ -3581,17 +3581,17 @@ def _recording_email_content(row, kind: str):
     if kind == "reminder":
         # Name the date, never "tomorrow" — the deadline can be the same calendar day
         # as this email. "Final notice" distinguishes it from the earlier warning.
-        subject = f"CareCam Secure — final notice: your audio/video session will be deleted on {expires_str}"
+        subject = f"FamilyCareCam — final notice: your audio/video session will be deleted on {expires_str}"
         heading = f"Final notice: your audio/video session will be deleted on {expires_str}"
         lead = ("This is a final reminder: the recording below is scheduled to be "
                 f"permanently deleted on {expires_str}. Download it now if you still need it.")
     elif kind == "early":
-        subject = f"CareCam Secure — your audio/video session will be deleted on {expires_str}"
+        subject = f"FamilyCareCam — your audio/video session will be deleted on {expires_str}"
         heading = f"Your audio/video session will be deleted on {expires_str}"
         lead = (f"The recording below is scheduled to be permanently deleted on {expires_str}. "
                 "Download it while you still can — we will send one final notice before it goes.")
     else:
-        subject = "CareCam Secure — your audio/video session is ready"
+        subject = "FamilyCareCam — your audio/video session is ready"
         heading = "Your audio/video session is ready"
         # "30 days" is counted from the session's LAST recording, not from this
         # email — say so, or a mail sent days later reads as if the clock starts now.
@@ -3632,7 +3632,7 @@ def _recording_email_content(row, kind: str):
     session_label_txt = f"{friendly}  (ID: {row.session_id})" if friendly else row.session_id
     _holder = ("the account that started this session" if _role == roles.CAREGIVER
                else f"this session's {_w['practitioner']}")
-    access_note = (f"Only you, signed in to CareCam Secure as {_holder}, "
+    access_note = (f"Only you, signed in to FamilyCareCam as {_holder}, "
                    "can open these links. No one else can download this recording or the "
                    "documents, even if they receive this email.")
 
@@ -3844,11 +3844,11 @@ def _warn_recording_hours(clinician, minutes_left: int, threshold) -> None:
         if not (first_warning or minutes_left <= 0):
             return
         if minutes_left <= 0:
-            subject = "CareCam Secure — your recording time has run out"
+            subject = "FamilyCareCam — your recording time has run out"
             lead = ("Recording has stopped because you have used all your hours. "
                     "Add 40 more hours for $9.99 to start recording again.")
         else:
-            subject = f"CareCam Secure — {left} of recording time"
+            subject = f"FamilyCareCam — {left} of recording time"
             lead = (f"You have {left} of recording time this month. "
                     "You can add 40 more hours for $9.99 at any time.")
         url = f"{config.PUBLIC_BASE_URL}/pricing"
@@ -4285,7 +4285,7 @@ def _session_email_content(ts):
     token    = ts.download_token
     pdf_url  = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/pdf"
     docx_url = f"{config.PUBLIC_BASE_URL}/session/transcript/{token}/docx"
-    subject = "CareCam Secure — your session transcript is ready"
+    subject = "FamilyCareCam — your session transcript is ready"
     # A caregiver's session has a transcript only: no AI analysis and no ICD codes.
     _what = "Transcript" if _role == roles.CAREGIVER else "Transcript + AI analysis + ICD codes"
     _what_html = "Transcript" if _role == roles.CAREGIVER else "Transcript, AI analysis &amp; ICD codes"

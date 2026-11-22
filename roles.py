@@ -187,7 +187,7 @@ WORDING = {
                         "This session will start with my microphone and camera off, "
                         "and they stay off. I will see and hear the camera "
                         "I am monitoring."),
-        "disclaimer_lead": ("CareCam Secure helps you watch and record"),
+        "disclaimer_lead": ("FamilyCareCam helps you watch and record"),
         "disclaimer_rest": ("it is not medical advice and does not replace a doctor. "
                             "In an emergency, call 911"),
     },

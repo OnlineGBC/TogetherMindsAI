@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{% block title %}CareCam Secure{% endblock %}</title>
+    <title>{% block title %}FamilyCareCam{% endblock %}</title>
 
     <!-- Bootstrap 5 (self-hosted: third-party CDNs get blocked by Brave Shields /
          ad blockers / proxies, which broke live sessions — see static/vendor/) -->
@@ -63,7 +63,7 @@
     <div class="container d-flex justify-content-between align-items-center">
         <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="/">
             <i class="bi bi-heart-pulse-fill"></i>
-            CareCam Secure
+            FamilyCareCam
         </a>
         {% if current_clinician_id or current_client_account_id %}
         <div class="dropdown">
@@ -115,7 +115,7 @@
 <footer class="footer-bar text-center py-3 mt-auto">
     <small class="text-muted">
         {%- set _newtab = ' target="_blank" rel="noopener"' if in_live_session|default(false) else '' %}
-        &copy; {{ current_year }} CareCam Secure
+        &copy; {{ current_year }} FamilyCareCam
         &middot; <a href="/privacy" class="text-reset"{{ _newtab|safe }}>Privacy</a>
         &middot; <a href="/tos" class="text-reset"{{ _newtab|safe }}>Terms</a>
     </small>

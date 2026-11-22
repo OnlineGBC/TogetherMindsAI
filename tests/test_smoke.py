@@ -118,7 +118,7 @@ def test_welcome_page_is_baby_cam_first(client):
     rv = client.get("/welcome")
     assert rv.status_code == 200
     body = rv.data.decode()
-    assert "CareCam Secure" in body
+    assert "FamilyCareCam" in body
     # The watch CTA is the primary action.
     assert 'href="/therapist"' in body
     assert "Start watching" in body
@@ -143,7 +143,7 @@ def test_welcome_page_copy_is_audience_neutral_not_clinician_addressed(client):
     assert "only you see" not in body
     assert "Clients never see it" not in body
     assert "Live risk alerts" not in body
-    # CareCam Secure has no clinician panel, so the sign-in page does not mention it
+    # FamilyCareCam has no clinician panel, so the sign-in page does not mention it
     # either: it is a plain sign-in for caregivers.
     login = client.get("/login")
     assert login.status_code == 200

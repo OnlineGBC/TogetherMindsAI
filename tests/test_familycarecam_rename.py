@@ -1,7 +1,7 @@
 """
-tests/test_carecam_rename.py
+tests/test_familycarecam_rename.py
 ----------------------------
-The product is CareCam Secure: one name for watching over a baby, an elder or anyone
+The product is FamilyCareCam: one name for watching over a baby, an elder or anyone
 else. These tests cover the rename on the pages and in the emails, the "person you
 are watching over" wording in place of "your baby", and the caregiver-only email text.
 """
@@ -54,7 +54,7 @@ def _template(name):
 def test_public_pages_use_the_new_name(client, path):
     body = client.get(path).get_data(as_text=True)
     text = _text(body)
-    assert "CareCam Secure" in text
+    assert "FamilyCareCam" in text
     assert "TogetherMindsAI" not in text
     assert "BabyCamSecure" not in text
 
@@ -73,7 +73,7 @@ def test_welcome_page_speaks_of_the_person_being_watched(client):
 
 def test_terms_describe_a_care_camera(client):
     text = _text(client.get("/tos").get_data(as_text=True))
-    assert "CareCam Secure is a care camera" in text
+    assert "FamilyCareCam is a care camera" in text
     assert "the room of the person you are watching over" in text
 
 
@@ -90,7 +90,7 @@ def test_templates_carry_no_old_product_name(name):
 
 def test_start_page_and_room_header_use_carecam():
     start = _template("therapist.html")
-    assert "Start watching — CareCam Secure" in start
+    assert "Start watching — FamilyCareCam" in start
     assert "Baby Cam" not in start and "baby" not in start.lower()
     assert "Baby Cam" not in _template("session_live.html")
 
@@ -115,7 +115,7 @@ def _recording_email(role, kind="ready"):
 @pytest.mark.parametrize("kind", ["ready", "early", "reminder"])
 def test_recording_email_subject_uses_the_new_name(kind):
     subject, _, _ = _recording_email(roles.CAREGIVER, kind)
-    assert subject.startswith("CareCam Secure — ")
+    assert subject.startswith("FamilyCareCam — ")
 
 
 @pytest.mark.parametrize("kind", ["ready", "reminder"])
@@ -139,7 +139,7 @@ def test_other_roles_keep_the_retention_bullets():
 
 
 def test_email_footer_and_from_name_use_the_new_name():
-    assert tm._sent_at_line().startswith("Sent automatically by CareCam Secure at ")
+    assert tm._sent_at_line().startswith("Sent automatically by FamilyCareCam at ")
     with patch("TogetherMindsAI.smtplib") as mock_smtplib, \
          patch.object(tm.config, "FEEDBACK_FROM_EMAIL", "noreply@example.com"), \
          patch.object(tm.config, "FEEDBACK_SMTP_HOST", "smtp.example.com"), \
@@ -148,7 +148,7 @@ def test_email_footer_and_from_name_use_the_new_name():
          patch.object(tm.config, "FEEDBACK_SMTP_PASSWORD", "p"):
         smtp = mock_smtplib.SMTP.return_value.__enter__.return_value
         tm._send_email(["a@example.com"], "S", "plain", "<p>html</p>")
-    assert smtp.send_message.call_args[0][0]["From"] == "CareCam Secure <noreply@example.com>"
+    assert smtp.send_message.call_args[0][0]["From"] == "FamilyCareCam <noreply@example.com>"
 
 
 def _transcript_email(role):
@@ -161,7 +161,7 @@ def _transcript_email(role):
 
 def test_caregiver_transcript_email_has_no_analysis_or_icd_or_clinician():
     subject, plain, html = _transcript_email(roles.CAREGIVER)
-    assert subject.startswith("CareCam Secure — ")
+    assert subject.startswith("FamilyCareCam — ")
     for body in (plain, html):
         assert "ICD" not in body
         assert "AI analysis" not in body
@@ -178,7 +178,7 @@ def test_other_roles_keep_analysis_and_icd_in_the_transcript_email():
 
 
 def test_caregiver_disclaimer_uses_the_new_name():
-    assert roles.words(roles.CAREGIVER)["disclaimer_lead"].startswith("CareCam Secure")
+    assert roles.words(roles.CAREGIVER)["disclaimer_lead"].startswith("FamilyCareCam")
 
 
 def test_watch_from_another_room_or_across_the_world(client):
@@ -190,7 +190,7 @@ def test_watch_from_another_room_or_across_the_world(client):
 def test_login_page_is_plain_sign_in_for_caregivers(client):
     body = client.get("/login").get_data(as_text=True)
     text = _text(body)
-    assert "<title>Sign in | CareCam Secure</title>" in body
+    assert "<title>Sign in | FamilyCareCam</title>" in body
     assert "Sign in to watch over someone you care for." in text
     assert "bi-camera-video-fill" in body
     for gone in ("Clinician", "clinician", "Co-Pilot", "risk alerts", "Clients never see it"):

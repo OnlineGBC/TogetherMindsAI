@@ -153,7 +153,7 @@ def _flat(html: str) -> str:
 
 def test_privacy_is_about_a_baby_cam(client):
     body = _flat(client.get("/privacy").get_data(as_text=True)).split("<main", 1)[-1].split("</main>", 1)[0]
-    assert "CareCam Secure is a care camera" in body
+    assert "FamilyCareCam is a care camera" in body
     assert "not saved" in body
     assert "30 days" in body
     for gone in ("HIPAA", "clinician", "Clinician", "Anthropic", "AssemblyAI",
@@ -163,7 +163,7 @@ def test_privacy_is_about_a_baby_cam(client):
 
 def test_terms_are_about_a_baby_cam(client):
     body = _flat(client.get("/tos").get_data(as_text=True)).split("<main", 1)[-1].split("</main>", 1)[0]
-    assert "CareCam Secure is a care camera" in body
+    assert "FamilyCareCam is a care camera" in body
     assert "not</strong> a medical device" in body
     for gone in ("Not every account is clinical", "clinical record",
                  "emergency service", "licensure"):

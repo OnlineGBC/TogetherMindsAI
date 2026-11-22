@@ -140,9 +140,9 @@ def test_session_list_has_no_transcript_download(client):
 
 def test_caregiver_group_room_is_headed_baby_cam(client):
     html = _group_room(client, roles.CAREGIVER)
-    assert ">CareCam</h4>" in html
+    assert ">FamilyCareCam</h4>" in html
     assert "Group Circle" not in html
-    assert "<title>CareCam" in html
+    assert "<title>FamilyCareCam" in html
 
 
 def test_caregiver_group_room_is_still_a_watch_only_monitor(client):
@@ -156,7 +156,7 @@ def test_caregiver_group_room_is_still_a_watch_only_monitor(client):
 def test_other_roles_keep_their_own_group_header(client):
     html = _group_room(client, roles.PSYCHOTHERAPIST)
     assert "Group Circle" in html
-    assert ">CareCam</h4>" not in html
+    assert ">FamilyCareCam</h4>" not in html
 
 
 def test_a_group_session_has_no_camera_limit():
@@ -243,7 +243,7 @@ def test_sign_in_screen_is_baby_cam_wording(client):
         s["pending_group_session"] = "g1"
     main = _main(client.get("/auth/group").get_data(as_text=True))
     assert "Getting Started</h3>" in main
-    assert "CareCam session" in main
+    assert "FamilyCareCam session" in main
     assert "Private" in main
     for gone in ("Group Circle", "1:1 Session", "Couple Check-in", "licensed professional",
                  "clinical record", "co-pilot", "led by", "used to train AI",
@@ -274,7 +274,7 @@ def test_consent_screen_has_no_ai_or_clinician_claims(client):
 def test_footer_is_just_the_name_and_the_legal_links(client):
     body = client.get("/welcome").get_data(as_text=True)
     footer = body.split("<footer", 1)[-1].split("</footer>", 1)[0]
-    assert "CareCam Secure" in footer
+    assert "FamilyCareCam" in footer
     assert 'href="/privacy"' in footer and 'href="/tos"' in footer
     for gone in ("AI co-pilot", "clinician-led", "About the AI", "about-the-ai"):
         assert gone not in footer, gone
