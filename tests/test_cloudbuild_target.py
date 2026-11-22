@@ -51,7 +51,7 @@ def test_the_settings_line_keeps_ehr_off_and_names_its_own_address():
     assert env["EHR_WRITE_ENABLED"] == "false"
     assert env["BILLING_ENABLED"] == "true"
     assert env["RECORDING_ENABLED"] == "true"
-    assert env["PUBLIC_BASE_URL"] == "https://babycamsecure-pofun7pgcq-uc.a.run.app"
+    assert env["PUBLIC_BASE_URL"] == "https://familycarecam.onlinegbc.com"
 
 
 def test_the_file_keeps_the_always_on_single_instance_settings():
@@ -65,3 +65,9 @@ def test_the_header_says_which_app_this_file_deploys():
     head = "\n".join(_file().splitlines()[:6])
     assert "FamilyCareCam" in head
     assert "familycarecam" in head
+
+
+def test_no_old_babycamsecure_address_is_left_in_the_file():
+    src = _file().lower()
+    assert "babycamsecure" not in src
+    assert "pofun7pgcq" not in src      # the old service's run.app address
