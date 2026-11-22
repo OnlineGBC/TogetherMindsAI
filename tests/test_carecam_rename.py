@@ -185,3 +185,14 @@ def test_watch_from_another_room_or_across_the_world(client):
     welcome = _text(client.get("/welcome").get_data(as_text=True))
     assert "from another room or across the world" in welcome
     assert "from another room or across the world." in _template("therapist.html")
+
+
+def test_login_page_is_plain_sign_in_for_caregivers(client):
+    body = client.get("/login").get_data(as_text=True)
+    text = _text(body)
+    assert "<title>Sign in | CareCam Secure</title>" in body
+    assert "Sign in to watch over someone you care for." in text
+    assert "bi-camera-video-fill" in body
+    for gone in ("Clinician", "clinician", "Co-Pilot", "risk alerts", "Clients never see it"):
+        assert gone not in text, gone
+    assert "Sign in with Google" in text and "Sign in with Microsoft" in text

@@ -143,11 +143,12 @@ def test_welcome_page_copy_is_audience_neutral_not_clinician_addressed(client):
     assert "only you see" not in body
     assert "Clients never see it" not in body
     assert "Live risk alerts" not in body
-    # The clinician-private detail must live on the sign-in page instead.
+    # CareCam Secure has no clinician panel, so the sign-in page does not mention it
+    # either: it is a plain sign-in for caregivers.
     login = client.get("/login")
     assert login.status_code == 200
     login_body = login.data.decode()
-    assert "Clients never see it" in login_body
+    assert "Clients never see it" not in login_body
 
 
 def test_welcome_hero_icon_does_not_collide_with_global_hero_icon(client):
