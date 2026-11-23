@@ -236,7 +236,7 @@ def test_tos_page_returns_200(client):
     rv = client.get("/tos")
     assert rv.status_code == 200
     assert b"Terms of Service" in rv.data
-    assert b"togethermindsai@onlinegbc.com" in rv.data
+    assert b"familycarecam@onlinegbc.com" in rv.data
     assert b"findahelpline.com" not in rv.data      # no crisis lines
 
 

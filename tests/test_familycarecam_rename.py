@@ -84,7 +84,7 @@ def test_terms_describe_a_care_camera(client):
                                   "client_login.html"])
 def test_templates_carry_no_old_product_name(name):
     src = _template(name)
-    assert "TogetherMindsAI" not in src.replace("togethermindsai@", "")
+    assert "TogetherMindsAI" not in src.replace("familycarecam@", "")
     assert "BabyCamSecure" not in src
 
 
@@ -229,4 +229,13 @@ def test_join_and_feedback_pages_use_the_new_name(client):
         body = client.get(path).get_data(as_text=True)
         title = re.search(r"<title>(.*?)</title>", body, re.S).group(1)
         assert "FamilyCareCam" in title, (path, title)
-        assert "TogetherMindsAI" not in body.replace("togethermindsai@", ""), path
+        assert "TogetherMindsAI" not in body.replace("familycarecam@", ""), path
+
+
+def test_terms_contact_address_is_the_familycarecam_mailbox(client):
+    page = client.get("/tos").get_data(as_text=True)
+    assert 'href="mailto:familycarecam@onlinegbc.com"' in page
+    assert "togethermindsai@onlinegbc.com" not in page
+    modal = _template("auth.html")
+    assert 'href="mailto:familycarecam@onlinegbc.com"' in modal
+    assert "togethermindsai@onlinegbc.com" not in modal
