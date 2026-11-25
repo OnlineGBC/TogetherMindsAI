@@ -25,6 +25,8 @@ from TogetherMindsAI import app
 ROOT = os.path.dirname(os.path.dirname(__file__))
 PKG = "com.onlinegbc.familycarecam"
 HOST = "familycarecam.onlinegbc.com"
+NEW_FINGERPRINT = (
+    "87:F0:7F:B0:F9:F2:9C:33:31:ED:F5:ED:57:37:48:79:76:E5:BB:69:C7:01:34:89:59:50:4F:1F:EF:CB:7E:21")
 OLD = ("togethermindsai", "tm.onlinegbc.com", "TMAI", "TogetherMinds")
 
 
@@ -79,6 +81,9 @@ def test_twa_manifest_matches_gradle():
     assert t["packageId"] == PKG
     assert t["host"] == HOST
     assert t["name"] == "FamilyCareCam" and t["launcherName"] == "FamilyCareCam"
+    assert t["signingKey"]["alias"] == "familycarecam"
+    assert t["signingKey"]["path"].endswith("familycarecam.keystore")
+    assert "android.keystore" not in t["signingKey"]["path"]
     assert t["appVersionCode"] == 1 and t["appVersionName"] == "1"
     for key in ("iconUrl", "maskableIconUrl", "webManifestUrl", "fullScopeUrl"):
         assert t[key].startswith(f"https://{HOST}/"), key
@@ -91,4 +96,4 @@ def test_assetlinks_names_new_package_and_no_old_fingerprints(client):
     target = data[0]["target"]
     assert target["package_name"] == PKG
     assert "togethermindsai" not in r.data.decode()
-    assert target["sha256_cert_fingerprints"] == []
+    assert target["sha256_cert_fingerprints"] == [NEW_FINGERPRINT]

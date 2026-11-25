@@ -17,8 +17,8 @@
   "maskableIconUrl": "https://familycarecam.onlinegbc.com/static/icons/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
-    "path": "C:\\Users\\raja\\Downloads\\TogetherMindsAI\\android.keystore",
-    "alias": "android"
+    "path": "C:\\Users\\raja\\familycarecam.keystore",
+    "alias": "familycarecam"
   },
   "appVersionName": "1",
   "appVersionCode": 1,

@@ -1355,11 +1355,10 @@ def service_worker():
 def assetlinks():
     """Digital Asset Links — required by TWA to verify domain ownership.
 
-    The package is the FamilyCareCam Android app. The fingerprint list is
-    empty on purpose until the new app's signing key exists: the old
-    TogetherMindsAI key must not vouch for this app. Add the new key's
-    SHA-256 (keytool -list -v -keystore <new.keystore>), plus Google's
-    Play App Signing SHA-256 if used.
+    The package is the FamilyCareCam Android app. The fingerprint is the
+    SHA-256 of its own signing key (familycarecam.keystore); the old
+    TogetherMindsAI key must not vouch for this app. If Play App Signing is
+    used, add Google's app-signing SHA-256 from the Play Console as well.
     """
     import json as _json
     payload = [
@@ -1371,7 +1370,9 @@ def assetlinks():
             "target": {
                 "namespace": "android_app",
                 "package_name": "com.onlinegbc.familycarecam",
-                "sha256_cert_fingerprints": []
+                "sha256_cert_fingerprints": [
+                    "87:F0:7F:B0:F9:F2:9C:33:31:ED:F5:ED:57:37:48:79:76:E5:BB:69:C7:01:34:89:59:50:4F:1F:EF:CB:7E:21"
+                ]
             }
         }
     ]
