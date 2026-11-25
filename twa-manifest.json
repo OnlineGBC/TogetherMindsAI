@@ -1,8 +1,8 @@
 {
-  "packageId": "com.onlinegbc.togethermindsai",
-  "host": "tm.onlinegbc.com",
-  "name": "TogetherMindsAI",
-  "launcherName": "TMAI",
+  "packageId": "com.onlinegbc.familycarecam",
+  "host": "familycarecam.onlinegbc.com",
+  "name": "FamilyCareCam",
+  "launcherName": "FamilyCareCam",
   "display": "standalone",
   "themeColor": "#009688",
   "themeColorDark": "#000000",
@@ -13,18 +13,18 @@
   "backgroundColor": "#F7FAF7",
   "enableNotifications": true,
   "startUrl": "/",
-  "iconUrl": "https://tm.onlinegbc.com/static/icons/icon-512.png",
-  "maskableIconUrl": "https://tm.onlinegbc.com/static/icons/icon-512.png",
+  "iconUrl": "https://familycarecam.onlinegbc.com/static/icons/icon-512.png",
+  "maskableIconUrl": "https://familycarecam.onlinegbc.com/static/icons/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "C:\\Users\\raja\\Downloads\\TogetherMindsAI\\android.keystore",
     "alias": "android"
   },
-  "appVersionName": "3",
-  "appVersionCode": 3,
+  "appVersionName": "1",
+  "appVersionCode": 1,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
-  "webManifestUrl": "https://tm.onlinegbc.com/static/manifest.json",
+  "webManifestUrl": "https://familycarecam.onlinegbc.com/static/manifest.json",
   "fallbackType": "customtabs",
   "features": {},
   "alphaDependencies": {
@@ -33,7 +33,7 @@
   "enableSiteSettingsShortcut": true,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
-  "fullScopeUrl": "https://tm.onlinegbc.com/static/",
+  "fullScopeUrl": "https://familycarecam.onlinegbc.com/static/",
   "minSdkVersion": 21,
   "orientation": "default",
   "fingerprints": [],
@@ -43,5 +43,5 @@
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "3"
+  "appVersion": "1"
 }

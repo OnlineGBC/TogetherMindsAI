@@ -21,11 +21,11 @@ plugins {
 }
 
 def twaManifest = [
-    applicationId: 'com.onlinegbc.togethermindsai',
-    hostName: 'tm.onlinegbc.com', // The domain being opened in the TWA.
+    applicationId: 'com.onlinegbc.familycarecam',
+    hostName: 'familycarecam.onlinegbc.com', // The domain being opened in the TWA.
     launchUrl: '/', // The start path for the TWA. Must be relative to the domain.
-    name: 'TogetherMindsAI', // The application name.
-    launcherName: 'TMAI', // The name shown on the Android Launcher.
+    name: 'FamilyCareCam', // The application name.
+    launcherName: 'FamilyCareCam', // The name shown on the Android Launcher.
     themeColor: '#009688', // The color used for the status bar.
     themeColorDark: '#000000', // The color used for the dark status bar.
     navigationColor: '#000000', // The color used for the navigation bar.
@@ -52,13 +52,13 @@ def twaManifest = [
 
 android {
     compileSdkVersion 36
-    namespace "com.onlinegbc.togethermindsai"
+    namespace "com.onlinegbc.familycarecam"
     defaultConfig {
-        applicationId "com.onlinegbc.togethermindsai"
+        applicationId "com.onlinegbc.familycarecam"
         minSdkVersion 23
         targetSdkVersion 36
-        versionCode 7
-        versionName "4"
+        versionCode 1
+        versionName "1"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name
@@ -76,12 +76,12 @@ android {
             // The URL the Web Manifest for the Progressive Web App that the TWA points to. This
             // is used by Chrome OS and Meta Quest to open the Web version of the PWA instead of
             // the TWA, as it will probably give a better user experience for non-mobile devices.
-            resValue "string", "webManifestUrl", 'https://tm.onlinegbc.com/static/manifest.json'
+            resValue "string", "webManifestUrl", 'https://familycarecam.onlinegbc.com/static/manifest.json'
         
 
         
             // This is used by Meta Quest.
-            resValue "string", "fullScopeUrl", 'https://tm.onlinegbc.com/static/'
+            resValue "string", "fullScopeUrl", 'https://familycarecam.onlinegbc.com/static/'
         
 
         
